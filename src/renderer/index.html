@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenMinion</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="workspace" class="workspace" aria-label="OpenMinion workspace">
+        <aside class="sessions-panel">
+          <header class="sidebar-brand">
+            <div class="brand">
+              <div class="mark" aria-hidden="true">OM</div>
+              <div class="brand-copy">
+                <p class="sr-only">Private agent workspace</p>
+                <h1>OpenMinion</h1>
+              </div>
+            </div>
+            <span class="local-pill" title="The desktop connects only to your local OpenMinion daemon">
+              Local only
+            </span>
+          </header>
+          <button id="new-session" class="new-session-button" type="button">
+            <span aria-hidden="true">＋</span>
+            New task
+          </button>
+          <p class="sidebar-label">Tasks</p>
+          <nav id="session-list" class="session-list" aria-label="Sessions">
+            <p class="empty-note">Connecting to OpenMinion…</p>
+          </nav>
+          <details class="runtime-summary">
+            <summary>
+              <span class="connection-pill" aria-live="polite">
+                <span id="status-dot" class="status-dot pending"></span>
+                <span id="connection-label">Connecting</span>
+              </span>
+              <span class="summary-chevron" aria-hidden="true">›</span>
+            </summary>
+            <div class="runtime-detail">
+              <p id="status-label" class="status-label">Connecting</p>
+              <p id="status-summary" class="status-summary">
+                Finding your local OpenMinion daemon…
+              </p>
+              <div class="runtime-facts">
+                <span>Runtime <strong id="daemon-version">—</strong></span>
+                <span>Protocol <strong id="protocol-version">—</strong></span>
+              </div>
+              <p id="shell-version" class="version"></p>
+              <button id="retry" type="button" hidden>Retry connection</button>
+            </div>
+          </details>
+        </aside>
+
+        <section class="chat-panel">
+          <header class="chat-heading">
+            <div class="chat-title">
+              <p class="eyebrow">Task</p>
+              <h2 id="current-title">New conversation</h2>
+              <p class="section-note">Local, durable, and private.</p>
+            </div>
+            <div class="chat-heading-actions">
+              <a class="context-link" href="#context-panel">
+                <span class="context-icon" aria-hidden="true">＋</span>
+                Context
+              </a>
+              <button id="close-session" class="icon-only-button" type="button" disabled aria-label="Close task" title="Close task">
+                ×
+              </button>
+            </div>
+          </header>
+          <div id="timeline" class="timeline" aria-live="polite">
+            <p class="timeline-empty">
+              Start a conversation. Your canonical history appears here.
+            </p>
+          </div>
+          <div class="guidance-region">
+            <section id="guidance-card" class="guidance-card" role="status" aria-live="polite" aria-atomic="true" hidden>
+              <div class="guidance-heading">
+                <div>
+                  <p class="eyebrow">OpenMinion guidance</p>
+                  <strong>Advice only — you remain in control.</strong>
+                </div>
+                <span id="guidance-state" class="capture-state">Current</span>
+              </div>
+              <img id="guidance-preview" alt="Frame used for OpenMinion guidance" hidden />
+              <p id="guidance-facts" class="capture-facts"></p>
+              <p id="guidance-text" class="guidance-text"></p>
+            </section>
+            <p id="guidance-status" class="capture-note" aria-live="polite">
+              Write an instruction and keep a current frame to ask for guidance.
+            </p>
+          </div>
+          <p id="chat-status" class="chat-status" aria-live="polite">
+            Choose a session to begin.
+          </p>
+          <form id="composer-form" class="composer">
+            <div id="attachments" class="attachments" aria-live="polite"></div>
+            <label class="sr-only" for="composer">Message OpenMinion</label>
+            <textarea
+              id="composer"
+              rows="2"
+              maxlength="250000"
+              placeholder="Message OpenMinion…"
+              disabled
+            ></textarea>
+            <div class="composer-actions">
+              <div class="composer-tools">
+                <label class="observation-send-toggle" for="include-current-view">
+                  <input id="include-current-view" type="checkbox" disabled />
+                  Include current view
+                </label>
+                <button id="attach-image" class="quiet-button" type="button" disabled>
+                  Attach image
+                </button>
+                <button id="attach-file" class="quiet-button" type="button" disabled>
+                  Attach file
+                </button>
+              </div>
+              <div class="composer-submit-actions">
+                <button id="cancel" class="quiet-button danger-button" type="button" hidden>
+                  Cancel turn
+                </button>
+                <button id="ask-guidance" class="quiet-button" type="button" disabled>
+                  Ask for guidance
+                </button>
+                <button id="send" type="submit" disabled>Send</button>
+              </div>
+            </div>
+          </form>
+        </section>
+
+        <aside id="context-panel" class="artifacts-panel" aria-label="Task context">
+          <header class="context-popover-heading">
+            <div>
+              <p class="eyebrow">Task options</p>
+              <strong>Context</strong>
+            </div>
+            <a class="context-close" href="#workspace" aria-label="Close context options">×</a>
+          </header>
+          <details id="screen-share-panel" class="secondary-tool computer-panel">
+            <summary>
+              <span>
+                <strong>Screen share</strong>
+                <small>Share visual context</small>
+              </span>
+              <span class="tool-summary-meta">
+                <span id="capture-state" class="capture-state">Idle</span>
+                <span class="summary-chevron" aria-hidden="true">›</span>
+              </span>
+            </summary>
+            <section class="secondary-tool-body screen-share-body" aria-label="Computer observation">
+              <p id="capture-status" class="artifact-status" aria-live="polite">
+                Share a screen or window when visual context helps.
+              </p>
+              <div class="capture-source-controls">
+                <label class="sr-only" for="capture-source-kind">Source</label>
+                <select id="capture-source-kind" hidden disabled>
+                  <option value="display">Entire screen</option>
+                  <option value="window">A window</option>
+                </select>
+                <fieldset class="source-toggle">
+                  <legend class="sr-only">Share source</legend>
+                  <button id="capture-entire-screen" class="source-toggle-button selected" type="button" aria-pressed="true" disabled>
+                    Entire screen
+                  </button>
+                  <button id="capture-window" class="source-toggle-button" type="button" aria-pressed="false" disabled>
+                    Window
+                  </button>
+                </fieldset>
+                <button id="observe-computer" type="button" disabled>
+                  Choose
+                </button>
+              </div>
+              <div id="capture-candidates" class="capture-candidates"></div>
+              <section id="capture-region-controls" class="capture-region-controls" hidden>
+                <label class="capture-region-toggle">
+                  <input id="capture-region-enabled" type="checkbox" />
+                  Observe a region
+                </label>
+                <div class="capture-region-fields">
+                  <label for="capture-region-x">X % <input id="capture-region-x" type="number" min="0" max="100" step="0.01" value="0" /></label>
+                  <label for="capture-region-y">Y % <input id="capture-region-y" type="number" min="0" max="100" step="0.01" value="0" /></label>
+                  <label for="capture-region-width">Width % <input id="capture-region-width" type="number" min="0.01" max="100" step="0.01" value="100" /></label>
+                  <label for="capture-region-height">Height % <input id="capture-region-height" type="number" min="0.01" max="100" step="0.01" value="100" /></label>
+                </div>
+                <div id="capture-region-stage" class="capture-region-stage">
+                  <img id="capture-region-image" alt="Selected source preview" />
+                  <span id="capture-region-overlay" aria-hidden="true"></span>
+                </div>
+                <p class="capture-note">The selected area must be at least 64 × 64 pixels on the source.</p>
+                <button id="start-capture" type="button" disabled>Start observing</button>
+              </section>
+              <section id="capture-live" class="capture-live" hidden>
+                <img id="capture-preview" alt="Live computer preview" />
+                <p id="capture-facts" class="capture-facts"></p>
+                <div class="capture-actions">
+                  <button id="pause-capture" class="quiet-button" type="button">Pause</button>
+                  <button id="resume-capture" class="quiet-button" type="button" hidden>Resume</button>
+                  <button id="change-capture" class="quiet-button" type="button">Change source</button>
+                  <button id="stop-capture" class="quiet-button" type="button">Stop</button>
+                </div>
+              </section>
+              <details class="watch-settings">
+                <summary>
+                  <span>
+                    <strong>Automatic watch</strong>
+                    <small>Optional · may use model tokens</small>
+                  </span>
+                  <span id="observation-state" class="capture-state">Idle</span>
+                </summary>
+                <section class="observation-controls" aria-label="OpenMinion observation settings">
+                  <label for="observation-instruction">What should OpenMinion watch for?</label>
+                  <textarea id="observation-instruction" rows="2" maxlength="4096" placeholder="Describe what matters…" disabled></textarea>
+                  <label for="observation-trigger">Check</label>
+                  <select id="observation-trigger" disabled>
+                    <option value="changes">On change</option>
+                    <option value="interval">Every 30 seconds</option>
+                  </select>
+                  <div class="capture-actions">
+                    <button id="start-observation" type="button" disabled>Start watch</button>
+                    <button id="stop-observation" class="quiet-button" type="button" disabled>Stop watch</button>
+                  </div>
+                  <p class="capture-note">Watch automatically sends eligible frames to local OpenMinion and may use model tokens. Cost remains unavailable.</p>
+                  <p id="observation-status" class="capture-note" aria-live="polite">Choose a session and start local capture.</p>
+                  <div class="observation-previews">
+                    <figure id="observation-selected" hidden>
+                      <img id="observation-selected-preview" alt="Frame selected for OpenMinion" />
+                      <figcaption id="observation-selected-facts"></figcaption>
+                    </figure>
+                    <figure id="observation-sent" hidden>
+                      <img id="observation-sent-preview" alt="Frame sent to OpenMinion" />
+                      <figcaption id="observation-sent-facts"></figcaption>
+                    </figure>
+                  </div>
+                  <p id="observation-counters" class="capture-facts"></p>
+                  <p id="observation-usage" class="capture-facts"></p>
+                </section>
+              </details>
+              <p class="privacy-note">
+                <span aria-hidden="true">◉</span>
+                Preview stays local until you include it or start watch.
+              </p>
+            </section>
+          </details>
+          <details class="secondary-tool file-workspace">
+            <summary>
+              <span>
+                <strong>Files</strong>
+                <small>Import local context</small>
+              </span>
+              <span class="summary-chevron" aria-hidden="true">›</span>
+            </summary>
+            <section class="secondary-tool-body" aria-label="Local file grants">
+              <div class="file-pick-actions">
+                <button id="choose-file" class="quiet-button" type="button" disabled>Choose file</button>
+                <button id="choose-folder" class="quiet-button" type="button" disabled>
+                  Folder unavailable
+                </button>
+              </div>
+              <p id="file-status" class="artifact-status" aria-live="polite">
+                Choose a task to import local files.
+              </p>
+              <div id="file-grant-list" class="file-grant-list"></div>
+            </section>
+          </details>
+          <details class="secondary-tool artifact-workspace">
+            <summary>
+              <span>
+                <strong>Outputs</strong>
+                <small>Artifacts from this task</small>
+              </span>
+              <span class="summary-chevron" aria-hidden="true">›</span>
+            </summary>
+            <section class="secondary-tool-body" aria-label="Session outputs">
+              <div class="secondary-tool-actions">
+                <button id="refresh-artifacts" class="quiet-button" type="button" disabled>
+                  Refresh
+                </button>
+              </div>
+              <p id="artifact-status" class="artifact-status" aria-live="polite">
+                Choose a task to view its outputs.
+              </p>
+              <div id="artifact-list" class="artifact-list"></div>
+              <section id="artifact-detail" class="artifact-detail" hidden>
+                <div class="artifact-detail-heading">
+                  <strong id="artifact-detail-title"></strong>
+                  <button id="close-artifact" class="quiet-button" type="button">Close</button>
+                </div>
+                <pre id="artifact-content" class="artifact-content"></pre>
+              </section>
+            </section>
+          </details>
+        </aside>
+      </section>
+
+      <aside id="recovery" class="recovery" hidden>
+        <p>
+          OpenMinion could not establish a secure local connection. No prompt
+          or action was replayed.
+        </p>
+        <ul>
+          <li>Retry once with the connection button.</li>
+          <li>Check the daemon with <code>openminion daemon status</code>.</li>
+          <li>View local logs with <code>openminion daemon logs</code>.</li>
+        </ul>
+      </aside>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

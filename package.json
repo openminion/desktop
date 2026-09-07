@@ -1,0 +1,53 @@
+{
+  "name": "@openminion/desktop",
+  "productName": "OpenMinion",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Secure local desktop client for the OpenMinion daemon.",
+  "author": "OpenMinion Contributors",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openminion/desktop.git"
+  },
+  "homepage": "https://www.openminion.com",
+  "bugs": {
+    "url": "https://github.com/openminion/desktop/issues"
+  },
+  "packageManager": "npm@11.12.1",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
+  },
+  "main": "dist/src/main/index.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "public-surface-check": "node scripts/public-surface.mjs",
+    "pretest": "node -e \"require('electron')\"",
+    "test": "vitest run --dir tests",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run public-surface-check && npm run test && npm run build",
+    "ci-check": "npm run check",
+    "precommit": "npm run format:check && npm run lint && npm run typecheck && npm run public-surface-check",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "hooks:run": "npm run precommit && node scripts/commit-message.mjs --git-head",
+    "start": "npm run build && electron .",
+    "package": "npm run build && electron-forge package && node scripts/package-contents.mjs",
+    "make": "npm run build && electron-forge make && node scripts/package-contents.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.12",
+    "@electron/asar": "3.4.1",
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-dmg": "7.11.2",
+    "@electron-forge/maker-zip": "7.11.2",
+    "@types/node": "24.13.3",
+    "electron": "43.1.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

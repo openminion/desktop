@@ -1,0 +1,2432 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
+import {
+  applyActivityEvent,
+  applySubmitResult,
+  applyTurnEvent,
+  captureRegionFromPercentages,
+  captureStatusCopy,
+  initialChatState,
+  listArtifacts,
+  listSessions,
+  mount,
+  observationStatusCopy,
+  readArtifact,
+  recoverSession,
+  recoverActivity,
+  statusView,
+} from "../../src/renderer/app.js";
+import type {
+  ArtifactCatalogItemV1,
+  CaptureEventV1,
+  CaptureStateV1,
+  DaemonStatus,
+  MediaAttachmentV1,
+  NativeApi,
+  ObservationFrameFactV1,
+  ObservationStatusV1,
+  SessionSummaryV1,
+  TurnEventV1,
+} from "../../src/shared/contracts.js";
+
+describe("renderer computer observation", () => {
+  it("validates percentage regions and uses safe lifecycle copy", () => {
+    expect(captureRegionFromPercentages(["10", "20", "40", "50"])).toEqual({
+      xBps: 1000,
+      yBps: 2000,
+      widthBps: 4000,
+      heightBps: 5000,
+    });
+    expect(captureRegionFromPercentages(["80", "0", "30", "100"])).toBeNull();
+    expect(captureRegionFromPercentages(["0", "0", "0", "100"])).toBeNull();
+    expect(captureRegionFromPercentages(["0", "0", "0.004", "100"])).toBeNull();
+    expect(captureRegionFromPercentages(["99.995", "0", "0.005", "100"])).toBeNull();
+    expect(captureStatusCopy(null, false)).toContain("Choose a session");
+    expect(
+      captureStatusCopy(
+        captureState({
+          state: "blocked",
+          reason: "permission_denied",
+          permission: "denied",
+        }),
+        true,
+      ),
+    ).toBe("Screen recording permission was denied.");
+    expect(observationStatusCopy(null, false)).toContain("Choose a session");
+    expect(
+      observationStatusCopy(
+        observationState({
+          state: "waiting",
+          watchEnabled: true,
+          trigger: "changes",
+        }),
+        true,
+      ),
+    ).toContain("changed frame");
+  });
+
+  it("keeps the Computer panel labeled, local-only, and same-origin", () => {
+    const html = readFileSync(new URL("../../src/renderer/index.html", import.meta.url), "utf8");
+    const styles = readFileSync(new URL("../../src/renderer/styles.css", import.meta.url), "utf8");
+    expect(html).toContain('aria-label="OpenMinion workspace"');
+    expect(html).toContain("Private agent workspace");
+    expect(html).toContain("Local only");
+    expect(html).toContain('class="composer-tools"');
+    expect(html).toContain('class="composer-submit-actions"');
+    expect(html).toContain('id="screen-share-panel"');
+    expect(html).toContain('class="watch-settings"');
+    expect(html).toContain('class="secondary-tool file-workspace"');
+    expect(html).toContain('class="secondary-tool artifact-workspace"');
+    expect(html).toContain('rows="2"');
+    expect(html).toContain('class="source-toggle"');
+    expect(html).toContain('<legend class="sr-only">Share source</legend>');
+    expect(html).toContain('aria-label="Computer observation"');
+    expect(html).toContain("img-src 'self'");
+    expect(html).not.toMatch(/unsafe-inline|unsafe-eval|getDisplayMedia|Send to OpenMinion/);
+    expect(html).toContain("Preview stays local");
+    for (const id of [
+      "capture-source-kind",
+      "capture-region-x",
+      "capture-region-y",
+      "capture-region-width",
+      "capture-region-height",
+      "include-current-view",
+      "observation-instruction",
+      "observation-trigger",
+    ])
+      expect(html).toContain(`for="${id}"`);
+    expect(html).toContain("On change");
+    expect(html).toContain("Every 30 seconds");
+    expect(html).toContain("Stop watch");
+    expect(html).toContain("may use model tokens");
+    expect(html).toContain("Ask for guidance");
+    expect(html).toContain("Advice only — you remain in control.");
+    expect(html).toContain('id="guidance-card" class="guidance-card" role="status"');
+    expect(html).toContain('<span id="guidance-state" class="capture-state">Current</span>');
+    expect(styles).toContain("button:focus-visible");
+    expect(styles).toContain("@media (max-width: 1120px)");
+  });
+});
+
+function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
+  return {
+    state: "idle",
+    reachable: false,
+    daemonVersion: null,
+    protocol: null,
+    configId: null,
+    capabilities: [],
+    errorCode: null,
+    ...overrides,
+  };
+}
+
+describe("renderer status view", () => {
+  it("shows connected daemon state without exposing transport facts", () => {
+    const view = statusView(status({ state: "ready", reachable: true, daemonVersion: "0.0.9" }));
+    expect(view).toMatchObject({ tone: "ready", showRetry: false });
+    expect(JSON.stringify(view)).not.toMatch(/token|host|port|path/i);
+  });
+
+  it("shows bounded recovery after bootstrap failure", () => {
+    expect(statusView(status({ state: "degraded" }))).toMatchObject({
+      tone: "degraded",
+      showRetry: true,
+      showRecovery: true,
+    });
+  });
+
+  it("recovers canonical messages and events without replaying a prompt", async () => {
+    const session = sessionSummary();
+    const api = {
+      sessions: {
+        load: vi
+          .fn()
+          .mockResolvedValueOnce({
+            ok: true,
+            value: {
+              session,
+              messages: [message("message-1", "Recovered response")],
+              nextMessageCursor: "message-one",
+              messagesHasMore: true,
+            },
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            value: {
+              session,
+              messages: [message("message-2", "Recovered follow-up")],
+              nextMessageCursor: "message-two",
+              messagesHasMore: false,
+            },
+          }),
+        events: vi
+          .fn()
+          .mockResolvedValueOnce({
+            ok: true,
+            value: {
+              events: [eventValue("event-one", "running")],
+              nextCursor: "event-one",
+              hasMore: true,
+            },
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            value: {
+              events: [eventValue("event-two", "completed")],
+              nextCursor: "event-two",
+              hasMore: false,
+            },
+          }),
+      },
+      turns: { submit: vi.fn() },
+    } as unknown as NativeApi;
+
+    const recovered = await recoverSession(api, session.sessionId);
+
+    expect(recovered).toMatchObject({
+      session,
+      messages: [{ body: "Recovered response" }, { body: "Recovered follow-up" }],
+      events: [{ state: "running" }, { state: "completed" }],
+    });
+    expect(api.sessions.load).toHaveBeenNthCalledWith(1, {
+      sessionId: session.sessionId,
+      messageLimit: 200,
+    });
+    expect(api.sessions.load).toHaveBeenNthCalledWith(2, {
+      sessionId: session.sessionId,
+      messageAfter: "message-one",
+      messageLimit: 200,
+    });
+    expect(api.sessions.events).toHaveBeenNthCalledWith(1, {
+      sessionId: session.sessionId,
+      after: "event-zero",
+      limit: 200,
+    });
+    expect(api.sessions.events).toHaveBeenNthCalledWith(2, {
+      sessionId: session.sessionId,
+      after: "event-one",
+      limit: 200,
+    });
+    expect(api.turns.submit).not.toHaveBeenCalled();
+  });
+
+  it("loads every session page and fails closed on a stalled cursor", async () => {
+    const first = sessionSummary();
+    const second = { ...sessionSummary(), sessionId: "session-2" };
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [first], nextCursor: "page-two", hasMore: true },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [second], nextCursor: null, hasMore: false },
+      });
+    const api = { sessions: { list } } as unknown as NativeApi;
+
+    expect(await listSessions(api)).toEqual([first, second]);
+    expect(list).toHaveBeenNthCalledWith(1, { limit: 100 });
+    expect(list).toHaveBeenNthCalledWith(2, { cursor: "page-two", limit: 100 });
+
+    list.mockReset().mockResolvedValue({
+      ok: true,
+      value: { sessions: [first], nextCursor: "same", hasMore: true },
+    });
+    expect(await listSessions(api)).toMatchObject({ code: "cursor_stalled" });
+    expect(list).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads bounded artifact scan/content pages and rejects stalled cursors", async () => {
+    const item = artifactCatalogItem();
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { artifacts: [], nextCursor: "A".repeat(48), complete: false },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { artifacts: [item], nextCursor: null, complete: true },
+      });
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          schemaVersion: 1,
+          artifactId: item.artifactId,
+          sessionId: item.sessionId,
+          contentKind: "diff",
+          text: "--- [PATH REDACTED]\n",
+          complete: false,
+          nextCursor: "B".repeat(48),
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          schemaVersion: 1,
+          artifactId: item.artifactId,
+          sessionId: item.sessionId,
+          contentKind: "diff",
+          text: "+++ [PATH REDACTED]\n@@ -1 +1 @@\n-old\n+new\n",
+          complete: true,
+          nextCursor: null,
+        },
+      });
+    const api = { artifacts: { list, read } } as unknown as NativeApi;
+
+    expect(await listArtifacts(api, item.sessionId)).toEqual([item]);
+    expect(await readArtifact(api, item)).toMatchObject({
+      item,
+      contentKind: "diff",
+      text: expect.stringContaining("+new"),
+    });
+    expect(list).toHaveBeenNthCalledWith(2, {
+      sessionId: item.sessionId,
+      cursor: "A".repeat(48),
+      limit: 100,
+    });
+    expect(read).toHaveBeenNthCalledWith(2, {
+      sessionId: item.sessionId,
+      artifactId: item.artifactId,
+      cursor: "B".repeat(48),
+      limitBytes: 64 * 1024,
+    });
+
+    list.mockReset().mockResolvedValue({
+      ok: true,
+      value: {
+        artifacts: Array.from({ length: 257 }, () => item),
+        nextCursor: null,
+        complete: true,
+      },
+    });
+    expect(await listArtifacts(api, item.sessionId)).toMatchObject({
+      code: "invalid_daemon_response",
+    });
+
+    list
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { artifacts: [item], nextCursor: "A".repeat(48), complete: false },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { artifacts: [item], nextCursor: null, complete: true },
+      });
+    expect(await listArtifacts(api, item.sessionId)).toMatchObject({
+      code: "invalid_daemon_response",
+    });
+
+    list.mockReset().mockResolvedValue({
+      ok: true,
+      value: { artifacts: [item, item], nextCursor: null, complete: true },
+    });
+    expect(await listArtifacts(api, item.sessionId)).toMatchObject({
+      code: "invalid_daemon_response",
+    });
+
+    read.mockReset().mockResolvedValue({
+      ok: true,
+      value: {
+        schemaVersion: 1,
+        artifactId: item.artifactId,
+        sessionId: item.sessionId,
+        contentKind: "text",
+        text: "mismatched kind",
+        complete: true,
+        nextCursor: null,
+      },
+    });
+    expect(await readArtifact(api, item)).toMatchObject({
+      code: "invalid_daemon_response",
+    });
+  });
+
+  it("renders safe artifact states and uses fixed read and detach methods", async () => {
+    const session = sessionSummary();
+    const active = artifactCatalogItem();
+    const detached = {
+      ...active,
+      state: "detached" as const,
+      actions: ["read", "restore"] as const,
+    };
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { artifacts: [active], nextCursor: null, complete: true },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { artifacts: [detached], nextCursor: null, complete: true },
+      });
+    const read = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        schemaVersion: 1,
+        artifactId: active.artifactId,
+        sessionId: active.sessionId,
+        contentKind: "diff",
+        text: "--- [PATH REDACTED]\n+++ [PATH REDACTED]\n@@ -1 +1 @@\n-<old>\n+<new>",
+        complete: true,
+        nextCursor: null,
+      },
+    });
+    const detach = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        artifactId: active.artifactId,
+        sessionId: active.sessionId,
+        state: "detached",
+        outcome: "applied",
+      },
+    });
+    const api = {
+      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      daemon: {
+        status: vi.fn().mockResolvedValue(
+          status({
+            state: "ready",
+            reachable: true,
+            daemonVersion: "0.0.9",
+            protocol: 1,
+          }),
+        ),
+        retry: vi.fn(),
+      },
+      sessions: {
+        list: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { sessions: [session], nextCursor: null, hasMore: false },
+        }),
+        load: vi.fn().mockResolvedValue({
+          ok: true,
+          value: {
+            session,
+            messages: [],
+            nextMessageCursor: "message-zero",
+            messagesHasMore: false,
+          },
+        }),
+        events: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { events: [], nextCursor: "event-zero", hasMore: false },
+        }),
+        create: vi.fn(),
+        close: vi.fn(),
+      },
+      turns: { submit: vi.fn(), cancel: vi.fn(), subscribe: vi.fn().mockReturnValue(vi.fn()) },
+      approvals: { decide: vi.fn() },
+      artifacts: { list, read, detach, restore: vi.fn() },
+      media: { pick: vi.fn(), release: vi.fn() },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      await vi.waitFor(() => expect(page.artifactText()).toContain("report.txt"));
+      const view = page.artifactButtons().find((button) => button.textContent === "View")!;
+      view.click();
+      await vi.waitFor(() =>
+        expect(page.element("artifact-content").textContent).toContain("+<new>"),
+      );
+      expect(page.element("artifact-content").textContent).toContain("[PATH REDACTED]");
+      read.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "artifact_missing",
+          message: "The artifact content is no longer available.",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      page
+        .artifactButtons()
+        .find((button) => button.textContent === "View")!
+        .click();
+      await vi.waitFor(() =>
+        expect(page.element("artifact-status").textContent).toBe(
+          "The artifact content is no longer available.",
+        ),
+      );
+      expect(page.element("artifact-detail").hidden).toBe(true);
+      const detachButton = page
+        .artifactButtons()
+        .find((button) => button.textContent === "Detach")!;
+      detachButton.click();
+      await vi.waitFor(() =>
+        expect(detach).toHaveBeenCalledWith({
+          sessionId: active.sessionId,
+          artifactId: active.artifactId,
+        }),
+      );
+      await vi.waitFor(() => expect(page.artifactText()).toContain("Attachment · detached · 72 B"));
+      expect(JSON.stringify(page.artifactText())).not.toMatch(
+        /artifact:\/\/|sha256|token|endpoint|\/v1\/|\/private/i,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("tracks one active trace through progress, response, and terminal state", () => {
+    const submitting = {
+      ...initialChatState(),
+      sessionId: "session-1",
+      active: true,
+    };
+    const startedEvent = {
+      schemaVersion: 1 as const,
+      kind: "started" as const,
+      requestId: "request-1",
+      traceId: "trace-1",
+      sessionId: "session-1",
+    };
+    const started = applyTurnEvent(submitting, startedEvent);
+    expect(started).toMatchObject({
+      active: true,
+      sessionId: "session-1",
+      traceId: "trace-1",
+    });
+    const progress = applyTurnEvent(started, {
+      schemaVersion: 1,
+      kind: "progress",
+      progressKind: "status",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      statusKey: "working",
+      label: "Thinking",
+      detailText: null,
+      createdAt: "2026-08-19T00:00:01Z",
+    });
+    expect(progress.label).toBe("Thinking");
+    const response = applyTurnEvent(progress, {
+      schemaVersion: 1,
+      kind: "response",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      finalText: "Done",
+      errors: [],
+      usage: {
+        usageAvailable: false,
+        inputTokens: null,
+        outputTokens: null,
+        totalTokens: null,
+        llmCalls: null,
+        durationMs: null,
+        costUsd: null,
+        costSource: "unavailable",
+      },
+    });
+    const done = applyTurnEvent(response, {
+      schemaVersion: 1,
+      kind: "done",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      outcome: "complete",
+    });
+    expect(done).toMatchObject({
+      active: false,
+      traceId: null,
+      terminalTraceId: "trace-1",
+      label: "Turn complete.",
+    });
+    expect(
+      applySubmitResult(done, {
+        requestId: "request-1",
+        traceId: "trace-1",
+        sessionId: "session-1",
+      }),
+    ).toEqual(done);
+    expect(
+      applyTurnEvent(started, {
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: "session-1",
+        traceId: "stale-trace",
+        outcome: "complete",
+      }),
+    ).toEqual(started);
+    expect(
+      applyTurnEvent({ ...initialChatState(), sessionId: "session-1" }, startedEvent),
+    ).toMatchObject({ active: false, traceId: null });
+  });
+
+  it("recovers one approval and tool card from canonical safe facts", () => {
+    const requested = {
+      ...eventValue("event-one", "pending"),
+      eventType: "desktop.approval.requested",
+      facts: {
+        approval_id: "approval-1",
+        call_id: "call-1",
+        tool_name: "workspace.write",
+        argument_keys: ["path", "text"],
+        argument_keys_count: 2,
+        requested_at: "2026-08-19T00:00:02Z",
+        expires_at: "2026-08-19T00:01:02Z",
+        outcome: "pending",
+      },
+    };
+    const resolved = {
+      ...eventValue("event-two", "terminal"),
+      eventType: "desktop.approval.resolved",
+      facts: {
+        approval_id: "approval-1",
+        call_id: "call-1",
+        tool_name: "workspace.write",
+        decision: "deny",
+        outcome: "denied",
+        resolved_at: "2026-08-19T00:00:03Z",
+      },
+    };
+    const completed = {
+      ...eventValue("event-three", "completed"),
+      eventType: "tool.completed",
+      facts: {
+        call_id: "call-2",
+        tool_name: "workspace.search",
+        ok: true,
+        duration_ms: 9,
+      },
+    };
+
+    const activity = recoverActivity("session-1", [requested, resolved, completed]);
+
+    expect(activity).toEqual([
+      expect.objectContaining({
+        kind: "approval",
+        approvalId: "approval-1",
+        argumentKeys: ["path", "text"],
+        decision: "deny",
+        outcome: "denied",
+      }),
+      expect.objectContaining({
+        kind: "tool",
+        phase: "completed",
+        toolName: "workspace.search",
+        durationMs: 9,
+      }),
+    ]);
+    expect(JSON.stringify(activity)).not.toMatch(/secret|argument.*value|\/private/i);
+  });
+
+  it("replaces live approval state without losing safe argument names", () => {
+    const requested = {
+      schemaVersion: 1 as const,
+      kind: "approval" as const,
+      phase: "requested" as const,
+      sessionId: "session-1",
+      traceId: "trace-1",
+      approvalId: "approval-1",
+      toolName: "workspace.write",
+      callId: "call-1",
+      argumentKeys: ["path"],
+      requestedAt: "2026-08-19T00:00:02Z",
+      expiresAt: "2026-08-19T00:01:02Z",
+      decision: null,
+      outcome: "pending" as const,
+      resolvedAt: null,
+    };
+    const resolved = {
+      ...requested,
+      phase: "resolved" as const,
+      argumentKeys: [],
+      requestedAt: null,
+      expiresAt: null,
+      decision: "allow_once" as const,
+      outcome: "applied" as const,
+      resolvedAt: "2026-08-19T00:00:03Z",
+    };
+
+    expect(applyActivityEvent([requested], resolved)).toEqual([
+      expect.objectContaining({
+        phase: "resolved",
+        argumentKeys: ["path"],
+        decision: "allow_once",
+        outcome: "applied",
+      }),
+    ]);
+  });
+
+  it("recovers one canonical approval card without replay", async () => {
+    const session = sessionSummary();
+    const submit = vi.fn();
+    let finishDecision: ((value: unknown) => void) | undefined;
+    const decision = new Promise((resolve) => {
+      finishDecision = resolve;
+    });
+    const decide = vi.fn().mockReturnValue(decision);
+    const events = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          events: [approvalEvent("requested")],
+          nextCursor: "event-one",
+          hasMore: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          events: [approvalEvent("requested")],
+          nextCursor: "event-one",
+          hasMore: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          events: [approvalEvent("resolved")],
+          nextCursor: "event-two",
+          hasMore: false,
+        },
+      });
+    const api = {
+      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      daemon: {
+        status: vi.fn().mockResolvedValue(
+          status({
+            state: "ready",
+            reachable: true,
+            daemonVersion: "0.0.9",
+            protocol: 1,
+          }),
+        ),
+        retry: vi.fn(),
+      },
+      sessions: {
+        list: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { sessions: [session], nextCursor: null, hasMore: false },
+        }),
+        load: vi.fn().mockResolvedValue({
+          ok: true,
+          value: {
+            session,
+            messages: [],
+            nextMessageCursor: "message-zero",
+            messagesHasMore: false,
+          },
+        }),
+        events,
+        create: vi.fn(),
+        close: vi.fn(),
+      },
+      turns: {
+        submit,
+        cancel: vi.fn(),
+        subscribe: vi.fn().mockReturnValue(vi.fn()),
+      },
+      approvals: { decide },
+      media: { pick: vi.fn(), release: vi.fn() },
+    } as unknown as NativeApi;
+
+    const pagehide = vi.fn();
+    vi.stubGlobal("window", { addEventListener: pagehide });
+    try {
+      const firstDocument = new FixtureDocument();
+      await mount(api, firstDocument.asDocument());
+      const pendingButtons = firstDocument.findButtons();
+      expect(pendingButtons.map((button) => button.textContent)).toEqual(["Deny", "Allow once"]);
+      expect(pendingButtons.every((button) => !button.disabled)).toBe(true);
+      pendingButtons[1]!.click();
+      expect(firstDocument.findButtons().every((button) => button.disabled)).toBe(true);
+      expect(decide).toHaveBeenCalledWith({
+        sessionId: "session-1",
+        traceId: "trace-1",
+        approvalId: "approval-1",
+        decision: "allow_once",
+      });
+
+      const beforeReload = {
+        submits: submit.mock.calls.length,
+        decisions: decide.mock.calls.length,
+      };
+      const reloadedDocument = new FixtureDocument();
+      await mount(api, reloadedDocument.asDocument());
+      expect(reloadedDocument.findButtons()).toEqual([]);
+      expect(reloadedDocument.findText()).toEqual(
+        expect.arrayContaining([
+          "Approval · workspace.write",
+          "call-1 · applied",
+          "Argument names: path, text",
+        ]),
+      );
+      expect({
+        submits: submit.mock.calls.length,
+        decisions: decide.mock.calls.length,
+      }).toEqual(beforeReload);
+      expect(events).toHaveBeenNthCalledWith(1, {
+        sessionId: "session-1",
+        after: "event-zero",
+        limit: 200,
+      });
+      expect(events).toHaveBeenNthCalledWith(2, {
+        sessionId: "session-1",
+        after: "event-zero",
+        limit: 200,
+      });
+      expect(events).toHaveBeenNthCalledWith(3, {
+        sessionId: "session-1",
+        after: "event-one",
+        limit: 200,
+      });
+      expect(pagehide).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(reloadedDocument.findText())).not.toMatch(
+        /secret|argument.*value|\/private/i,
+      );
+    } finally {
+      finishDecision?.({
+        ok: true,
+        value: {
+          schemaVersion: 1,
+          approvalId: "approval-1",
+          sessionId: "session-1",
+          traceId: "trace-1",
+          callId: "call-1",
+          decision: "allow_once",
+          outcome: "applied",
+          resolvedAt: "2026-08-19T00:00:03Z",
+        },
+      });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("renders bounded attachment chips and clears them without replay", async () => {
+    const session = sessionSummary();
+    const secondSession = {
+      ...sessionSummary(),
+      sessionId: "session-2",
+      title: "Other",
+    };
+    const image = mediaAttachment("a", "pixel.png", "image/png", true);
+    const file = mediaAttachment("b", "notes.txt", "text/plain", false);
+    const later = mediaAttachment("c", "later.webp", "image/webp", true);
+    const pagehideMedia = mediaAttachment("d", "pagehide.png", "image/png", true, "session-2");
+    const retryMedia = mediaAttachment("e", "retry.png", "image/png", true);
+    const closeMedia = mediaAttachment("f", "close.png", "image/png", true);
+    const pick = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, value: { attachments: [image] } })
+      .mockResolvedValueOnce({ ok: true, value: { attachments: [file] } })
+      .mockResolvedValueOnce({ ok: true, value: { attachments: [later] } })
+      .mockResolvedValueOnce({ ok: true, value: { attachments: [pagehideMedia] } })
+      .mockResolvedValueOnce({ ok: true, value: { attachments: [retryMedia] } })
+      .mockResolvedValueOnce({ ok: true, value: { attachments: [closeMedia] } });
+    const release = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { mediaId: "b".repeat(48), released: true },
+    });
+    const submit = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { requestId: "request-1", traceId: "trace-1", sessionId: "session-1" },
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "media_backpressure",
+          message: "Try again later.",
+          retryable: true,
+          retryAfterMs: 1000,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "submission_ambiguous",
+          message: "Check session history before retrying",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+    const turnSubscription: { listener: ((event: TurnEventV1) => void) | null } = {
+      listener: null,
+    };
+    const api = {
+      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      daemon: {
+        status: vi.fn().mockResolvedValue(
+          status({
+            state: "ready",
+            reachable: true,
+            daemonVersion: "0.0.9",
+            protocol: 1,
+          }),
+        ),
+        retry: vi.fn(),
+      },
+      sessions: {
+        list: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { sessions: [session, secondSession], nextCursor: null, hasMore: false },
+        }),
+        load: vi.fn(async ({ sessionId }) => ({
+          ok: true,
+          value: {
+            session: sessionId === "session-2" ? secondSession : session,
+            messages: [],
+            nextMessageCursor: "message-zero",
+            messagesHasMore: false,
+          },
+        })),
+        events: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { events: [], nextCursor: "event-zero", hasMore: false },
+        }),
+        create: vi.fn(),
+        close: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { ...session, status: "closed" },
+        }),
+      },
+      turns: {
+        submit,
+        cancel: vi.fn(),
+        subscribe: vi.fn((listener) => {
+          turnSubscription.listener = listener;
+          return vi.fn();
+        }),
+      },
+      approvals: { decide: vi.fn() },
+      media: { pick, release },
+    } as unknown as NativeApi;
+    const pagehide: Array<() => void> = [];
+    vi.stubGlobal("window", {
+      addEventListener(type: string, listener: () => void) {
+        if (type === "pagehide") {
+          pagehide.push(listener);
+        }
+      },
+    });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("attach-image").click();
+      await vi.waitFor(() =>
+        expect(page.attachmentText()).toContain("pixel.png · 1 KB · image/png"),
+      );
+      page.element("attach-file").click();
+      await vi.waitFor(() => expect(page.attachmentText()).toContain("Not supported in chat yet"));
+      page.element("composer").value = "Describe this image";
+      page.element("composer").dispatch("input");
+      expect(page.element("send").disabled).toBe(true);
+
+      page.attachmentButtons()[1]!.click();
+      expect(release).toHaveBeenCalledWith({
+        sessionId: "session-1",
+        mediaId: file.mediaId,
+      });
+      expect(page.element("send").disabled).toBe(false);
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(submit).toHaveBeenCalledWith({
+          sessionId: "session-1",
+          message: "Describe this image",
+          attachmentIds: [image.mediaId],
+        }),
+      );
+      await vi.waitFor(() => expect(page.attachmentText()).toEqual([]));
+      turnSubscription.listener?.({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        outcome: "complete",
+      });
+      await vi.waitFor(() => expect(page.element("attach-image").disabled).toBe(false));
+
+      page.element("composer").value = "Next";
+      page.element("composer").dispatch("input");
+      page.element("attach-image").click();
+      await vi.waitFor(() =>
+        expect(page.attachmentText()).toContain("later.webp · 1 KB · image/webp"),
+      );
+      page.sessionButtons()[1]!.click();
+      await vi.waitFor(() =>
+        expect(release).toHaveBeenCalledWith({
+          sessionId: "session-1",
+          mediaId: later.mediaId,
+        }),
+      );
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Other"));
+      page.element("attach-image").click();
+      await vi.waitFor(() =>
+        expect(page.attachmentText()).toContain("pagehide.png · 1 KB · image/png"),
+      );
+      pagehide[0]!();
+      expect(release).toHaveBeenCalledWith({
+        sessionId: "session-2",
+        mediaId: pagehideMedia.mediaId,
+      });
+
+      const callsBeforeReload = {
+        picks: pick.mock.calls.length,
+        submits: submit.mock.calls.length,
+      };
+      const reloaded = new FixtureDocument();
+      await mount(api, reloaded.asDocument());
+      expect(reloaded.attachmentText()).toEqual([]);
+      expect({ picks: pick.mock.calls.length, submits: submit.mock.calls.length }).toEqual(
+        callsBeforeReload,
+      );
+      reloaded.element("attach-image").click();
+      await vi.waitFor(() =>
+        expect(reloaded.attachmentText()).toContain("retry.png · 1 KB · image/png"),
+      );
+      reloaded.element("composer").value = "Retry safely";
+      reloaded.element("composer").dispatch("input");
+      reloaded.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(2));
+      expect(reloaded.attachmentText()).toContain("retry.png · 1 KB · image/png");
+      expect(reloaded.element("chat-status").textContent).toBe("Try again later.");
+      reloaded.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(3));
+      expect(reloaded.attachmentText()).toEqual([]);
+      expect(reloaded.element("chat-status").textContent).toBe(
+        "Check session history before retrying",
+      );
+      reloaded.element("attach-image").click();
+      await vi.waitFor(() =>
+        expect(reloaded.attachmentText()).toContain("close.png · 1 KB · image/png"),
+      );
+      reloaded.element("close-session").click();
+      await vi.waitFor(() =>
+        expect(release).toHaveBeenCalledWith({
+          sessionId: "session-1",
+          mediaId: closeMedia.mediaId,
+        }),
+      );
+      expect(reloaded.attachmentText()).toEqual([]);
+      expect(reloaded.element("artifact-list").children).toEqual([]);
+      expect(reloaded.element("artifact-status").textContent).toBe("This session is closed.");
+      expect(reloaded.element("refresh-artifacts").disabled).toBe(true);
+      expect(JSON.stringify(reloaded.attachmentText())).not.toMatch(
+        /artifact|sha256|token|endpoint|\/v1\/|\/private/i,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses only opaque explicit-file grants and keeps folders unavailable", async () => {
+    const session = sessionSummary();
+    const secondSession = {
+      ...sessionSummary(),
+      sessionId: "session-2",
+      title: "Other",
+    };
+    const fileGrant = {
+      schemaVersion: 1 as const,
+      grantId: "g".repeat(48),
+      sessionId: "session-1",
+      kind: "file" as const,
+      displayName: "notes.txt",
+      expiresAt: "2999-01-01T00:00:00Z",
+      canList: false,
+      canImport: true,
+    };
+    const pick = vi.fn().mockResolvedValue({ ok: true, value: { grant: fileGrant } });
+    const list = vi.fn();
+    let finishImport!: (value: unknown) => void;
+    const importPending = new Promise((resolve) => {
+      finishImport = resolve;
+    });
+    const importFile = vi.fn().mockReturnValue(importPending);
+    let finishMediaPick!: (value: unknown) => void;
+    const mediaPickPending = new Promise((resolve) => {
+      finishMediaPick = resolve;
+    });
+    const mediaPick = vi.fn().mockReturnValue(mediaPickPending);
+    const mediaRelease = vi.fn();
+    let finishGrantRelease!: (value: unknown) => void;
+    const grantReleasePending = new Promise((resolve) => {
+      finishGrantRelease = resolve;
+    });
+    const release = vi
+      .fn()
+      .mockReturnValueOnce(grantReleasePending)
+      .mockResolvedValue({ ok: true, value: { released: true } });
+    const api = {
+      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      daemon: {
+        status: vi.fn().mockResolvedValue(status({ state: "ready", reachable: true, protocol: 1 })),
+        retry: vi.fn(),
+      },
+      sessions: {
+        list: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { sessions: [session, secondSession], nextCursor: null, hasMore: false },
+        }),
+        load: vi.fn(async ({ sessionId }) => ({
+          ok: true,
+          value: {
+            session: sessionId === "session-2" ? secondSession : session,
+            messages: [],
+            nextMessageCursor: "message-zero",
+            messagesHasMore: false,
+          },
+        })),
+        events: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { events: [], nextCursor: "event-zero", hasMore: false },
+        }),
+        create: vi.fn(),
+        close: vi.fn(),
+      },
+      turns: { submit: vi.fn(), cancel: vi.fn(), subscribe: vi.fn().mockReturnValue(vi.fn()) },
+      approvals: { decide: vi.fn() },
+      files: { pick, list, import: importFile, release },
+      media: { pick: mediaPick, release: mediaRelease },
+    } as unknown as NativeApi;
+    const pagehide: Array<() => void> = [];
+    vi.stubGlobal("window", {
+      addEventListener(type: string, listener: () => void) {
+        if (type === "pagehide") pagehide.push(listener);
+      },
+    });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      expect(page.element("choose-folder").disabled).toBe(true);
+      page.element("choose-folder").click();
+      expect(pick).not.toHaveBeenCalled();
+      expect(list).not.toHaveBeenCalled();
+      page.element("choose-file").click();
+      await vi.waitFor(() => expect(page.fileText()).toContain("notes.txt"));
+      expect(JSON.stringify(page.fileText())).not.toMatch(/\/Users|token|endpoint|inode|device/i);
+      page
+        .fileButtons()
+        .find((button) => button.textContent === "Import")!
+        .click();
+      await vi.waitFor(() => expect(importFile).toHaveBeenCalledOnce());
+      page.element("attach-image").click();
+      expect(mediaPick).not.toHaveBeenCalled();
+      finishImport({
+        ok: true,
+        value: {
+          grantId: fileGrant.grantId,
+          entryId: null,
+          attachment: mediaAttachment("i", "notes.txt", "text/plain", false),
+        },
+      });
+      await vi.waitFor(() =>
+        expect(page.attachmentText()).toContain("notes.txt · 1 KB · text/plain"),
+      );
+      page.attachmentButtons()[0]!.click();
+      page.element("attach-image").click();
+      await vi.waitFor(() => expect(mediaPick).toHaveBeenCalledOnce());
+      page
+        .fileButtons()
+        .find((button) => button.textContent === "Import")!
+        .click();
+      expect(importFile).toHaveBeenCalledOnce();
+      finishMediaPick({
+        ok: true,
+        value: {
+          attachments: [mediaAttachment("z", "pixel.png", "image/png", true)],
+        },
+      });
+      await vi.waitFor(() =>
+        expect(page.attachmentText()).toContain("pixel.png · 1 KB · image/png"),
+      );
+      page
+        .fileButtons()
+        .find((button) => button.textContent === "Release")!
+        .click();
+      await vi.waitFor(() => expect(release).toHaveBeenCalledOnce());
+      page.sessionButtons()[1]!.click();
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Other"));
+      finishGrantRelease({ ok: true, value: { grantId: fileGrant.grantId, released: true } });
+      await vi.waitFor(() =>
+        expect(page.element("file-status").textContent).toBe("Choose a local file to import."),
+      );
+      pagehide[0]!();
+      expect(release).toHaveBeenCalledWith({ sessionId: "session-1", grantId: fileGrant.grantId });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows explicit current-view and watch controls with bounded public facts", async () => {
+    const session = sessionSummary();
+    const secondSession = { ...session, sessionId: "session-2", title: "Other" };
+    const frameId = "b".repeat(48);
+    const frame = {
+      schemaVersion: 1 as const,
+      kind: "frame" as const,
+      captureId: "a".repeat(48),
+      frameId,
+      sessionId: session.sessionId,
+      sourceKind: "display" as const,
+      parentSourceKind: "display" as const,
+      width: 800,
+      height: 600,
+      scaleFactor: 2,
+      capturedAt: "2026-08-22T00:00:00Z",
+      expiresAt: "2999-01-01T00:00:00Z",
+      contentHash: "d".repeat(64),
+      encoding: "image/jpeg" as const,
+      sizeBytes: 2048,
+      previewUrl: `openminion://app/capture/frames/${frameId}`,
+    };
+    let captureListener: ((value: CaptureEventV1) => void) | null = null;
+    let observationListener: ((value: ObservationStatusV1) => void) | null = null;
+    let turnListener: ((value: TurnEventV1) => void) | null = null;
+    const ready = observationState({ sessionId: session.sessionId });
+    const waiting = observationState({
+      sessionId: session.sessionId,
+      state: "waiting",
+      watchEnabled: true,
+      trigger: "changes",
+    });
+    const configure = vi.fn().mockResolvedValue({ ok: true, value: waiting });
+    const stopObservation = vi.fn().mockResolvedValue({ ok: true, value: ready });
+    const mismatchResult = {
+      ok: true as const,
+      value: {
+        requestId: "request-result",
+        traceId: "trace-mismatch",
+        sessionId: session.sessionId,
+      },
+    };
+    let finishMismatch = () => {};
+    const mismatchPromise = new Promise<typeof mismatchResult>((resolve) => {
+      finishMismatch = () => resolve(mismatchResult);
+    });
+    const submit = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { requestId: "request-1", traceId: "trace-1", sessionId: session.sessionId },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { requestId: "request-guide", traceId: "trace-guide", sessionId: session.sessionId },
+      })
+      .mockReturnValueOnce(mismatchPromise);
+    const mediaPick = vi.fn();
+    const api = {
+      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      daemon: {
+        status: vi.fn().mockResolvedValue(status({ state: "ready", reachable: true, protocol: 1 })),
+        retry: vi.fn(),
+      },
+      sessions: {
+        list: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { sessions: [session, secondSession], nextCursor: null, hasMore: false },
+        }),
+        load: vi.fn(async ({ sessionId }) => ({
+          ok: true,
+          value: {
+            session: sessionId === secondSession.sessionId ? secondSession : session,
+            messages: [],
+            nextMessageCursor: "message-zero",
+            messagesHasMore: false,
+          },
+        })),
+        events: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { events: [], nextCursor: "event-zero", hasMore: false },
+        }),
+        create: vi.fn(),
+        close: vi.fn(),
+      },
+      turns: {
+        submit,
+        cancel: vi.fn(),
+        subscribe: vi.fn((listener) => {
+          turnListener = listener;
+          return vi.fn();
+        }),
+      },
+      approvals: { decide: vi.fn() },
+      media: { pick: mediaPick, release: vi.fn() },
+      capture: {
+        status: vi.fn().mockResolvedValue({
+          ok: true,
+          value: captureState({
+            state: "observing",
+            sessionId: session.sessionId,
+            captureId: frame.captureId,
+            sourceKind: "display",
+            parentSourceKind: "display",
+            sourceLabel: "Display 1",
+          }),
+        }),
+        sources: vi.fn(),
+        start: vi.fn(),
+        pause: vi.fn(),
+        resume: vi.fn(),
+        stop: vi.fn(),
+        subscribe: vi.fn((listener) => {
+          captureListener = listener;
+          return vi.fn();
+        }),
+      },
+      observation: {
+        status: vi.fn().mockResolvedValue({ ok: true, value: ready }),
+        configure,
+        stop: stopObservation,
+        subscribe: vi.fn((listener) => {
+          observationListener = listener;
+          return vi.fn();
+        }),
+      },
+    } as unknown as NativeApi;
+    const pagehide: Array<() => void> = [];
+    vi.stubGlobal("window", {
+      addEventListener(type: string, listener: () => void) {
+        if (type === "pagehide") pagehide.push(listener);
+      },
+    });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      captureListener!(frame);
+      const completeGuidance = async (
+        message: string,
+        requestId: string,
+        traceId: string,
+        selectedFrame: typeof frame,
+      ) => {
+        const callsBefore = submit.mock.calls.length;
+        submit.mockResolvedValueOnce({
+          ok: true,
+          value: { requestId, traceId, sessionId: session.sessionId },
+        });
+        captureListener!(selectedFrame);
+        page.element("composer").value = message;
+        page.element("composer").dispatch("input");
+        await vi.waitFor(() => expect(page.element("ask-guidance").disabled).toBe(false));
+        page.element("ask-guidance").click();
+        await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(callsBefore + 1));
+        await vi.waitFor(() => expect(page.element("composer").value).toBe(""));
+        turnListener!({
+          schemaVersion: 1,
+          kind: "started",
+          requestId,
+          sessionId: session.sessionId,
+          traceId,
+        });
+        const sentFrame = observationFrame(selectedFrame, "user_send", traceId);
+        observationListener!(
+          observationState({
+            sessionId: session.sessionId,
+            state: "inferencing",
+            currentReason: "user_send",
+            selectedFrame: sentFrame,
+            sentFrame,
+          }),
+        );
+        turnListener!({
+          schemaVersion: 1,
+          kind: "response",
+          sessionId: session.sessionId,
+          traceId,
+          finalText: `Guidance for ${message}`,
+          errors: [],
+          usage: {
+            usageAvailable: false,
+            inputTokens: null,
+            outputTokens: null,
+            totalTokens: null,
+            llmCalls: null,
+            durationMs: null,
+            costUsd: null,
+            costSource: "unavailable",
+          },
+        });
+        turnListener!({
+          schemaVersion: 1,
+          kind: "done",
+          sessionId: session.sessionId,
+          traceId,
+          outcome: "complete",
+        });
+        await vi.waitFor(() => expect(page.element("guidance-card").hidden).toBe(false));
+      };
+      expect(page.element("include-current-view").disabled).toBe(false);
+      page.element("composer").value = "What is visible?";
+      page.element("include-current-view").checked = true;
+      page.element("composer").dispatch("input");
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(submit).toHaveBeenCalledWith({
+          sessionId: session.sessionId,
+          message: "What is visible?",
+          observation: { includeCurrentView: true },
+        }),
+      );
+      await vi.waitFor(() => expect(page.element("composer").value).toBe(""));
+      expect(page.element("include-current-view").checked).toBe(false);
+      turnListener!({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: session.sessionId,
+        traceId: "trace-1",
+        outcome: "complete",
+      });
+      await vi.waitFor(() => expect(page.element("composer").disabled).toBe(false));
+
+      page.element("composer").value = "Show me the safest next step";
+      page.element("composer").dispatch("input");
+      expect(page.element("ask-guidance").disabled).toBe(false);
+      page.element("ask-guidance").click();
+      await vi.waitFor(() =>
+        expect(submit).toHaveBeenLastCalledWith({
+          sessionId: session.sessionId,
+          message: "Show me the safest next step",
+          observation: { includeCurrentView: true },
+        }),
+      );
+      await vi.waitFor(() => expect(page.element("composer").value).toBe(""));
+      turnListener!({
+        schemaVersion: 1,
+        kind: "started",
+        requestId: "request-guide",
+        sessionId: session.sessionId,
+        traceId: "trace-guide",
+      });
+      const guidanceFrame = observationFrame(frame, "user_send", "trace-guide");
+      observationListener!(
+        observationState({
+          sessionId: session.sessionId,
+          state: "inferencing",
+          currentReason: "user_send",
+          selectedFrame: guidanceFrame,
+          sentFrame: guidanceFrame,
+        }),
+      );
+      turnListener!({
+        schemaVersion: 1,
+        kind: "response",
+        sessionId: session.sessionId,
+        traceId: "trace-guide",
+        finalText: "<button data-action='click'>Open the diff</button>",
+        errors: [],
+        usage: {
+          usageAvailable: false,
+          inputTokens: null,
+          outputTokens: null,
+          totalTokens: null,
+          llmCalls: null,
+          durationMs: null,
+          costUsd: null,
+          costSource: "unavailable",
+        },
+      });
+      expect(page.element("guidance-card").hidden).toBe(true);
+      turnListener!({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: session.sessionId,
+        traceId: "trace-guide",
+        outcome: "complete",
+      });
+      await vi.waitFor(() => expect(page.element("guidance-card").hidden).toBe(false));
+      expect(page.element("guidance-state").textContent).toBe("Current");
+      expect(page.element("guidance-preview").src).toBe(frame.previewUrl);
+      expect(page.element("guidance-text").textContent).toBe(
+        "<button data-action='click'>Open the diff</button>",
+      );
+      expect(
+        page
+          .element("guidance-card")
+          .descendants()
+          .filter((item) => item.tagName === "button"),
+      ).toEqual([]);
+      expect(page.element("guidance-facts").textContent).toContain("sent");
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe(session.title));
+      expect(page.element("guidance-card").hidden).toBe(false);
+      turnListener!({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: session.sessionId,
+        traceId: "trace-guide",
+        outcome: "complete",
+      });
+      expect(page.element("guidance-text").textContent).toBe(
+        "<button data-action='click'>Open the diff</button>",
+      );
+      const newerFrame = {
+        ...frame,
+        frameId: "e".repeat(48),
+        contentHash: "f".repeat(64),
+        previewUrl: `openminion://app/capture/frames/${"e".repeat(48)}`,
+      };
+      captureListener!(newerFrame);
+      expect(page.element("guidance-state").textContent).toBe("Stale");
+      expect(page.element("guidance-status").textContent).toContain("newer frame");
+      expect(page.element("guidance-preview").src).toBe("");
+      captureListener!(frame);
+
+      mediaPick.mockResolvedValueOnce({
+        ok: true,
+        value: { attachments: [mediaAttachment("a", "notes.txt", "text/plain", false)] },
+      });
+      page.element("attach-file").click();
+      await vi.waitFor(() =>
+        expect(page.attachmentText()).toContain("notes.txt · 1 KB · text/plain"),
+      );
+      page.element("composer").value = "Do not send unsupported media";
+      page.element("composer").dispatch("input");
+      expect(page.element("ask-guidance").disabled).toBe(true);
+      page.element("ask-guidance").click();
+      expect(submit).toHaveBeenCalledTimes(2);
+      page.attachmentButtons()[0]!.click();
+
+      mediaPick.mockResolvedValueOnce({
+        ok: true,
+        value: {
+          attachments: ["1", "2", "3", "4"].map((id) =>
+            mediaAttachment(id, `${id}.png`, "image/png", true),
+          ),
+        },
+      });
+      page.element("attach-image").click();
+      await vi.waitFor(() => expect(page.attachmentButtons()).toHaveLength(4));
+      expect(page.element("ask-guidance").disabled).toBe(true);
+      page.element("ask-guidance").click();
+      expect(submit).toHaveBeenCalledTimes(2);
+      for (const button of page.attachmentButtons()) button.click();
+
+      page.element("composer").value = "Reject mismatched identity";
+      page.element("composer").dispatch("input");
+      page.element("ask-guidance").click();
+      await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(3));
+      turnListener!({
+        schemaVersion: 1,
+        kind: "started",
+        requestId: "request-event",
+        sessionId: session.sessionId,
+        traceId: "trace-mismatch",
+      });
+      finishMismatch();
+      await vi.waitFor(() => expect(page.element("composer").value).toBe(""));
+      const mismatchFrame = observationFrame(frame, "user_send", "trace-mismatch");
+      observationListener!(
+        observationState({
+          sessionId: session.sessionId,
+          state: "inferencing",
+          currentReason: "user_send",
+          selectedFrame: mismatchFrame,
+          sentFrame: mismatchFrame,
+        }),
+      );
+      turnListener!({
+        schemaVersion: 1,
+        kind: "response",
+        sessionId: session.sessionId,
+        traceId: "trace-mismatch",
+        finalText: "This must not become guidance.",
+        errors: [],
+        usage: {
+          usageAvailable: false,
+          inputTokens: null,
+          outputTokens: null,
+          totalTokens: null,
+          llmCalls: null,
+          durationMs: null,
+          costUsd: null,
+          costSource: "unavailable",
+        },
+      });
+      turnListener!({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: session.sessionId,
+        traceId: "trace-mismatch",
+        outcome: "complete",
+      });
+      expect(page.element("guidance-card").hidden).toBe(true);
+
+      await completeGuidance("Source change lifecycle", "request-source", "trace-source", frame);
+      captureListener!({
+        schemaVersion: 1,
+        kind: "state",
+        value: captureState({
+          state: "observing",
+          sessionId: session.sessionId,
+          captureId: "b".repeat(48),
+          sourceKind: "window",
+          parentSourceKind: "window",
+          sourceLabel: "Window 2",
+        }),
+      });
+      expect(page.element("guidance-state").textContent).toBe("Stale");
+      expect(page.element("guidance-status").textContent).toContain("source changed");
+
+      const observingState = captureState({
+        state: "observing",
+        sessionId: session.sessionId,
+        captureId: frame.captureId,
+        sourceKind: "display",
+        parentSourceKind: "display",
+        sourceLabel: "Display 1",
+      });
+      captureListener!({ schemaVersion: 1, kind: "state", value: observingState });
+      await completeGuidance("Pause lifecycle", "request-pause", "trace-pause", frame);
+      captureListener!({
+        schemaVersion: 1,
+        kind: "state",
+        value: { ...observingState, state: "paused", reason: "user_paused" },
+      });
+      expect(page.element("guidance-state").textContent).toBe("Stale");
+      expect(page.element("guidance-status").textContent).toContain("no longer active");
+
+      captureListener!({ schemaVersion: 1, kind: "state", value: observingState });
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-22T12:00:00Z"));
+      const expiringFrame = {
+        ...frame,
+        frameId: "9".repeat(48),
+        contentHash: "8".repeat(64),
+        capturedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 1_000).toISOString(),
+        previewUrl: `openminion://app/capture/frames/${"9".repeat(48)}`,
+      };
+      await completeGuidance("Expiry lifecycle", "request-expiry", "trace-expiry", expiringFrame);
+      expect(page.element("guidance-state").textContent).toBe("Current");
+      await vi.advanceTimersByTimeAsync(1_001);
+      expect(page.element("guidance-state").textContent).toBe("Stale");
+      expect(page.element("guidance-status").textContent).toContain("frame expired");
+      expect(page.element("guidance-preview").src).toBe("");
+      vi.useRealTimers();
+
+      captureListener!({ schemaVersion: 1, kind: "state", value: observingState });
+      captureListener!(frame);
+
+      page.element("observation-instruction").value = "Tell me when the build finishes";
+      page.element("observation-instruction").dispatch("input");
+      await vi.waitFor(() => expect(page.element("start-observation").disabled).toBe(false));
+      page.element("start-observation").click();
+      await vi.waitFor(() =>
+        expect(configure).toHaveBeenCalledWith({
+          sessionId: session.sessionId,
+          instruction: "Tell me when the build finishes",
+          trigger: "changes",
+        }),
+      );
+      expect(page.element("observation-status").textContent).toContain("changed frame");
+      const sent = observationFrame(frame, "watch", "trace-2");
+      observationListener!(
+        observationState({
+          sessionId: session.sessionId,
+          state: "inferencing",
+          watchEnabled: true,
+          trigger: "changes",
+          currentReason: "watch",
+          selectedFrame: sent,
+          sentFrame: sent,
+          counters: {
+            ...ready.counters,
+            captureFrames: 2,
+            captureBytes: 4096,
+            selectedFrames: 1,
+            sentFrames: 1,
+            uploadedBytes: 2048,
+            inferencesStarted: 1,
+          },
+          rates: { ...ready.rates, capturedFrames: 2, inferencesStarted: 1 },
+          usage: {
+            usageAvailable: true,
+            inputTokens: 5,
+            outputTokens: 3,
+            totalTokens: 8,
+            llmCalls: 1,
+            durationMs: 20,
+            costUsd: null,
+            costSource: "unavailable",
+          },
+        }),
+      );
+      expect(page.element("observation-sent-preview").src).toContain(frameId);
+      expect(page.element("observation-sent-facts").textContent).toContain("preview expires in");
+      expect(page.findText()).toContain("You · Automatic observation");
+      expect(page.findText()).toContain("Reason: watch");
+      expect(
+        page
+          .element("timeline")
+          .descendants()
+          .find((item) => item.tagName === "img")?.src,
+      ).toBe(frame.previewUrl);
+      expect(page.element("observation-counters").textContent).toContain("2/min");
+      expect(page.element("observation-usage").textContent).toContain("5 input + 3 output");
+      expect(
+        JSON.stringify([
+          page.element("observation-status").textContent,
+          page.element("observation-selected-facts").textContent,
+          page.element("observation-sent-facts").textContent,
+          page.element("observation-counters").textContent,
+          page.element("observation-usage").textContent,
+        ]),
+      ).not.toMatch(/mediaId|credential|endpoint|secret|\/Users\/|instruction/i);
+      page.element("stop-observation").click();
+      await vi.waitFor(() => expect(stopObservation).toHaveBeenCalledOnce());
+      page.element("observation-instruction").value = "Private session instruction";
+      page.element("include-current-view").checked = true;
+      page.sessionButtons()[1]!.click();
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Other"));
+      expect(page.element("observation-instruction").value).toBe("");
+      expect(page.element("observation-trigger").value).toBe("changes");
+      expect(page.element("include-current-view").checked).toBe(false);
+      expect(page.element("observation-sent-preview").src).toBe("");
+      expect(page.element("guidance-card").hidden).toBe(true);
+      pagehide[0]!();
+      expect(stopObservation).toHaveBeenCalledTimes(2);
+      const reloaded = new FixtureDocument();
+      await mount(api, reloaded.asDocument());
+      expect(reloaded.element("guidance-card").hidden).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("observes a selected source locally without submitting a turn", async () => {
+    const session = sessionSummary();
+    const secondSession = { ...session, sessionId: "session-2", title: "Other" };
+    const candidateId = "c".repeat(48);
+    const captureId = "a".repeat(48);
+    let captureListener: ((event: unknown) => void) | null = null;
+    const idle = captureState({ sessionId: session.sessionId });
+    const selecting = captureState({
+      state: "selecting",
+      sessionId: session.sessionId,
+    });
+    const denied = captureState({
+      state: "blocked",
+      reason: "permission_denied",
+      permission: "denied",
+      sessionId: session.sessionId,
+    });
+    const observing = captureState({
+      state: "observing",
+      reason: "user_started",
+      captureId,
+      sessionId: session.sessionId,
+      sourceKind: "region",
+      parentSourceKind: "display",
+      sourceLabel: "Display 1",
+      startedAt: "2026-08-21T00:00:00Z",
+    });
+    const statusCapture = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, value: idle })
+      .mockResolvedValueOnce({ ok: true, value: selecting })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: captureState({ sessionId: secondSession.sessionId }),
+      })
+      .mockResolvedValueOnce({ ok: true, value: idle })
+      .mockResolvedValue({ ok: true, value: denied });
+    const sourceResult = {
+      ok: true,
+      value: {
+        schemaVersion: 1,
+        permission: "granted",
+        candidates: [
+          {
+            schemaVersion: 1,
+            candidateId,
+            sourceKind: "display",
+            label: "Display 1",
+            previewUrl: `openminion://app/capture/candidates/${candidateId}`,
+            previewWidth: 640,
+            previewHeight: 360,
+            scaleFactor: 2,
+          },
+        ],
+        truncated: false,
+        expiresAt: "2026-08-21T00:00:30Z",
+      },
+    };
+    let resolveStaleSources!: (value: typeof sourceResult) => void;
+    const staleSources = new Promise<typeof sourceResult>((resolve) => {
+      resolveStaleSources = resolve;
+    });
+    const sources = vi
+      .fn()
+      .mockResolvedValueOnce(sourceResult)
+      .mockResolvedValueOnce(sourceResult)
+      .mockResolvedValueOnce(sourceResult)
+      .mockReturnValueOnce(staleSources)
+      .mockResolvedValue({
+        ok: false,
+        error: {
+          code: "capture_permission_denied",
+          message: "Screen recording permission was denied.",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+    const start = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, value: observing })
+      .mockResolvedValueOnce({ ok: true, value: observing })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "capture_source_expired",
+          message: "The source selection expired. Choose it again.",
+          retryable: true,
+          retryAfterMs: null,
+        },
+      });
+    const pause = vi.fn().mockResolvedValue({
+      ok: true,
+      value: captureState({ ...observing, state: "paused", reason: "user_paused" }),
+    });
+    const resume = vi.fn().mockResolvedValue({
+      ok: true,
+      value: captureState({ ...observing, reason: "user_resumed" }),
+    });
+    const stop = vi.fn().mockResolvedValue({ ok: true, value: idle });
+    const submit = vi.fn();
+    let finishClose!: (value: unknown) => void;
+    const closePending = new Promise((resolve) => {
+      finishClose = resolve;
+    });
+    const close = vi
+      .fn()
+      .mockReturnValueOnce(closePending)
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { ...session, status: "closed" },
+      });
+    const api = {
+      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      daemon: {
+        status: vi.fn().mockResolvedValue(status({ state: "ready", reachable: true, protocol: 1 })),
+        retry: vi.fn(),
+      },
+      sessions: {
+        list: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { sessions: [session, secondSession], nextCursor: null, hasMore: false },
+        }),
+        load: vi.fn(async ({ sessionId }) => ({
+          ok: true,
+          value: {
+            session: sessionId === secondSession.sessionId ? secondSession : session,
+            messages: [],
+            nextMessageCursor: "message-zero",
+            messagesHasMore: false,
+          },
+        })),
+        events: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { events: [], nextCursor: "event-zero", hasMore: false },
+        }),
+        create: vi.fn(),
+        close,
+      },
+      turns: { submit, cancel: vi.fn(), subscribe: vi.fn().mockReturnValue(vi.fn()) },
+      approvals: { decide: vi.fn() },
+      media: { pick: vi.fn(), release: vi.fn() },
+      capture: {
+        status: statusCapture,
+        sources,
+        start,
+        pause,
+        resume,
+        stop,
+        subscribe: vi.fn((listener) => {
+          captureListener = listener;
+          return vi.fn();
+        }),
+      },
+    } as unknown as NativeApi;
+    const pagehide: Array<() => void> = [];
+    vi.stubGlobal("window", {
+      addEventListener(type: string, listener: () => void) {
+        if (type === "pagehide") pagehide.push(listener);
+      },
+    });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      expect(page.element("capture-status").textContent).toContain("Ready to observe");
+      page.element("capture-window").click();
+      expect(page.element("capture-source-kind").value).toBe("window");
+      page.element("observe-computer").click();
+      await vi.waitFor(() => expect(page.captureButtons()).toHaveLength(1));
+      expect(sources).toHaveBeenNthCalledWith(1, {
+        sessionId: session.sessionId,
+        sourceKind: "window",
+      });
+      page.captureButtons()[0]!.click();
+      page.element("capture-region-enabled").checked = true;
+      page.element("capture-region-x").value = "75";
+      page.element("capture-region-width").value = "50";
+      page.element("capture-region-x").dispatch("input");
+      expect(page.element("start-capture").disabled).toBe(true);
+      page.element("capture-region-x").value = "10";
+      page.element("capture-region-y").value = "20";
+      page.element("capture-region-width").value = "40";
+      page.element("capture-region-height").value = "50";
+      page.element("capture-region-x").dispatch("input");
+      expect(page.element("start-capture").disabled).toBe(false);
+      page.element("start-capture").click();
+      await vi.waitFor(() =>
+        expect(start).toHaveBeenCalledWith({
+          sessionId: session.sessionId,
+          candidateId,
+          region: { xBps: 1000, yBps: 2000, widthBps: 4000, heightBps: 5000 },
+        }),
+      );
+      captureListener!({
+        schemaVersion: 1,
+        kind: "frame",
+        captureId,
+        frameId: "b".repeat(48),
+        sessionId: session.sessionId,
+        sourceKind: "region",
+        parentSourceKind: "display",
+        width: 800,
+        height: 600,
+        scaleFactor: 2,
+        capturedAt: new Date().toISOString(),
+        expiresAt: "2999-01-01T00:00:00Z",
+        contentHash: "d".repeat(64),
+        encoding: "image/jpeg",
+        sizeBytes: 2048,
+        previewUrl: `openminion://app/capture/frames/${"b".repeat(48)}`,
+      });
+      expect(page.element("capture-preview").src).toContain("/capture/frames/");
+      expect(page.element("capture-facts").textContent).toContain("800 × 600");
+      page.element("pause-capture").click();
+      await vi.waitFor(() => expect(page.element("capture-preview").src).toBe(""));
+      page.element("resume-capture").click();
+      await vi.waitFor(() => expect(resume).toHaveBeenCalledOnce());
+      page.element("stop-capture").click();
+      await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+      page.element("observe-computer").click();
+      await vi.waitFor(() => expect(sources).toHaveBeenCalledTimes(2));
+      page.captureButtons()[0]!.click();
+      page.element("start-capture").click();
+      await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(2));
+      page.element("change-capture").click();
+      await vi.waitFor(() => expect(sources).toHaveBeenCalledTimes(3));
+      expect(stop).toHaveBeenCalledTimes(2);
+      page.captureButtons()[0]!.click();
+      page.element("start-capture").click();
+      await vi.waitFor(() =>
+        expect(page.element("capture-status").textContent).toContain("expired"),
+      );
+      expect(page.captureButtons()).toHaveLength(0);
+      expect(page.element("capture-region-controls").hidden).toBe(true);
+      page.element("observe-computer").click();
+      await vi.waitFor(() => expect(sources).toHaveBeenCalledTimes(4));
+      page.sessionButtons()[1]!.click();
+      resolveStaleSources(sourceResult);
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Other"));
+      expect(page.element("capture-preview").src).toBe("");
+      expect(page.captureButtons()).toHaveLength(0);
+      captureListener!({
+        schemaVersion: 1,
+        kind: "frame",
+        captureId,
+        frameId: "e".repeat(48),
+        sessionId: session.sessionId,
+        sourceKind: "display",
+        parentSourceKind: "display",
+        width: 640,
+        height: 360,
+        scaleFactor: 2,
+        capturedAt: new Date().toISOString(),
+        expiresAt: "2999-01-01T00:00:00Z",
+        contentHash: "f".repeat(64),
+        encoding: "image/jpeg",
+        sizeBytes: 1024,
+        previewUrl: `openminion://app/capture/frames/${"e".repeat(48)}`,
+      });
+      expect(page.element("capture-preview").src).toBe("");
+      page.element("close-session").click();
+      await vi.waitFor(() =>
+        expect(close).toHaveBeenCalledWith({ sessionId: secondSession.sessionId }),
+      );
+      page.sessionButtons()[0]!.click();
+      finishClose({ ok: true, value: { ...secondSession, status: "closed" } });
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe(session.title));
+      await vi.waitFor(() => expect(page.element("observe-computer").disabled).toBe(false));
+      statusCapture.mockReset().mockResolvedValue({ ok: true, value: denied });
+      page.element("observe-computer").click();
+      await vi.waitFor(() => expect(sources).toHaveBeenCalledTimes(5));
+      await vi.waitFor(() => expect(page.element("capture-state").textContent).toBe("Blocked"));
+      expect(page.element("capture-status").textContent).toBe(
+        "Screen recording permission was denied.",
+      );
+      page.element("close-session").click();
+      await vi.waitFor(() => expect(page.element("observe-computer").disabled).toBe(true));
+      expect(page.element("capture-status").textContent).toContain("Choose a session");
+      expect(submit).not.toHaveBeenCalled();
+      expect(
+        JSON.stringify([
+          page.element("capture-status").textContent,
+          page.element("capture-facts").textContent,
+        ]),
+      ).not.toMatch(/contentHash|nativeSource|screen:|token|endpoint|bytes/i);
+      pagehide[0]!();
+      expect(stop).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+class FixtureElement {
+  textContent = "";
+  className = "";
+  hidden = false;
+  disabled = false;
+  checked = false;
+  value = "";
+  src = "";
+  alt = "";
+  title = "";
+  type = "";
+  style: Record<string, string> = {};
+  dataset: Record<string, string> = {};
+  scrollTop = 0;
+  scrollHeight = 0;
+  children: FixtureElement[] = [];
+  private readonly listeners = new Map<string, Array<(event: FixtureEvent) => void>>();
+
+  constructor(readonly tagName: string) {}
+
+  append(...children: FixtureElement[]): void {
+    this.children.push(...children);
+  }
+  replaceChildren(...children: FixtureElement[]): void {
+    this.children = children;
+  }
+  setAttribute(_name: string, _value: string): void {}
+
+  addEventListener(type: string, listener: (event: FixtureEvent) => void): void {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  click(): void {
+    for (const listener of this.listeners.get("click") ?? []) {
+      listener({ preventDefault() {} });
+    }
+  }
+
+  dispatch(type: string): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ preventDefault() {} });
+    }
+  }
+
+  descendants(): FixtureElement[] {
+    return [this, ...this.children.flatMap((child) => child.descendants())];
+  }
+}
+
+interface FixtureEvent {
+  preventDefault(): void;
+}
+
+class FixtureDocument {
+  private static readonly requiredIds = [
+    "status-dot",
+    "status-label",
+    "status-summary",
+    "retry",
+    "recovery",
+    "daemon-version",
+    "protocol-version",
+    "shell-version",
+    "connection-label",
+    "session-list",
+    "new-session",
+    "close-session",
+    "current-title",
+    "timeline",
+    "chat-status",
+    "composer-form",
+    "composer",
+    "send",
+    "cancel",
+    "ask-guidance",
+    "guidance-card",
+    "guidance-state",
+    "guidance-preview",
+    "guidance-facts",
+    "guidance-text",
+    "guidance-status",
+    "attachments",
+    "include-current-view",
+    "attach-image",
+    "attach-file",
+    "refresh-artifacts",
+    "artifact-status",
+    "artifact-list",
+    "artifact-detail",
+    "artifact-detail-title",
+    "artifact-content",
+    "close-artifact",
+    "choose-file",
+    "choose-folder",
+    "file-status",
+    "file-grant-list",
+    "capture-state",
+    "capture-status",
+    "capture-source-kind",
+    "capture-entire-screen",
+    "capture-window",
+    "observe-computer",
+    "capture-candidates",
+    "capture-region-controls",
+    "capture-region-enabled",
+    "capture-region-x",
+    "capture-region-y",
+    "capture-region-width",
+    "capture-region-height",
+    "capture-region-stage",
+    "capture-region-image",
+    "capture-region-overlay",
+    "start-capture",
+    "capture-live",
+    "capture-preview",
+    "capture-facts",
+    "pause-capture",
+    "resume-capture",
+    "change-capture",
+    "stop-capture",
+    "observation-state",
+    "observation-instruction",
+    "observation-trigger",
+    "start-observation",
+    "stop-observation",
+    "observation-status",
+    "observation-selected",
+    "observation-selected-preview",
+    "observation-selected-facts",
+    "observation-sent",
+    "observation-sent-preview",
+    "observation-sent-facts",
+    "observation-counters",
+    "observation-usage",
+  ] as const;
+
+  private readonly elements: Map<string, FixtureElement> = new Map(
+    FixtureDocument.requiredIds.map((id) => [id, new FixtureElement("div")]),
+  );
+
+  constructor() {
+    this.element("capture-source-kind").value = "display";
+    this.element("capture-region-width").value = "100";
+    this.element("capture-region-height").value = "100";
+    this.element("capture-region-x").value = "0";
+    this.element("capture-region-y").value = "0";
+    this.element("observation-trigger").value = "changes";
+  }
+
+  getElementById(id: string): FixtureElement | null {
+    return this.elements.get(id) ?? null;
+  }
+
+  createElement(tagName: string): FixtureElement {
+    return new FixtureElement(tagName);
+  }
+  asDocument(): Document {
+    return this as unknown as Document;
+  }
+
+  findButtons(): FixtureElement[] {
+    return this.timeline()
+      .descendants()
+      .filter((item) => item.tagName === "button");
+  }
+
+  findText(): string[] {
+    return this.timeline()
+      .descendants()
+      .map((item) => item.textContent)
+      .filter(Boolean);
+  }
+
+  element(id: string): FixtureElement {
+    return this.elements.get(id)!;
+  }
+
+  attachmentButtons(): FixtureElement[] {
+    return this.element("attachments")
+      .descendants()
+      .filter((item) => item.tagName === "button");
+  }
+
+  sessionButtons(): FixtureElement[] {
+    return this.element("session-list")
+      .descendants()
+      .filter((item) => item.tagName === "button");
+  }
+
+  attachmentText(): string[] {
+    return this.element("attachments")
+      .descendants()
+      .map((item) => item.textContent)
+      .filter(Boolean);
+  }
+
+  artifactButtons(): FixtureElement[] {
+    return this.element("artifact-list")
+      .descendants()
+      .filter((item) => item.tagName === "button");
+  }
+
+  artifactText(): string[] {
+    return this.element("artifact-list")
+      .descendants()
+      .map((item) => item.textContent)
+      .filter(Boolean);
+  }
+
+  fileButtons(): FixtureElement[] {
+    return this.element("file-grant-list")
+      .descendants()
+      .filter((item) => item.tagName === "button");
+  }
+
+  fileText(): string[] {
+    return this.element("file-grant-list")
+      .descendants()
+      .map((item) => item.textContent)
+      .filter(Boolean);
+  }
+
+  captureButtons(): FixtureElement[] {
+    return this.element("capture-candidates")
+      .descendants()
+      .filter((item) => item.tagName === "button");
+  }
+
+  private timeline(): FixtureElement {
+    return this.elements.get("timeline")!;
+  }
+}
+
+function message(id: string, body: string) {
+  return {
+    schemaVersion: 1 as const,
+    id,
+    sessionId: "session-1",
+    role: "assistant" as const,
+    body,
+    createdAt: "2026-08-19T00:00:01Z",
+  };
+}
+
+function eventValue(cursor: string, state: string) {
+  return {
+    schemaVersion: 1 as const,
+    eventType: `run.${state}`,
+    cursor,
+    createdAt: "2026-08-19T00:00:02Z",
+    runId: "run-1",
+    traceId: "trace-1",
+    state,
+    facts: {},
+  };
+}
+
+function approvalEvent(phase: "requested" | "resolved") {
+  const requested = phase === "requested";
+  return {
+    schemaVersion: 1 as const,
+    eventType: `desktop.approval.${phase}`,
+    cursor: requested ? "event-one" : "event-two",
+    createdAt: requested ? "2026-08-19T00:00:02Z" : "2026-08-19T00:00:03Z",
+    runId: null,
+    traceId: "trace-1",
+    state: requested ? "pending" : "terminal",
+    facts: requested
+      ? {
+          approval_id: "approval-1",
+          call_id: "call-1",
+          tool_name: "workspace.write",
+          argument_keys: ["path", "text"],
+          argument_keys_count: 2,
+          requested_at: "2026-08-19T00:00:02Z",
+          expires_at: "2026-08-19T00:01:02Z",
+          outcome: "pending",
+        }
+      : {
+          approval_id: "approval-1",
+          call_id: "call-1",
+          tool_name: "workspace.write",
+          decision: "allow_once",
+          outcome: "applied",
+          resolved_at: "2026-08-19T00:00:03Z",
+        },
+  };
+}
+
+function sessionSummary(): SessionSummaryV1 {
+  return {
+    schemaVersion: 1,
+    sessionId: "session-1",
+    title: "Recovered chat",
+    status: "active",
+    createdAt: "2026-08-19T00:00:00Z",
+    updatedAt: "2026-08-19T00:00:00Z",
+    activeAgentId: "openminion",
+    model: { provider: null, modelId: null },
+    projectId: null,
+    eventCursor: "event-zero",
+  };
+}
+
+function captureState(overrides: Partial<CaptureStateV1> = {}): CaptureStateV1 {
+  return {
+    schemaVersion: 1,
+    state: "idle",
+    reason: "ready",
+    permission: "granted",
+    captureId: null,
+    sessionId: null,
+    sourceKind: null,
+    parentSourceKind: null,
+    sourceLabel: null,
+    scaleFactor: null,
+    startedAt: null,
+    pausedAt: null,
+    capturedFrames: 0,
+    droppedFrames: 0,
+    retainedBytes: 0,
+    lastFrameAt: null,
+    ...overrides,
+  };
+}
+
+function observationState(overrides: Partial<ObservationStatusV1> = {}): ObservationStatusV1 {
+  return {
+    schemaVersion: 1,
+    sessionId: "session-1",
+    watchEnabled: false,
+    trigger: null,
+    state: "ready",
+    currentReason: null,
+    selectedFrame: null,
+    sentFrame: null,
+    counters: {
+      schemaVersion: 1,
+      captureFrames: 0,
+      captureBytes: 0,
+      selectedFrames: 0,
+      sentFrames: 0,
+      uploadedBytes: 0,
+      skippedUnchanged: 0,
+      skippedBusy: 0,
+      replacedPending: 0,
+      inferencesStarted: 0,
+      inferencesCompleted: 0,
+      inferencesFailed: 0,
+      inferencesCancelled: 0,
+    },
+    rates: {
+      schemaVersion: 1,
+      windowMs: 60_000,
+      capturedFrames: 0,
+      inferencesStarted: 0,
+      sampledAt: "2026-08-22T00:00:00Z",
+    },
+    usage: {
+      usageAvailable: false,
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      llmCalls: null,
+      durationMs: null,
+      costUsd: null,
+      costSource: "unavailable",
+    },
+    lastError: null,
+    updatedAt: "2026-08-22T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function observationFrame(
+  frame: {
+    frameId: string;
+    contentHash: string;
+    width: number;
+    height: number;
+    capturedAt: string;
+    expiresAt: string;
+    previewUrl: string;
+  },
+  reason: ObservationFrameFactV1["reason"],
+  traceId: string,
+): ObservationFrameFactV1 {
+  return {
+    schemaVersion: 1,
+    frameId: frame.frameId,
+    contentHash: frame.contentHash,
+    width: frame.width,
+    height: frame.height,
+    capturedAt: frame.capturedAt,
+    expiresAt: frame.expiresAt,
+    previewUrl: frame.previewUrl,
+    reason,
+    selectedAt: "2026-08-22T00:00:01Z",
+    sentAt: "2026-08-22T00:00:02Z",
+    traceId,
+  };
+}
+
+function mediaAttachment(
+  seed: string,
+  name: string,
+  mimeType: MediaAttachmentV1["mimeType"],
+  turnCompatible: boolean,
+  sessionId = "session-1",
+): MediaAttachmentV1 {
+  return {
+    schemaVersion: 1,
+    mediaId: seed.repeat(48),
+    sessionId,
+    name,
+    mimeType,
+    sizeBytes: 1024,
+    kind: turnCompatible ? "image" : "file",
+    turnCompatible,
+    expiresAt: "2999-01-01T00:00:00Z",
+  };
+}
+
+function artifactCatalogItem(): ArtifactCatalogItemV1 {
+  return {
+    schemaVersion: 1,
+    artifactId: "A".repeat(48),
+    sessionId: "session-1",
+    kind: "artifact",
+    displayName: "report.txt",
+    mimeType: "text/plain",
+    sizeBytes: 72,
+    createdAt: "2026-08-20T00:00:00Z",
+    source: "attachment",
+    state: "active",
+    contentKind: "diff",
+    occurrenceCount: 1,
+    toolName: null,
+    toolStatus: null,
+    summary: null,
+    actions: ["detach", "read"],
+  };
+}

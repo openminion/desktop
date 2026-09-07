@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate GitHub Actions workflows
+        if: matrix.os == 'ubuntu-latest'
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate commit messages
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            git fetch --no-tags origin \
+              "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            base_commit="$(git merge-base HEAD "origin/${GITHUB_BASE_REF}")"
+            node scripts/commit-message.mjs --range "${base_commit}..HEAD"
+          elif [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]] && \
+            git merge-base --is-ancestor "${BEFORE_SHA}" HEAD; then
+            node scripts/commit-message.mjs --range "${BEFORE_SHA}..HEAD"
+          else
+            node scripts/commit-message.mjs --git-head
+          fi
+
+      - name: Run package check
+        run: npm run ci-check
+
+      - name: Build unsigned macOS package
+        if: matrix.os == 'macos-latest'
+        run: npm run package
