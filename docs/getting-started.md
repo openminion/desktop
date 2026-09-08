@@ -86,7 +86,8 @@ drafts are not persisted after quitting the app. After sending, your message rem
 visible while OpenMinion works, then the conversation refreshes from saved
 history. Rejected submissions keep the text in the composer for correction.
 
-Create a **New task** in the sidebar, then write your message. Use the send
+Write your first message and send it to create a task automatically. Use
+**New task** in the sidebar to start another conversation. Use the send
 button or **Command+Enter** on macOS (**Ctrl+Enter** elsewhere). Enter alone
 adds a new line.
 

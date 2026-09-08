@@ -57,8 +57,10 @@ async function check() {
     };
     await waitFor("document.querySelector('#connection-label').textContent === 'Connected'");
     assert.equal(await evaluate("typeof window.require"), "undefined");
-    await evaluate("document.querySelector('#new-session').click()");
-    await waitFor("document.querySelector('#chat-status').textContent.includes('Local draft')");
+    assert.match(
+      await evaluate("document.querySelector('#chat-status').textContent"),
+      /Send a message/,
+    );
     assert.equal(await evaluate("document.querySelector('#attach-image').disabled"), true);
     await evaluate(
       `document.querySelector('#composer').value = 'Published runtime GUI proof'; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#send').click()`,

@@ -605,11 +605,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const turnAttachmentsAreValid = () =>
-    Boolean(
-      selected &&
-        attachments.every(
-          (attachment) => attachment.sessionId === selected?.sessionId && attachment.turnCompatible,
-        ),
+    attachments.every(
+      (attachment) => attachment.sessionId === selected?.sessionId && attachment.turnCompatible,
     );
 
   const staleGuidanceReason = (
@@ -1407,21 +1404,22 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       elements.composer.value.trimStart().startsWith("/") &&
       !elements.composer.value.trimStart().startsWith("//");
     elements.send.disabled =
-      !isCommand &&
-      (!daemonReady ||
-        !writable ||
-        chat.active ||
-        attachmentPending ||
-        !elements.composer.value.trim() ||
-        !attachmentsValid);
+      creatingTask ||
+      (!isCommand &&
+        (!daemonReady ||
+          selected?.status === "closed" ||
+          chat.active ||
+          attachmentPending ||
+          !elements.composer.value.trim() ||
+          !attachmentsValid));
     elements.cancel.hidden = !chat.active;
     elements.cancel.disabled = !chat.active || !chat.traceId;
     elements.send.title = isCommand
       ? "Run command"
       : !daemonReady
         ? "Connect OpenMinion to send this draft"
-        : !writable
-          ? "Create or choose a task to send"
+        : selected?.status === "closed"
+          ? "Create or choose an open task to send"
           : "Send message (⌘ / Ctrl + Enter)";
     elements.composer.disabled = false;
     elements.closeSession.disabled = !writable || chat.active || attachmentPending;
@@ -1627,7 +1625,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       chat = {
         ...chat,
         label: daemonReady
-          ? "Write a draft, then create a task to send."
+          ? "Send a message to start a new task."
           : view.showRecovery
             ? ""
             : "Connecting to OpenMinion…",
@@ -1776,24 +1774,28 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     elements.retry.disabled = false;
   });
-  elements.newSession.addEventListener("click", async () => {
-    if (creatingTask || chat.active) return;
+  const createTask = async () => {
+    if (creatingTask || chat.active) return false;
     if (!daemonReady) {
       elements.composer.focus();
-      return;
+      return false;
     }
     creatingTask = true;
     renderChat();
     const result = await api.sessions.create({ title: "New task" });
-    creatingTask = false;
     if (!result.ok) {
+      creatingTask = false;
       showError(result.error);
-      return;
+      return false;
     }
     sessions = [result.value, ...sessions];
     await selectSession(result.value);
+    creatingTask = false;
+    renderChat();
     elements.composer.focus();
-  });
+    return true;
+  };
+  elements.newSession.addEventListener("click", () => void createTask());
   elements.closeSession.addEventListener("click", async () => {
     if (!selected || chat.active) {
       return;
@@ -1848,7 +1850,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   });
   const submitTurn = async (asGuidance: boolean) => {
     if (!asGuidance && (await runCommand(elements.composer.value))) return;
-    if (!selected || !daemonReady || chat.active) {
+    if (!daemonReady || creatingTask || chat.active || selected?.status === "closed") {
       return;
     }
     const draft = elements.composer.value;
@@ -1856,6 +1858,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (!message) {
       return;
     }
+    if (!selected && (asGuidance || !(await createTask()))) return;
+    if (!selected) return;
     const pending = asGuidance
       ? guidanceSnapshot(selected.sessionId, captureState, captureFrame)
       : null;

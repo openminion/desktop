@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Enabled sending directly from the empty workspace: the first message creates
+  its task automatically, without requiring a separate New task click.
+
 - Connected text chat and saved sessions to the pinned PyPI runtime through its
   ordinary CLI/API, with delivery acknowledgement, authenticated cancellation,
   and completed-history recovery.

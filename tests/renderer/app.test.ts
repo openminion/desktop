@@ -122,6 +122,79 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it("creates the first task on send, preserves failed drafts, and admits one submission", async () => {
+    const session = { ...sessionSummary(), isDraft: true };
+    let resolveCreation!: (value: { ok: true; value: SessionSummaryV1 }) => void;
+    const creation = new Promise<{ ok: true; value: SessionSummaryV1 }>((resolve) => {
+      resolveCreation = resolve;
+    });
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "daemon_unavailable",
+          message: "Reconnect and try again.",
+          retryable: true,
+          retryAfterMs: null,
+        },
+      })
+      .mockReturnValueOnce(creation);
+    const submit = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { sessionId: session.sessionId, requestId: "request-1", traceId: "trace-1" },
+    });
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        create,
+        list: async () => ({ ok: true, value: { sessions: [], nextCursor: null, hasMore: false } }),
+        load: async () => ({
+          ok: true,
+          value: { session, messages: [], nextMessageCursor: "0", messagesHasMore: false },
+        }),
+        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+      },
+      turns: { submit, subscribe: () => () => {} },
+      media: { release: vi.fn() },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      expect(page.element("send").disabled).toBe(true);
+      page.element("composer").value = "hi";
+      page.element("composer").dispatch("input");
+      expect(page.element("send").disabled).toBe(false);
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(page.element("chat-status").textContent).toBe("Reconnect and try again."),
+      );
+      expect(page.element("composer").value).toBe("hi");
+      expect(submit).not.toHaveBeenCalled();
+      page.element("composer").dispatch("keydown", { key: "Enter", metaKey: true });
+      await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+      expect(page.element("send").disabled).toBe(true);
+      page.element("composer-form").dispatch("submit");
+      page.element("new-session").click();
+      page.element("composer").value = "Next draft";
+      page.element("composer").dispatch("input");
+      resolveCreation({ ok: true, value: session });
+      await vi.waitFor(() =>
+        expect(submit).toHaveBeenCalledWith({ sessionId: session.sessionId, message: "hi" }),
+      );
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(submit).toHaveBeenCalledOnce();
+      expect(page.element("composer").value).toBe("Next draft");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps drafts editable offline and preserves them when creating a connected task", async () => {
     const session = sessionSummary();
     const create = vi.fn().mockResolvedValue({ ok: true, value: session });
