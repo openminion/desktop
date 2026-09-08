@@ -30,10 +30,26 @@ runtime roots, and configuration path outside the renderer boundary.
 ## Current integration status
 
 Lifecycle integration works with the public PyPI `0.0.18` command surface and
-has real-daemon start/status/stop proof. Rich chat, session, approval, media, and
-artifact transport is not connected in this lifecycle slice. It must be adapted
-to existing public OpenMinion interfaces without restoring Desktop-only code in
-the OpenMinion package.
+has real-daemon start/status/stop proof. Desktop main invokes fixed `sessions
+list/show/close` and `export transcript` operations for saved conversations.
+Text turns use authenticated loopback `POST /v1/turn/stream`; cancellation uses
+`POST /v1/turn/{trace_id}/cancel`. Executable paths, config, and IPC tokens remain
+main-only. Prompts are HTTP request bodies and never process arguments.
+
+A new task is an in-memory draft until the first canonical turn creates it.
+Desktop maps CLI transcript inbound/outbound roles to user/assistant display
+roles and recovers history from OpenMinion. Session agent selection is preserved
+when sending a follow-up. Like Focus, Desktop supplies `caller_handles_delivery`
+and resume metadata to acknowledge displayed replies and continue the canonical
+thread. The pinned one-shot `run` command omits that delivery metadata and replays
+an undelivered reply on a follow-up, so it is not used for Desktop turns.
+No empty-session prompt is injected.
+
+Approval decisions, media, artifacts, full Focus commands, and active-turn
+reattachment remain incomplete. They must use existing public interfaces without
+restoring Desktop-only code in the OpenMinion package. The legacy typed HTTP
+client remains for its existing tests and shared validation; the live supervisor
+uses `CliClient` exclusively.
 
 ## Internal application surfaces
 

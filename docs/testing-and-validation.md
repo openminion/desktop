@@ -64,6 +64,25 @@ through the ordinary CLI, starts the daemon, probes its machine-readable status,
 and stops it. Use the pinned PyPI release or a source executable with the same
 public lifecycle commands. This is lifecycle proof, not rich chat/session proof.
 
+## Published Package Conversation
+
+Use an isolated installation of the pinned PyPI package:
+
+```bash
+OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npm test -- tests/main/cli-client.test.ts
+npm run build
+OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/pypi.mjs
+```
+
+These opt-in tests create private temporary config/data roots and use the echo
+provider. They prove text turns, canonical history, daemon restart recovery, a same-session
+follow-up,
+and session closing. The Electron test drives the production main, preload, and
+renderer, checks the local-draft label and unavailable attachments, and reloads
+the renderer after restarting the daemon. Both stop their isolated daemon.
+They do not prove paid provider behavior, live long-running cancellation,
+approvals, media delivery, or full Focus command parity.
+
 ## Workspace Regression Checks
 
 Run the actual sandboxed application startup check on macOS:

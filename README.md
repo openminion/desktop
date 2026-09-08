@@ -23,16 +23,15 @@
 </p>
 
 OpenMinion Desktop is the local graphical client for the OpenMinion agent
-runtime. It provides chat, session history, approvals, attachments, artifacts,
-and explicitly selected screen or window context while keeping agent execution,
+runtime. It provides text chat and session history, with preview UI for approvals,
+attachments, artifacts, and screen context, while keeping agent execution,
 credentials, policy, and durable session truth in the OpenMinion daemon.
 
 The application is a development alpha. On first launch it creates an isolated
 Python environment in the application data directory, installs the pinned
 OpenMinion release from PyPI, creates a local demo config, and starts the
-ordinary OpenMinion daemon. Rich chat and session transport is being adapted to
-OpenMinion's existing public interfaces and is not connected in this lifecycle
-slice. Signed distribution, Desktop self-updates, remote daemon operation, and
+ordinary OpenMinion daemon. Saved conversations use its existing public CLI; text turns and cancellation
+use its authenticated local API. Signed distribution, Desktop self-updates, remote daemon operation, and
 native input control are not available yet.
 
 ## Read This First
@@ -81,13 +80,11 @@ inspects an unsigned local macOS application; it is not a public release.
 
 ## What OpenMinion Desktop Provides
 
-- browse, create, reopen, and close local OpenMinion sessions
+- browse, reopen, and close local OpenMinion sessions; create them with a first message
 - chat with streaming progress and typed terminal outcomes
-- cancel active turns and recover after renderer reload or daemon reconnect
-- review tool progress and make one-time approval decisions
-- attach bounded images and represent unsupported files safely
-- inspect artifacts and tool-output summaries without exposing native paths
-- select a screen or window for explicit observation and grounded guidance
+- cancel active turns and recover completed history after renderer reload or daemon restart
+- preview approvals, attachments, artifacts, and screen context in the UI fixture
+- select a screen or window for local preview when native permission is available
 - install, version-check, start, monitor, and stop an app-owned OpenMinion daemon
 
 ## What OpenMinion Desktop Does Not Provide
@@ -98,7 +95,8 @@ inspects an unsigned local macOS application; it is not a public release.
 - hidden screen capture, always-on observation, or unrestricted native input
 - remote daemon attachment, hosted synchronization, or multi-device control
 - signed, notarized, automatically updating public releases
-- a connected rich chat/session transport in the current lifecycle slice
+- full Focus slash-command parity, connected approvals, attachment sending, or artifact browsing
+- reattachment to an active turn after quitting the application
 
 ## Requirements
 

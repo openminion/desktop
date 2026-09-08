@@ -36,8 +36,9 @@ It does not claim a signed release, remote daemon service, Windows or Linux
 desktop package, unrestricted native input, or a second agent runtime.
 
 Desktop lifecycle uses the pinned public PyPI package and ordinary OpenMinion
-commands. Rich chat/session transport remains incomplete and must use existing
-public interfaces rather than a Desktop-specific OpenMinion command.
+commands. Text chat and completed session history use the public CLI/API.
+Approvals, media, artifacts, and full Focus parity remain incomplete; all further
+integration must use existing public interfaces.
 
 Historical planning packets and workspace-local trackers are not public
 product guidance. Current behavior is defined by this repository, its public

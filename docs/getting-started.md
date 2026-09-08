@@ -63,18 +63,21 @@ OPENMINION_EXECUTABLE=/path/to/openminion npm start
 The executable must provide the ordinary `config init` and `daemon
 start/status/stop` commands. No Desktop-specific OpenMinion command is required.
 
-The current lifecycle slice stops after installing and running the local daemon.
-Rich chat/session transport is not connected yet; use `npm run preview` for the
-complete UI fixture while that adapter is implemented.
+The real app supports text messages, saved history, task closing, and turn
+cancellation through the ordinary CLI/API. New installations use the **echo demo
+provider**, which repeats input without calling a model. Configure a real provider
+through OpenMinion's existing configuration workflow; Desktop does not add a
+provider or credential owner. Use `npm run preview` for sample approval, file,
+artifact, and screen-context interactions that are not connected to PyPI yet.
 
 ## Workspace Basics
 
-The workflows below are implemented in the UI preview. In the real app they
-remain unavailable until Desktop's chat/session adapter is connected to the
-ordinary OpenMinion public interfaces.
+Text chat and completed conversation history work in the real app. Attachment
+sending, artifact browsing, approval decisions, and automatic watch remain
+preview-only; the connected app marks those integrations unavailable.
 
-You can write a local draft before the daemon connects. Creating a saved task,
-attaching real context, and sending require the daemon connection. Draft text
+You can write a local draft before the daemon connects. Creating a task draft and sending require the daemon connection. A new task is
+explicitly local until its first message creates the canonical saved session. Draft text
 is preserved when you connect and create the task.
 
 Unsent text stays with its task when you switch between tasks during the same

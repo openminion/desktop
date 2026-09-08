@@ -49,6 +49,7 @@ export type ClientResult<T> = { ok: true; value: T } | { ok: false; error: Error
 export type SessionStatus = "active" | "idle" | "paused" | "stale" | "closed";
 
 export type SessionSummaryV1 = {
+  isDraft?: boolean;
   schemaVersion: 1;
   sessionId: string;
   title: string | null;

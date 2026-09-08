@@ -27,7 +27,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | Command | Behavior |
 | --- | --- |
 | `/help` or `/` | Show the working Desktop command list. |
-| `/new`, `/new session` | Create a saved task through the daemon. Requires connection and no active turn in the selected task. |
+| `/new`, `/new session` | Create a local task draft; its first message creates the saved session. Requires connection and no active turn in the selected task. |
 | `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration. |
 | `/status` | Show connection, selected task, active agent, reported model, and turn status. |
 | `/model` | Show the model facts reported by the daemon; changing models is not supported here yet. |
@@ -60,8 +60,9 @@ provides the narrow clipboard-write bridge; neither surface reads the clipboard.
 
 Focus's canonical command catalog is owned by OpenMinion's CLI presentation
 layer. Its handlers operate on the CLI runtime. Desktop's legacy typed client
-models sessions, turns, approvals, media, and artifacts, but it is not connected
-to the ordinary OpenMinion runtime in the current lifecycle slice.
+models sessions, turns, approvals, media, and artifacts. The live CLI adapter
+connects text turns and saved sessions; approvals, media, artifacts, and broader
+Focus commands remain pending.
 
 | Focus command family | Required Desktop adaptation before it is connected |
 | --- | --- |
@@ -70,7 +71,7 @@ to the ordinary OpenMinion runtime in the current lifecycle slice.
 | `/permissions`, `/readonly` | Read and update session policy with canonical validation and visible effective policy. |
 | `/context`, `/context-review`, `/compact` | Query the context owner and request supported session compaction. The files panel is not a substitute for context-budget inspection. |
 | `/tokens`, `/cost` | Return durable session usage and supported cost accounting, with unavailable fields explicit. |
-| `/memory`, `/graph`, `/telemetry`, `/trace`, `/overview` | Expose bounded, redacted owner queries over the authenticated Desktop contract. |
+| `/memory`, `/graph`, `/telemetry`, `/trace`, `/overview` | Expose bounded, redacted owner queries over the existing public interfaces. |
 | `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership and routing operations for admitted sessions. |
 | `/goal`, `/project`, `/delegate`, `/tasks`, `/queue` | Expose the existing goal, project, delegation, task, and queue owners; do not create Desktop-owned execution queues. |
 | `/init`, `/diff`, `/review`, `/undo`, `/browser` | Expose scoped workspace/browser operations and their existing permission and audit boundaries. |

@@ -52,7 +52,7 @@ describe("DaemonSupervisor", () => {
       reachable: true,
       daemonVersion: "0.0.18",
       protocol: null,
-      capabilities: [],
+      capabilities: ["sessions", "turns.text", "turns.cancel"],
     });
     expect(supervisor.startAttempts).toBe(1);
     expect(await supervisor.status()).toMatchObject({ state: "running", reachable: true });

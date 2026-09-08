@@ -49,11 +49,11 @@ const MEDIA_TYPES = new Map<string, MediaAttachmentV1["mimeType"]>([
 ]);
 
 export class MediaService {
-  readonly #client: OpenMinionClient;
+  readonly #client: Pick<OpenMinionClient, "uploadMedia" | "releaseMedia">;
   readonly #pickDialog: PickDialog;
 
   constructor(
-    client: OpenMinionClient,
+    client: Pick<OpenMinionClient, "uploadMedia" | "releaseMedia">,
     pickDialog: PickDialog = (options) => dialog.showOpenDialog(options),
   ) {
     this.#client = client;

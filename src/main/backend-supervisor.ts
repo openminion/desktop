@@ -9,7 +9,7 @@ import {
   type RunCommand,
   runCommand,
 } from "./installation.js";
-import { OpenMinionClient } from "./openminion-client.js";
+import { CliClient } from "./cli-client.js";
 
 export type DaemonSupervisorOptions = OpenMinionInstallationOptions & {
   commandTimeoutMs?: number;
@@ -29,7 +29,7 @@ export type OpenMinionCommandContext = {
 
 export class DaemonSupervisor {
   readonly lifecycle = new LifecycleState();
-  readonly client = new OpenMinionClient(() => null);
+  readonly client = new CliClient(() => this.getCommandContext());
   readonly #options: DaemonSupervisorOptions;
   readonly #installation: OpenMinionInstallation;
   readonly #runCommand: RunCommand;
@@ -99,7 +99,8 @@ export class DaemonSupervisor {
       daemonVersion: this.#daemonVersion,
       protocol: null,
       configId: null,
-      capabilities: [],
+      capabilities:
+        this.lifecycle.current === "running" ? ["sessions", "turns.text", "turns.cancel"] : [],
       errorCode: this.#errorCode,
     };
   }

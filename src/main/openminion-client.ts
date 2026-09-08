@@ -52,7 +52,7 @@ const STREAM_FRAME_LIMIT = 4_096;
 const TURN_BODY_BYTES = 256 * 1024;
 const DONE_FRAME_PREFIX = Buffer.from("event: done\n");
 const SESSION_STATUSES = new Set<SessionStatus>(["active", "idle", "paused", "stale", "closed"]);
-const EVENT_FACTS = new Set([
+export const EVENT_FACTS = new Set([
   "step",
   "status",
   "previous_status",
@@ -2140,3 +2140,22 @@ function failureFromPayload(payload: JsonRecord): ClientFailureResult {
 function resolveOnce<T>(result: ClientResult<T>, resolve: (result: ClientResult<T>) => void): void {
   resolve(result);
 }
+
+export {
+  validateListInput,
+  validateCreateInput,
+  validateLoadInput,
+  validateCloseInput,
+  validateEventsInput,
+  validateSubmitInput,
+  validateCancelInput,
+  requireRecord,
+  requireArray,
+  requireString,
+  optionalString,
+  responseEvent,
+  errorValue,
+  protocolError,
+  failure,
+  failureFrom,
+};

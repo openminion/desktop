@@ -32,7 +32,8 @@ sessions, credentials, policy decisions, artifacts, and durable execution
 truth. Do not create a second copy of those owners in Desktop.
 
 Desktop main may install a pinned OpenMinion package and invoke its ordinary
-public lifecycle commands. The managed executable, roots, config path, and
+public lifecycle, session, transcript, and turn commands through `CliClient`.
+The managed executable, roots, config path, and
 credentials remain main-only facts.
 
 Cross-process changes must preserve the main/preload/renderer authority split

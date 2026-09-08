@@ -195,10 +195,13 @@ export function captureRegionFromPercentages(values: readonly string[]): Capture
 }
 
 export function statusView(status: DaemonStatus): StatusView {
-  if (status.state === "ready") {
+  if (status.state === "ready" || status.capabilities.includes("turns.text")) {
     return {
       label: "Connected",
-      summary: "Ready for messages and screen context.",
+      summary:
+        status.state === "ready"
+          ? "Ready for messages and screen context."
+          : "Connected to OpenMinion. New installations use the echo demo provider.",
       tone: "ready",
       showRetry: false,
       showRecovery: false,
@@ -542,6 +545,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let sessions: SessionSummaryV1[] = [];
   let selected: SessionSummaryV1 | null = null;
   let daemonReady = false;
+  let richContextReady = false;
   let creatingTask = false;
   let messages: MessageV1[] = [];
   const drafts = new Map<string, string>();
@@ -728,7 +732,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const renderGuidance = () => {
     refreshGuidanceState();
     const eligible = Boolean(
-      selected &&
+      richContextReady &&
+        selected &&
         selected.status !== "closed" &&
         !chat.active &&
         !attachmentPending &&
@@ -766,11 +771,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const renderObservation = () => {
-    const writable = Boolean(selected && selected.status !== "closed" && observationApi);
+    const writable = Boolean(
+      richContextReady && selected && selected.status !== "closed" && observationApi,
+    );
     const state = observationStatus?.state ?? "idle";
     elements.observationState.textContent = state[0]!.toUpperCase() + state.slice(1);
-    elements.observationStatus.textContent =
-      observationMessage ?? observationStatusCopy(observationStatus, writable);
+    elements.observationStatus.textContent = richContextReady
+      ? (observationMessage ?? observationStatusCopy(observationStatus, writable))
+      : "Screenshot sending and automatic watch are not connected to this runtime.";
     const configuring = ["selecting", "uploading", "inferencing", "stopping", "failed"].includes(
       state,
     );
@@ -1003,9 +1011,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const renderFiles = () => {
-    const writable = Boolean(selected && selected.status !== "closed" && api.files);
+    const writable = Boolean(
+      richContextReady && selected && selected.status !== "closed" && api.files,
+    );
     elements.chooseFile.disabled = !writable || chat.active || attachmentPending;
-    elements.fileStatus.textContent = fileLabel;
+    elements.fileStatus.textContent = richContextReady
+      ? fileLabel
+      : "File import is not connected to this runtime.";
     renderFileGrants(
       root,
       elements.fileGrantList,
@@ -1099,9 +1111,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const renderArtifacts = () => {
-    const writable = Boolean(selected && selected.status !== "closed");
+    const writable = Boolean(richContextReady && selected && selected.status !== "closed");
     elements.refreshArtifacts.disabled = !writable || artifactPending;
-    elements.artifactStatus.textContent = artifactLabel;
+    elements.artifactStatus.textContent = richContextReady
+      ? artifactLabel
+      : "Artifact browsing is not connected to this runtime.";
     renderArtifactList(
       root,
       elements.artifactList,
@@ -1412,7 +1426,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.composer.disabled = false;
     elements.closeSession.disabled = !writable || chat.active || attachmentPending;
     elements.attachImage.disabled =
-      !writable || chat.active || attachmentPending || attachments.length >= 4;
+      !richContextReady || !writable || chat.active || attachmentPending || attachments.length >= 4;
     elements.attachFile.disabled = elements.attachImage.disabled;
     elements.currentTitle.textContent = selected?.title ?? "New task";
     elements.currentTitle.title = elements.currentTitle.textContent;
@@ -1545,7 +1559,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderArtifacts();
     renderFiles();
     renderCapture();
-    const artifactsLoading = loadArtifacts(session.sessionId, generation);
+    const artifactsLoading = richContextReady
+      ? loadArtifacts(session.sessionId, generation)
+      : Promise.resolve();
     const recovered = await recoverSession(api, session.sessionId);
     if (generation !== selectionGeneration || selected?.sessionId !== session.sessionId) {
       return;
@@ -1568,7 +1584,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       ...initialChatState(),
       sessionId: recovered.session.sessionId,
       terminalTraceId,
-      label: terminalLabel(recovered.events),
+      label: recovered.session.isDraft
+        ? "Local draft. Your first message creates the saved conversation."
+        : terminalLabel(recovered.events),
     };
     const live = liveTurns.get(session.sessionId);
     if (live) {
@@ -1603,7 +1621,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
 
   const renderStatus = (status: DaemonStatus) => {
     const view = statusView(status);
-    daemonReady = status.state === "ready";
+    daemonReady = status.state === "ready" || status.capabilities.includes("turns.text");
+    richContextReady = status.state === "ready";
     if (!selected) {
       chat = {
         ...chat,
@@ -1631,7 +1650,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       status = await api.daemon.retry();
       renderStatus(status);
     }
-    if (status.state === "ready") {
+    if (daemonReady) {
       await loadSessions();
     }
   };
@@ -1752,7 +1771,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.retry.disabled = true;
     const status = await api.daemon.retry();
     renderStatus(status);
-    if (status.state === "ready") {
+    if (daemonReady) {
       await loadSessions();
     }
     elements.retry.disabled = false;

@@ -33,8 +33,9 @@ and the rich CLI renderer differ.
 ## Current Differences
 
 This is a source assessment, not end-to-end parity certification. The current
-Desktop lifecycle installs and runs ordinary OpenMinion, but the legacy rich
-client is not connected to that public runtime surface.
+Desktop installs and runs ordinary OpenMinion and connects text turns and saved
+history through its public CLI/API. The broader Focus command surface, approvals,
+media, and artifacts still require Desktop integration.
 
 | Surface | Current Desktop gap | Required outcome |
 | --- | --- | --- |

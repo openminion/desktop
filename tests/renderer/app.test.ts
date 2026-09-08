@@ -242,6 +242,12 @@ describe("renderer status view", () => {
     });
   });
 
+  it("connects text chat only when the running runtime exposes its adapter", () => {
+    expect(
+      statusView(status({ state: "running", reachable: true, capabilities: ["turns.text"] })),
+    ).toMatchObject({ label: "Connected", tone: "ready", showRecovery: false });
+  });
+
   it("shows bounded recovery after bootstrap failure", () => {
     expect(statusView(status({ state: "degraded" }))).toMatchObject({
       tone: "degraded",

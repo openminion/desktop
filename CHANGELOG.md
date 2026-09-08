@@ -7,11 +7,18 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Connected text chat and saved sessions to the pinned PyPI runtime through its
+  ordinary CLI/API, with delivery acknowledgement, authenticated cancellation,
+  and completed-history recovery.
+- Labeled new tasks as local drafts until their first message and marked pending
+  attachment, artifact, and screen-sending integrations unavailable.
+- Added opt-in published-package CLI and production Electron conversation checks.
+
 - Added a Desktop-owned first-run lifecycle that installs pinned
   `openminion==0.0.18` from PyPI, creates an isolated authenticated demo config,
   and uses the ordinary daemon start, status, and stop commands.
 - Removed Desktop lifecycle dependence on the former Desktop-specific bootstrap
-  and lease contract. Rich chat/session transport remains explicitly pending.
+  and lease contract. Approval, media, and artifact transport remain pending.
 
 - Established Focus/CLI as Desktop's behavior contract and recorded the missing
   shared command integration. Full Focus parity is not implemented yet.
