@@ -33,12 +33,12 @@ and the rich CLI renderer differ.
 ## Current Differences
 
 This is a source assessment, not end-to-end parity certification. The current
-daemon capabilities cover sessions, turns, approvals, media, and artifacts;
-there is no shared Focus command discovery or execution contract.
+Desktop lifecycle installs and runs ordinary OpenMinion, but the legacy rich
+client is not connected to that public runtime surface.
 
 | Surface | Current Desktop gap | Required outcome |
 | --- | --- | --- |
-| Catalog and help | A small static renderer list | Discover canonical names, aliases, usage, availability, and descriptions from the matched daemon |
+| Catalog and help | A small static renderer list | Discover canonical names, aliases, usage, availability, and descriptions through fixed public OpenMinion operations |
 | Arguments and busy state | Desktop rejects arguments and applies local button rules | Use the same parser and command admission as Focus, including bare queries during a turn |
 | `/new`, `/sessions` | Saved-task creation and selection exist; Focus directory scope is not established | Preserve working directory, selected agent, session scope, and canonical creation/binding defaults |
 | `/resume` | Not connected; the incorrect `/sessions` alias was removed | Present prior sessions with messages in the current directory, then bind and load history |
@@ -54,39 +54,20 @@ capture remains a GUI input method. Files, screenshots, cancellation, task
 closing, and reconnection keep their existing buttons; they do not introduce
 additional slash names.
 
-## Daemon Integration Handoff
+## Desktop Integration Handoff
 
-The following is a proposed contract for the OpenMinion integration owner,
-not an implemented API. Do not add callable preload methods before the daemon
-implements and versions this contract. Reuse existing runtime owners and
-extract shared behavior from terminal handlers where necessary; do not invoke
-a second interactive CLI process or copy its business logic into TypeScript.
+The integration belongs in Desktop. Main receives a read-only command context
+from the lifecycle owner and may invoke only fixed, validated ordinary CLI or
+HTTP operations. Preload exposes narrow typed results, and the renderer presents
+them. Executable paths, runtime roots, configuration, credentials, and generic
+subprocess authority remain in main.
 
-Two authenticated daemon operations are needed:
-
-1. `focus.commands.list({ sessionId })` returns the canonical catalog for the
-   admitted session: `name`, `aliases`, `description`, `usage`, `available`, and
-   `unavailableReason` for each command. Availability includes current runtime
-   capabilities. The daemon remains authoritative when a command is executed.
-2. `focus.commands.execute({ requestId, sessionId, command, argumentText })`
-   resolves a registered command through the shared Focus parser and handler.
-   `argumentText` preserves the user's arguments for canonical parsing; it is
-   never evaluated as a shell command or submitted as an assistant prompt.
-   Return the canonical result and any changed selected-session identity.
-
-The daemon owner must version the result schema for text, structured reports,
-choices, and transcript presentation actions. Choice selection must return to
-the same command operation with a daemon-issued interaction ID and choice ID;
-Desktop must not construct a new command from a display label. Commands that
-need confirmation use existing approval ownership and decision flow. Errors
-use the current error envelope, and effects use existing session/turn events.
-Requests must retain the current client lease, admitted-session, cancellation,
-and duplicate-request protections. Credentials remain daemon-owned.
-
-Desktop main then calls these fixed authenticated operations, preload exposes
-their typed application methods, and the renderer presents results. Terminal
-actions such as clearing, copying, or exiting map to explicit GUI actions with
-the same user intent. A catalog entry is never proof of execution support.
+Do not restore Desktop-specific commands, routes, leases, or bootstrap code in
+OpenMinion. Do not run arbitrary renderer-provided command strings, start a
+second interactive terminal, or copy OpenMinion business logic into TypeScript.
+Terminal-only actions such as clearing, copying, or exiting map to explicit GUI
+actions with the same user intent. A catalog entry is never proof of execution
+support.
 
 All canonical command families need coverage:
 

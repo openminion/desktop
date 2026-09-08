@@ -216,10 +216,10 @@ describe("renderer status view", () => {
         expect(page.element("command-title").textContent).toBe("Command unavailable");
       }
       expect(submit).not.toHaveBeenCalled();
-      api.daemon.status = async () => status({ state: "leasing" });
+      api.daemon.status = async () => status({ state: "running" });
       const startingPage = new FixtureDocument();
       await mount(api, startingPage.asDocument());
-      expect(startingPage.element("connection-label").textContent).toBe("Connected");
+      expect(startingPage.element("connection-label").textContent).toBe("OpenMinion running");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -229,6 +229,17 @@ describe("renderer status view", () => {
     const view = statusView(status({ state: "ready", reachable: true, daemonVersion: "0.0.9" }));
     expect(view).toMatchObject({ tone: "ready", showRetry: false });
     expect(JSON.stringify(view)).not.toMatch(/token|host|port|path/i);
+  });
+
+  it("distinguishes a running runtime from a connected chat transport", () => {
+    expect(
+      statusView(status({ state: "running", reachable: true, daemonVersion: "0.0.18" })),
+    ).toMatchObject({
+      label: "OpenMinion running",
+      tone: "pending",
+      showRetry: false,
+      showRecovery: true,
+    });
   });
 
   it("shows bounded recovery after bootstrap failure", () => {

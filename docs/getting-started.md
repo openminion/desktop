@@ -1,7 +1,7 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 Purpose: provide the package-local bootstrap and first-run path for the
 OpenMinion Desktop source repository.
@@ -11,7 +11,7 @@ OpenMinion Desktop source repository.
 1. macOS for running the current application profile,
 2. Node.js 24,
 3. npm 11, and
-4. a matching desktop-capable local OpenMinion checkout or executable.
+4. Python 3.11 for the current managed PyPI installation path.
 
 Linux participates in provider-free CI, but Linux and Windows desktop packages
 are not currently certified.
@@ -42,24 +42,36 @@ the window closes. This development fixture is excluded from packaged apps.
 
 For the real application, use the following setup.
 
-Configure OpenMinion with a nonblank `runtime.ipc_token`. If the intended
-`openminion` executable is on `PATH`, start Desktop with:
+Start Desktop with:
 
 ```bash
 npm start
 ```
 
-Otherwise select it explicitly:
+On first launch, Desktop creates a Python environment under its application data
+directory, installs the pinned `openminion==0.0.18` PyPI package, initializes a
+credential-free echo config, assigns an authenticated loopback daemon endpoint,
+and starts the daemon. Later launches reuse the environment while its version
+matches the pin.
+
+For source development, bypass the managed installation with:
 
 ```bash
-OPENMINION_ODF_EXECUTABLE=/path/to/openminion npm start
+OPENMINION_EXECUTABLE=/path/to/openminion npm start
 ```
 
-The executable must provide `openminion daemon desktop-bootstrap`. As of
-2026-09-07, OpenMinion `main` does not contain that command; use the explicitly
-matched desktop-capable development revision.
+The executable must provide the ordinary `config init` and `daemon
+start/status/stop` commands. No Desktop-specific OpenMinion command is required.
+
+The current lifecycle slice stops after installing and running the local daemon.
+Rich chat/session transport is not connected yet; use `npm run preview` for the
+complete UI fixture while that adapter is implemented.
 
 ## Workspace Basics
+
+The workflows below are implemented in the UI preview. In the real app they
+remain unavailable until Desktop's chat/session adapter is connected to the
+ordinary OpenMinion public interfaces.
 
 You can write a local draft before the daemon connects. Creating a saved task,
 attaching real context, and sending require the daemon connection. Draft text

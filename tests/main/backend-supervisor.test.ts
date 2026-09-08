@@ -1,287 +1,175 @@
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DaemonSupervisor } from "../../src/main/backend-supervisor.js";
-import { DESKTOP_CAPABILITIES, type DesktopClientReady } from "../../src/shared/contracts.js";
+import type { CommandResult, RunCommand } from "../../src/main/installation.js";
 
 const cleanup: Array<() => Promise<void>> = [];
+const integrationExecutable = process.env.OPENMINION_EXECUTABLE;
 
 afterEach(async () => {
-  while (cleanup.length > 0) {
-    await cleanup.pop()?.();
-  }
+  while (cleanup.length > 0) await cleanup.pop()?.();
 });
 
 describe("DaemonSupervisor", () => {
-  it("advertises the exact atomic desktop capability set", () => {
-    expect([...DESKTOP_CAPABILITIES]).toEqual([
-      "daemon.health",
-      "daemon.ready",
-      "client.capabilities",
-      "client.lease.renew",
-      "client.lease.revoke",
-      "sessions.list",
-      "sessions.create",
-      "sessions.load",
-      "sessions.close",
-      "sessions.events",
-      "turns.submit",
-      "turns.cancel",
-      "turns.tool_progress",
-      "approvals.decide",
-      "media.upload",
-      "media.read",
-      "media.release",
-      "artifacts.catalog.v1",
-      "artifacts.content.v1",
-      "artifacts.detach_restore.v1",
-      "tool_outputs.read.v1",
-    ]);
-  });
-
-  it("bootstraps through fd 3, keeps credentials private, and revokes on exit", async () => {
-    const daemon = await daemonFixture();
+  it("starts, checks, and stops the ordinary app-owned daemon", async () => {
     const root = await temporaryRoot();
-    const argumentsPath = join(root, "arguments.json");
-    const executable = await bootstrapExecutable(root, daemon.readiness, undefined, argumentsPath);
+    const executable = await fakeExecutable(root);
+    const calls: Array<{ executable: string; args: readonly string[] }> = [];
+    let reachable = false;
+    const runCommand: RunCommand = vi.fn(async (command, args) => {
+      calls.push({ executable: command, args });
+      if (args.length === 1 && args[0] === "--version") return result(0, "0.0.18\n");
+      if (args.includes("init")) {
+        await writeFile(join(root, "agents.json"), '{"runtime":{}}\n', "utf-8");
+        return result(0, "Initialized config\n");
+      }
+      if (args.at(-1) === "--json") {
+        return result(reachable ? 0 : 1, JSON.stringify({ reachable }));
+      }
+      if (args.at(-1) === "start") {
+        reachable = true;
+        return result(0, "Started daemon\n");
+      }
+      if (args.at(-1) === "stop") {
+        reachable = false;
+        return result(0, "Stopped daemon\n");
+      }
+      return result(2, "", "unexpected command");
+    });
     const supervisor = new DaemonSupervisor({
+      runtimeRoot: join(root, "runtime"),
       openminionExecutable: executable,
-      configPath: join(root, "config.json"),
       homeRoot: join(root, "home"),
       dataRoot: join(root, "data"),
+      configPath: join(root, "agents.json"),
+      runCommand,
     });
 
-    const started = await supervisor.start();
-    expect(started).toMatchObject({
-      state: "ready",
+    expect(await supervisor.start()).toMatchObject({
+      state: "running",
       reachable: true,
-      capabilities: [...DESKTOP_CAPABILITIES],
+      daemonVersion: "0.0.18",
+      protocol: null,
+      capabilities: [],
     });
-    expect(JSON.stringify(started)).not.toContain(daemon.readiness.client_token);
-    expect(JSON.stringify(started)).not.toContain(daemon.readiness.host);
-    const argumentsSeen = JSON.parse(await readFile(argumentsPath, "utf-8"));
-    expect(argumentsSeen).toEqual([
-      "--home-root",
-      join(root, "home"),
-      "--data-root",
-      join(root, "data"),
-      "--config",
-      join(root, "config.json"),
+    expect(supervisor.startAttempts).toBe(1);
+    expect(await supervisor.status()).toMatchObject({ state: "running", reachable: true });
+    expect(supervisor.getCommandContext()).toEqual({
+      executable,
+      args: [
+        "--home-root",
+        join(root, "home"),
+        "--data-root",
+        join(root, "data"),
+        "--config",
+        join(root, "agents.json"),
+      ],
+    });
+    expect(await supervisor.stop()).toEqual({ stopped: true });
+    expect(supervisor.snapshot()).toMatchObject({ state: "stopped", reachable: false });
+
+    const openMinionCalls = calls.filter((call) => call.args.length > 1);
+    expect(openMinionCalls.map((call) => call.args.slice(-3))).toContainEqual([
       "daemon",
-      "desktop-bootstrap",
-      "--fd",
-      "3",
+      "status",
+      "--json",
     ]);
-    expect(JSON.stringify(argumentsSeen)).not.toContain(daemon.readiness.client_token);
-    expect(await supervisor.status()).toMatchObject({ state: "ready" });
-    expect(daemon.requests).toContain("GET /v1/client/capabilities");
-    expect(daemon.requests).toContain("GET /v1/health");
-    expect(daemon.tokens.every((token) => token === daemon.readiness.client_token)).toBe(true);
-
-    expect(await supervisor.stop()).toEqual({ revoked: true });
-    expect(supervisor.snapshot().state).toBe("stopped");
-    expect(daemon.requests).toContain("DELETE /v1/client/leases/current");
-    expect(daemon.server.listening).toBe(true);
+    expect(calls.some((call) => call.args.includes("init"))).toBe(true);
+    const config = JSON.parse(await readFile(join(root, "agents.json"), "utf-8"));
+    expect(config.runtime).toMatchObject({ ipc_host: "127.0.0.1" });
+    expect(config.runtime.ipc_port).toBeGreaterThan(0);
+    expect(config.runtime.ipc_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(supervisor.getCommandContext()).toBeNull();
+    expect(calls.flatMap((call) => call.args)).not.toContain("desktop-bootstrap");
+    expect(calls.flatMap((call) => call.args)).not.toContain("desktop-setup");
   });
 
-  it("fails closed for malformed and late readiness", async () => {
+  it("does not start a second daemon when the app-owned daemon is already reachable", async () => {
     const root = await temporaryRoot();
-    const malformed = await executableWithSource(
-      root,
-      'require("node:fs").writeSync(3, "{bad\\n");',
-    );
-    const malformedSupervisor = new DaemonSupervisor({
-      openminionExecutable: malformed,
+    const executable = await fakeExecutable(root);
+    const runCommand = vi.fn<RunCommand>(async (_command, args) => {
+      if (args.length === 1) return result(0, "0.0.18\n");
+      if (args.at(-1) === "--json") return result(0, JSON.stringify({ reachable: true }));
+      if (args.at(-1) === "stop") return result(0, "Stopped daemon\n");
+      return result(2);
     });
-    expect(await malformedSupervisor.start()).toMatchObject({
+    const supervisor = new DaemonSupervisor({
+      runtimeRoot: join(root, "runtime"),
+      openminionExecutable: executable,
+      runCommand,
+    });
+
+    expect(await supervisor.start()).toMatchObject({ state: "running" });
+    expect(runCommand.mock.calls.some(([, args]) => args.at(-1) === "start")).toBe(false);
+    await supervisor.stop();
+  });
+
+  it("reports bounded installation and daemon status failures", async () => {
+    const root = await temporaryRoot();
+    const missing = new DaemonSupervisor({
+      runtimeRoot: join(root, "runtime"),
+      openminionExecutable: join(root, "missing"),
+    });
+    expect(await missing.start()).toMatchObject({
       state: "degraded",
-      reachable: false,
-      errorCode: "malformed_readiness_record",
+      errorCode: "openminion_executable_unavailable",
     });
-    await malformedSupervisor.stop();
+    await missing.stop();
 
-    const late = await executableWithSource(root, "setTimeout(() => {}, 10000);", "late.cjs");
-    const lateSupervisor = new DaemonSupervisor({
-      openminionExecutable: late,
-      startupTimeoutMs: 20,
+    const executable = await fakeExecutable(root);
+    const malformed = new DaemonSupervisor({
+      runtimeRoot: join(root, "runtime"),
+      openminionExecutable: executable,
+      runCommand: async (_command, args) =>
+        args.length === 1 ? result(0, "0.0.18\n") : result(0, "not json\n"),
     });
-    expect(await lateSupervisor.start()).toMatchObject({
+    expect(await malformed.start()).toMatchObject({
       state: "degraded",
-      errorCode: "bootstrap_timeout",
+      errorCode: "invalid_daemon_status",
     });
-    await lateSupervisor.stop();
-  });
-
-  it("performs only one bounded rebootstrap during one daemon outage", async () => {
-    const daemon = await daemonFixture();
-    const root = await temporaryRoot();
-    const countPath = join(root, "launches.txt");
-    const executable = await bootstrapExecutable(root, daemon.readiness, countPath);
-    const supervisor = new DaemonSupervisor({ openminionExecutable: executable });
-    expect((await supervisor.start()).state).toBe("ready");
-    daemon.healthOkay = false;
-
-    expect((await supervisor.status()).state).toBe("ready");
-    expect((await supervisor.status()).state).toBe("degraded");
-    expect((await readFile(countPath, "utf-8")).trim().split("\n")).toHaveLength(2);
-    await supervisor.stop();
-  });
-
-  it("validates and applies a successful lease renewal", async () => {
-    const daemon = await daemonFixture();
-    daemon.readiness.expires_at = new Date(Date.now() + 60_200).toISOString();
-    const root = await temporaryRoot();
-    const executable = await bootstrapExecutable(root, daemon.readiness);
-    const supervisor = new DaemonSupervisor({ openminionExecutable: executable });
-
-    expect((await supervisor.start()).state).toBe("ready");
-    await expect
-      .poll(() => daemon.requests.includes("POST /v1/client/leases/renew"), {
-        timeout: 2_500,
-      })
-      .toBe(true);
-    expect(supervisor.snapshot().state).toBe("ready");
-    await supervisor.stop();
-  });
-
-  it("fails closed on malformed renewed timestamp types", async () => {
-    const daemon = await daemonFixture();
-    daemon.readiness.expires_at = new Date(Date.now() + 60_200).toISOString();
-    daemon.renewalValid = false;
-    const root = await temporaryRoot();
-    const executable = await bootstrapExecutable(root, daemon.readiness);
-    const supervisor = new DaemonSupervisor({ openminionExecutable: executable });
-
-    expect((await supervisor.start()).state).toBe("ready");
-    await expect.poll(() => supervisor.snapshot().state, { timeout: 3_000 }).toBe("degraded");
-    expect(supervisor.snapshot().errorCode).toBe("lease_renewal_failed");
-    await supervisor.stop();
+    await malformed.stop();
   });
 });
 
-async function daemonFixture(): Promise<{
-  server: Server;
-  readiness: DesktopClientReady;
-  requests: string[];
-  tokens: string[];
-  healthOkay: boolean;
-  renewalValid: boolean;
-}> {
-  const requests: string[] = [];
-  const tokens: string[] = [];
-  const fixture = {
-    server: createServer(),
-    readiness: {} as DesktopClientReady,
-    requests,
-    tokens,
-    healthOkay: true,
-    renewalValid: true,
-  };
-  fixture.server.on("request", (request, response) => {
-    requests.push(`${request.method} ${request.url}`);
-    tokens.push(String(request.headers["x-openminion-client-token"] ?? ""));
-    response.setHeader("Content-Type", "application/json");
-    if (request.url === "/v1/client/capabilities") {
-      response.end(
-        JSON.stringify({
-          ok: true,
-          daemon_version: fixture.readiness.daemon_version,
-          config_id: fixture.readiness.config_id,
-          protocol_min: 1,
-          protocol_max: 1,
-          protocol: 1,
-          capabilities: [...DESKTOP_CAPABILITIES],
-        }),
-      );
-      return;
-    }
-    if (request.url === "/v1/health") {
-      response.statusCode = fixture.healthOkay ? 200 : 403;
-      response.end(JSON.stringify({ ok: fixture.healthOkay }));
-      return;
-    }
-    if (request.url === "/v1/client/leases/renew") {
-      const issuedAt = new Date();
-      response.end(
-        JSON.stringify({
-          ok: true,
-          lease: {
-            client_id: fixture.readiness.client_id,
-            protocol: 1,
-            issued_at: fixture.renewalValid ? issuedAt.toISOString() : 2026,
-            expires_at: fixture.renewalValid
-              ? new Date(issuedAt.getTime() + 43_200_000).toISOString()
-              : 2999,
-            config_id: fixture.readiness.config_id,
-            capabilities: [...DESKTOP_CAPABILITIES],
-          },
-        }),
-      );
-      return;
-    }
-    if (request.url === "/v1/client/leases/current") {
-      response.end(JSON.stringify({ ok: true, revoked: true }));
-      return;
-    }
-    response.statusCode = 404;
-    response.end(JSON.stringify({ ok: false }));
-  });
-  await new Promise<void>((resolve) => fixture.server.listen(0, "127.0.0.1", resolve));
-  const port = (fixture.server.address() as AddressInfo).port;
-  fixture.readiness = {
-    schema_version: 1,
-    event: "desktop.client.ready",
-    host: "127.0.0.1",
-    port,
-    protocol_min: 1,
-    protocol_max: 1,
-    daemon_version: "0.0.9",
-    config_id: "a".repeat(64),
-    client_id: "client-1",
-    client_token: "secret-" + "x".repeat(43),
-    expires_at: "2999-08-16T12:00:00Z",
-  };
-  cleanup.push(
-    () =>
-      new Promise<void>((resolve, reject) =>
-        fixture.server.close((error) => (error ? reject(error) : resolve())),
-      ),
-  );
-  return fixture;
+it.skipIf(!integrationExecutable)(
+  "installs a first-run config and manages the ordinary OpenMinion daemon",
+  async () => {
+    const root = await temporaryRoot();
+    const supervisor = new DaemonSupervisor({
+      runtimeRoot: join(root, "runtime"),
+      openminionExecutable: integrationExecutable,
+      homeRoot: root,
+      dataRoot: join(root, "data"),
+      configPath: join(root, "agents.json"),
+      commandTimeoutMs: 60_000,
+    });
+
+    expect(await supervisor.start()).toMatchObject({
+      state: "running",
+      reachable: true,
+      daemonVersion: "0.0.18",
+    });
+    expect(await supervisor.status()).toMatchObject({ state: "running", reachable: true });
+    expect(await supervisor.stop()).toEqual({ stopped: true });
+  },
+  120_000,
+);
+
+function result(exitCode: number | null, stdout = "", stderr = ""): CommandResult {
+  return { exitCode, stdout, stderr };
 }
 
 async function temporaryRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "openminion-desktop-test-"));
+  const root = await mkdtemp(join(tmpdir(), "openminion-desktop-lifecycle-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   return root;
 }
 
-async function bootstrapExecutable(
-  root: string,
-  readiness: DesktopClientReady,
-  countPath?: string,
-  argumentsPath?: string,
-): Promise<string> {
-  const count = countPath ? `fs.appendFileSync(${JSON.stringify(countPath)}, "1\\n");` : "";
-  const argumentsRecord = argumentsPath
-    ? `fs.writeFileSync(${JSON.stringify(argumentsPath)}, JSON.stringify(process.argv.slice(2)));`
-    : "";
-  return executableWithSource(
-    root,
-    `const fs = require("node:fs"); ${count} ${argumentsRecord} fs.writeSync(3, ${JSON.stringify(JSON.stringify(readiness) + "\n")});`,
-  );
-}
-
-async function executableWithSource(
-  root: string,
-  source: string,
-  name = "bootstrap.cjs",
-): Promise<string> {
-  const path = join(root, name);
-  await writeFile(path, `#!/usr/bin/env node\n${source}\n`, "utf-8");
+async function fakeExecutable(root: string): Promise<string> {
+  const path = join(root, "openminion");
+  await writeFile(path, "#!/bin/sh\nexit 0\n", "utf-8");
   await chmod(path, 0o755);
   return path;
 }

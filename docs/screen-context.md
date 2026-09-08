@@ -1,7 +1,7 @@
 # OpenMinion Desktop Screen Context
 
 Status: current behavior and proposed direction
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 Purpose: keep screen context a first-class part of the chat interface while
 distinguishing today's screenshot workflow from future streaming and control.
@@ -36,7 +36,7 @@ displays those facts through the existing typed bridge.
 
 | Phase | User experience | Status |
 | --- | --- | --- |
-| Manual screenshot | Choose a source, include one screenshot with a message, see what was sent | Current latest-frame-on-send path; requires a compatible daemon and native permissions |
+| Manual screenshot | Choose a source, include one screenshot with a message, see what was sent | UI and local preview implemented; sending requires the pending chat transport and native permissions |
 | Multiple screenshots | Freeze selected frames as removable, ordered attachments; compare before/after or several windows | Future work; existing image-file attachments are not a captured-screen sequence workflow |
 | Streaming screen context | Explicit start/pause/stop, visible source and sharing state, configurable cadence and cost limits | Future work; current automatic watch is repeated still images, not this streaming contract |
 | Co-navigation | Observe and perform scoped actions together, with clear control ownership and an immediate stop | Future work; requires separate native-input authority, policy, audit, and acceptance |

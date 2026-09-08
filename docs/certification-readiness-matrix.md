@@ -1,7 +1,7 @@
 # OpenMinion Desktop Certification Readiness Matrix
 
 Status: active
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 Purpose: summarize the current proof posture for the standalone Desktop
 application.
@@ -17,7 +17,8 @@ application.
 | Linux source compatibility | provider-free CI | supported as a CI host, not a packaged product |
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |
 | macOS native capture | opt-in permissioned test | requires acceptance on an authorized host |
-| OpenMinion daemon contract | contract merged to OpenMinion `dev` at `447b9269`; explicit real-daemon acceptance uses a matched development revision | development-branch integration only |
+| OpenMinion installation and daemon lifecycle | pinned PyPI 0.0.18; isolated config; real start/status/stop proof | development-ready |
+| Rich chat/session transport | UI and typed legacy client exist, but ordinary public-interface adaptation is incomplete | not connected |
 | Signed and notarized macOS app | no evidence | not ready |
 | Update, rollback, migration, uninstall | no evidence | not ready |
 | Windows and Linux packages | no evidence | not ready |
@@ -29,8 +30,8 @@ application.
 1. Provider-free and unsigned-package checks do not prove provider-backed
    behavior.
 2. Native capture requires an authorized macOS permission context.
-3. Desktop and OpenMinion must be tested at explicitly matched revisions; the
-   current OpenMinion `main` branch is not compatible.
+3. Daemon lifecycle proof does not certify chat, sessions, approvals, media, or
+   provider-backed outcomes.
 4. A packaged application is not a release candidate until the release floor
    in [RELEASING.md](../RELEASING.md) is complete.
 

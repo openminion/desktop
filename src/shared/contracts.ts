@@ -16,7 +16,7 @@ export type DaemonState =
   | "idle"
   | "probing"
   | "starting"
-  | "leasing"
+  | "running"
   | "ready"
   | "degraded"
   | "stopping"

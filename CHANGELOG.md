@@ -1,11 +1,17 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Added a Desktop-owned first-run lifecycle that installs pinned
+  `openminion==0.0.18` from PyPI, creates an isolated authenticated demo config,
+  and uses the ordinary daemon start, status, and stop commands.
+- Removed Desktop lifecycle dependence on the former Desktop-specific bootstrap
+  and lease contract. Rich chat/session transport remains explicitly pending.
 
 - Established Focus/CLI as Desktop's behavior contract and recorded the missing
   shared command integration. Full Focus parity is not implemented yet.
@@ -67,7 +73,7 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 - Added hosted actionlint validation for GitHub Actions workflows.
 - Aligned the README and public contributor, compatibility, security, support,
   quality, testing, and release guidance with the OpenMinion package family.
-- Documented that the Desktop daemon contract has not yet landed on the current
-  OpenMinion `main` line.
+- Documented the public PyPI lifecycle boundary and the separate pending chat
+  transport boundary.
 
 No signed or notarized desktop release has been published.

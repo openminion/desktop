@@ -6,8 +6,8 @@ Current development support is limited to:
 
 1. the local macOS source-development client described in [README.md](README.md),
    [API_COMPATIBILITY.md](API_COMPATIBILITY.md), and `docs/`,
-2. a matching desktop-capable OpenMinion development revision,
-3. Node.js 24 and npm 11 development environments,
+2. managed lifecycle for the pinned public OpenMinion PyPI package,
+3. Node.js 24, npm 11, and Python 3.11 development environments,
 4. provider-free quality checks on Linux and macOS, and
 5. unsigned macOS package construction plus explicit opt-in native and daemon
    integration tests.
@@ -38,6 +38,5 @@ For a non-security bug, use the repository
 
 Report security issues through [SECURITY.md](SECURITY.md), not a public issue.
 
-As of 2026-09-07, the required `desktop-bootstrap` daemon command is not part of
-OpenMinion `main`; that branch is not currently in the supported Desktop
-combination.
+Rich chat/session transport is not part of the current lifecycle support claim.
+It remains a Desktop-side adaptation to existing public OpenMinion interfaces.

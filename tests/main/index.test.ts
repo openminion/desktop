@@ -1915,13 +1915,13 @@ it.skipIf(!integrationExecutable)(
       await proveRealLeaseExpiry(port, ipcToken);
 
       desktop.registerIpcHandlers(supervisor);
-      const attemptsBeforeReload = supervisor.bootstrapAttempts;
+      const attemptsBeforeReload = supervisor.startAttempts;
       const rendererWindow = await desktop.createWindow(supervisor, {} as never);
       rendererWindow.webContents.reload();
       const reloaded = (await mocks.ipcHandlers.get(IPC_CHANNELS.daemonStatus)!()) as DaemonStatus;
       expect(reloaded).toMatchObject({ state: "ready", configId: started.configId });
       expect(rendererWindow.webContents.reload).toHaveBeenCalledOnce();
-      expect(supervisor.bootstrapAttempts).toBe(attemptsBeforeReload);
+      expect(supervisor.startAttempts).toBe(attemptsBeforeReload);
       expect(reloaded.capabilities).toContain("turns.submit");
       expect(() =>
         validateReadiness({
@@ -1949,7 +1949,7 @@ it.skipIf(!integrationExecutable)(
         state: "ready",
         configId: started.configId,
       });
-      expect(await attached.stop()).toEqual({ revoked: true });
+      expect(await attached.stop()).toEqual({ stopped: true });
 
       await mkdir(mismatchRoot, { recursive: true });
       await writeConfig(
@@ -1974,17 +1974,17 @@ it.skipIf(!integrationExecutable)(
       const beforeRestart = await daemonStatus(executable, commandRoots);
       expect(beforeRestart.reachable).toBe(true);
       await runOpenMinion(executable, [...commandRoots, "daemon", "stop"]);
-      const attemptsBeforeRecovery = supervisor.bootstrapAttempts;
+      const attemptsBeforeRecovery = supervisor.startAttempts;
       expect(await supervisor.status()).toMatchObject({
         state: "ready",
         reachable: true,
         configId: started.configId,
       });
-      expect(supervisor.bootstrapAttempts).toBe(attemptsBeforeRecovery + 1);
+      expect(supervisor.startAttempts).toBe(attemptsBeforeRecovery + 1);
       expect(await supervisor.status()).toMatchObject({ state: "ready" });
-      expect(supervisor.bootstrapAttempts).toBe(attemptsBeforeRecovery + 1);
+      expect(supervisor.startAttempts).toBe(attemptsBeforeRecovery + 1);
 
-      expect(await supervisor.stop()).toEqual({ revoked: true });
+      expect(await supervisor.stop()).toEqual({ stopped: true });
       const afterExit = await daemonStatus(executable, commandRoots);
       expect(afterExit.reachable).toBe(true);
       expect(afterExit.status).toBe("running");
@@ -2027,7 +2027,7 @@ it.skipIf(!integrationExecutable)(
       await writeConfig(configPath, dataRoot, port, ipcToken);
       supervisor = new DaemonSupervisor({
         openminionExecutable: executable,
-        startupTimeoutMs: 60_000,
+        commandTimeoutMs: 60_000,
         configPath,
         homeRoot,
         dataRoot,
@@ -2108,7 +2108,7 @@ it.skipIf(!integrationExecutable)(
       expect(sessionEvents.some((event) => event.traceId === submitted.value.traceId)).toBe(true);
 
       desktop.registerIpcHandlers(supervisor);
-      const attemptsBeforeReload = supervisor.bootstrapAttempts;
+      const attemptsBeforeReload = supervisor.startAttempts;
       const rendererWindow = await desktop.createWindow(supervisor, {} as never);
       const frame = {
         url: "openminion://app/",
@@ -2153,14 +2153,14 @@ it.skipIf(!integrationExecutable)(
       expect(reloaded.events.some((event) => event.traceId === submitted.value.traceId)).toBe(true);
       expect(replaySubmit).not.toHaveBeenCalled();
       expect(rendererWindow.webContents.reload).toHaveBeenCalledOnce();
-      expect(supervisor.bootstrapAttempts).toBe(attemptsBeforeReload);
+      expect(supervisor.startAttempts).toBe(attemptsBeforeReload);
 
       await runOpenMinion(executable, [...commandRoots, "daemon", "stop"]);
-      const attemptsBeforeRestart = supervisor.bootstrapAttempts;
+      const attemptsBeforeRestart = supervisor.startAttempts;
       expect(await supervisor.status()).toMatchObject({ state: "ready" });
-      expect(supervisor.bootstrapAttempts).toBe(attemptsBeforeRestart + 1);
+      expect(supervisor.startAttempts).toBe(attemptsBeforeRestart + 1);
       expect(await supervisor.status()).toMatchObject({ state: "ready" });
-      expect(supervisor.bootstrapAttempts).toBe(attemptsBeforeRestart + 1);
+      expect(supervisor.startAttempts).toBe(attemptsBeforeRestart + 1);
       const afterRestart = await supervisor.client.load({ sessionId, messageLimit: 20 });
       if (!afterRestart.ok) {
         throw new Error(afterRestart.error.code);
@@ -2342,7 +2342,7 @@ it.skipIf(!integrationExecutable)(
       await writeArtifactConfig(configPath, dataRoot, daemonPort, ipcToken, captureAddress.port);
       const supervisor = new DaemonSupervisor({
         openminionExecutable: executable,
-        startupTimeoutMs: 60_000,
+        commandTimeoutMs: 60_000,
         configPath,
         homeRoot,
         dataRoot,
@@ -2725,7 +2725,7 @@ it.skipIf(!integrationExecutable)(
       );
       const supervisor = new DaemonSupervisor({
         openminionExecutable: executable,
-        startupTimeoutMs: 60_000,
+        commandTimeoutMs: 60_000,
         configPath,
         homeRoot,
         dataRoot,

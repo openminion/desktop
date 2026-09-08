@@ -35,9 +35,10 @@ This documentation describes source-development and unsigned local packaging.
 It does not claim a signed release, remote daemon service, Windows or Linux
 desktop package, unrestricted native input, or a second agent runtime.
 
-As of 2026-09-07, the required Desktop bootstrap contract has not landed on
-OpenMinion `main`; use only the explicitly matched development revision.
+Desktop lifecycle uses the pinned public PyPI package and ordinary OpenMinion
+commands. Rich chat/session transport remains incomplete and must use existing
+public interfaces rather than a Desktop-specific OpenMinion command.
 
 Historical planning packets and workspace-local trackers are not public
 product guidance. Current behavior is defined by this repository, its public
-docs, and the compatible OpenMinion daemon contract.
+docs, and the pinned OpenMinion public command surface.

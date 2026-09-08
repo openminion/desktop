@@ -3,8 +3,8 @@
 Status: active
 Last updated: 2026-09-08
 
-Purpose: describe Desktop's working slash commands and the remaining daemon
-contracts needed for the broader OpenMinion Focus command surface.
+Purpose: describe Desktop's current local slash-command UI and the remaining
+Desktop transport work needed for the broader OpenMinion Focus surface.
 
 Desktop is the GUI representation of Focus/CLI. The current subset is an
 integration gap, not a separate product command set. Names, arguments, defaults,
@@ -59,11 +59,11 @@ provides the narrow clipboard-write bridge; neither surface reads the clipboard.
 ## Remaining Focus Parity
 
 Focus's canonical command catalog is owned by OpenMinion's CLI presentation
-layer. Its handlers operate on the CLI runtime. Desktop's versioned daemon
-capabilities currently expose sessions, turns, approvals, media, and artifacts;
-they do not expose the entire interactive CLI command surface.
+layer. Its handlers operate on the CLI runtime. Desktop's legacy typed client
+models sessions, turns, approvals, media, and artifacts, but it is not connected
+to the ordinary OpenMinion runtime in the current lifecycle slice.
 
-| Focus command family | Required daemon capability before Desktop can implement it |
+| Focus command family | Required Desktop adaptation before it is connected |
 | --- | --- |
 | `/agents`, model changes, `/effort` | List configured agents/models and explicitly update an admitted session's agent/model/effort. Return the effective settings; keep credentials daemon-owned. |
 | `/tools`, `/mcp`, `/skills` | Read the selected agent's configured tools, MCP status, and skills through bounded structured queries. |
@@ -76,10 +76,10 @@ they do not expose the entire interactive CLI command surface.
 | `/init`, `/diff`, `/review`, `/undo`, `/browser` | Expose scoped workspace/browser operations and their existing permission and audit boundaries. |
 | `/theme`, `/statusline`, tool detail commands, `/export`, `/editor`, `/exit` | Additional Desktop presentation or native interactions; terminal-specific behavior requires an explicit Desktop equivalent. |
 
-These are pending integration requirements, not shipped methods. Their request
-and response schemas must be agreed with the daemon owner before adding typed
-main/preload methods. Do not execute arbitrary CLI strings or forward slash
-commands as chat prompts to imitate missing behavior.
+These are pending integration requirements, not shipped methods. Desktop must
+use fixed, validated public OpenMinion CLI or HTTP operations and keep executable
+paths, roots, config, credentials, and generic process authority in main. Do not
+execute arbitrary CLI strings or forward slash commands as chat prompts.
 
 ## Validation
 

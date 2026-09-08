@@ -27,11 +27,13 @@ runtime. It provides chat, session history, approvals, attachments, artifacts,
 and explicitly selected screen or window context while keeping agent execution,
 credentials, policy, and durable session truth in the OpenMinion daemon.
 
-The application is a development alpha. It currently expects a matching
-OpenMinion development revision that provides the desktop daemon contract. As
-of 2026-09-07, that command is not present on OpenMinion `main`. Signed
-distribution, automatic updates, remote daemon operation, and native input
-control are not available yet.
+The application is a development alpha. On first launch it creates an isolated
+Python environment in the application data directory, installs the pinned
+OpenMinion release from PyPI, creates a local demo config, and starts the
+ordinary OpenMinion daemon. Rich chat and session transport is being adapted to
+OpenMinion's existing public interfaces and is not connected in this lifecycle
+slice. Signed distribution, Desktop self-updates, remote daemon operation, and
+native input control are not available yet.
 
 ## Read This First
 
@@ -61,7 +63,7 @@ and should be treated as a scam.
 | Current line | Development alpha |
 | Current platform | macOS development and unsigned packaging |
 | Runtime | Node.js 24, npm 11, and Electron |
-| Connects to | A matching desktop-capable OpenMinion development revision; not current OpenMinion `main` |
+| Managed core | Pinned `openminion==0.0.18` from PyPI |
 | Best fit | Local chat, session work, approvals, artifacts, and visible context |
 | Not the claim | Signed release, remote operation, or autonomous native control |
 
@@ -86,6 +88,7 @@ inspects an unsigned local macOS application; it is not a public release.
 - attach bounded images and represent unsupported files safely
 - inspect artifacts and tool-output summaries without exposing native paths
 - select a screen or window for explicit observation and grounded guidance
+- install, version-check, start, monitor, and stop an app-owned OpenMinion daemon
 
 ## What OpenMinion Desktop Does Not Provide
 
@@ -95,14 +98,15 @@ inspects an unsigned local macOS application; it is not a public release.
 - hidden screen capture, always-on observation, or unrestricted native input
 - remote daemon attachment, hosted synchronization, or multi-device control
 - signed, notarized, automatically updating public releases
+- a connected rich chat/session transport in the current lifecycle slice
 
 ## Requirements
 
 - macOS for the current runnable application profile
 - Node.js 24
 - npm 11
-- a matching desktop-capable local OpenMinion checkout or executable
-- a nonblank OpenMinion `runtime.ipc_token`
+- Python 3.11 for the temporary PyPI-based runtime installation path
+- network access on first launch or when the pinned OpenMinion version changes
 
 The normal checks also run on Linux in CI, but Linux and Windows desktop
 packages are not currently certified.
@@ -123,15 +127,20 @@ Start the development app:
 npm start
 ```
 
-If the compatible `openminion` executable is not already on `PATH`, select it
-explicitly:
+The first launch installs `openminion==0.0.18` into Desktop's application data,
+creates a credential-free echo config, and starts an isolated daemon. Later
+launches reuse the environment when its installed version matches the pin.
+
+For source development, bypass the managed PyPI installation with an explicit
+executable:
 
 ```bash
-OPENMINION_ODF_EXECUTABLE=/path/to/openminion npm start
+OPENMINION_EXECUTABLE=/path/to/openminion npm start
 ```
 
-The executable must provide `openminion daemon desktop-bootstrap`. The current
-OpenMinion `main` branch does not yet provide that command.
+The override must provide the ordinary `config init` and `daemon
+start/status/stop` commands. Desktop does not require a Desktop-specific command
+inside OpenMinion.
 
 macOS may request Screen Recording permission when observation is used. Denying
 that permission keeps chat available and observation unavailable.
@@ -145,10 +154,10 @@ that permission keeps chat available and observation unavailable.
 | Desktop preload | Small typed bridge exposing fixed application operations |
 | Desktop renderer | Chat, session navigation, approvals, artifacts, and visible capture controls |
 
-Desktop starts or attaches to the existing local daemon through
-`openminion daemon desktop-bootstrap`. The daemon remains authoritative, so the
-CLI and Desktop can work with the same durable sessions without duplicating
-runtime state.
+Desktop manages an isolated OpenMinion installation and daemon through the
+ordinary CLI lifecycle commands. The daemon remains authoritative. A main-only
+command context is available for the pending transport adapter without exposing
+the executable, roots, config, or credentials to the renderer.
 
 ## Security Model
 

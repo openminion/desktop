@@ -2,9 +2,9 @@ import type { DaemonState } from "../shared/contracts.js";
 
 const transitions: Record<DaemonState, Set<DaemonState>> = {
   idle: new Set(["probing", "stopping"]),
-  probing: new Set(["starting", "leasing", "degraded", "stopping"]),
-  starting: new Set(["leasing", "degraded", "stopping"]),
-  leasing: new Set(["ready", "degraded", "stopping"]),
+  probing: new Set(["starting", "degraded", "stopping"]),
+  starting: new Set(["running", "degraded", "stopping"]),
+  running: new Set(["degraded", "stopping"]),
   ready: new Set(["degraded", "stopping"]),
   degraded: new Set(["probing", "stopping"]),
   stopping: new Set(["stopped", "degraded"]),

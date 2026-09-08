@@ -7,7 +7,7 @@ import { app, BrowserWindow } from "electron";
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "openminion-electron-check-"));
 app.setPath("userData", temporaryRoot);
-process.env.OPENMINION_ODF_EXECUTABLE = join(temporaryRoot, "missing-openminion");
+process.env.OPENMINION_EXECUTABLE = join(temporaryRoot, "missing-openminion");
 const preloadErrors = [];
 const loaded = new Promise((resolve) => {
   app.once("browser-window-created", (_event, window) => {

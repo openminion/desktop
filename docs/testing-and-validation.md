@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -52,17 +52,17 @@ Run from a macOS session with Screen Recording permission:
 OPENMINION_ODC_NATIVE_CAPTURE=1 npm test -- tests/main/capture-native.test.ts
 ```
 
-## Real Daemon Integration
+## Real Daemon Lifecycle
 
 ```bash
-OPENMINION_ODF_EXECUTABLE=/path/to/openminion \
-  npm test -- tests/main/index.test.ts
+OPENMINION_EXECUTABLE=/path/to/openminion \
+  npm test -- tests/main/backend-supervisor.test.ts
 ```
 
-Use an OpenMinion revision that implements the Desktop bootstrap contract.
-The contract is included on OpenMinion `dev` through merge `447b9269`. As
-of 2026-09-07, OpenMinion `main` does not contain that command, so the
-integration tier requires a matching desktop-capable development revision.
+This test creates an isolated config and data root, initializes the config
+through the ordinary CLI, starts the daemon, probes its machine-readable status,
+and stops it. Use the pinned PyPI release or a source executable with the same
+public lifecycle commands. This is lifecycle proof, not rich chat/session proof.
 
 ## Workspace Regression Checks
 
@@ -95,14 +95,14 @@ Test the built renderer in Electron at the minimum 760 × 560 window, the normal
 - Context and Screenshot popovers, Escape/outside dismissal, and reachable
   close controls while scrolling;
 - approval decisions, active turns, cancellation, denied capture permission,
-  connection failure, and recovery;
+daemon-running-without-chat-transport, connection failure, and recovery;
 - Command/Ctrl+Enter, visible keyboard focus, and reduced motion;
 - composer width growth as the window widens, and editable disconnected drafts.
 
 Use synthetic data for layout screenshots. A fixture bridge verifies renderer
 behavior without capturing the user's desktop or contacting a model provider.
-The daemon integration test separately uses a local provider fixture to verify
-frame delivery, guidance, and reported token usage.
+Provider-backed frame delivery and guidance require a future transport-specific
+acceptance tier; they are not implied by daemon lifecycle proof.
 
 ## Proof Boundary
 

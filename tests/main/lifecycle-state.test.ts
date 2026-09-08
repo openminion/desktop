@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { LifecycleState } from "../../src/main/lifecycle-state.js";
 
 describe("LifecycleState", () => {
-  it("accepts authenticated startup, recovery, and shutdown", () => {
+  it("accepts managed startup, recovery, and shutdown", () => {
     const lifecycle = new LifecycleState();
     lifecycle.move("probing");
-    lifecycle.move("leasing");
-    lifecycle.move("ready");
+    lifecycle.move("starting");
+    lifecycle.move("running");
     lifecycle.move("degraded");
     lifecycle.move("probing");
-    lifecycle.move("leasing");
-    lifecycle.move("ready");
+    lifecycle.move("starting");
+    lifecycle.move("running");
     lifecycle.move("stopping");
     lifecycle.move("stopped");
     expect(lifecycle.current).toBe("stopped");

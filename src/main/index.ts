@@ -715,9 +715,7 @@ export async function createWindow(
 }
 
 export async function launchDesktop(
-  supervisor = new DaemonSupervisor({
-    openminionExecutable: process.env.OPENMINION_ODF_EXECUTABLE,
-  }),
+  supervisor = createDesktopSupervisor(app.getPath("userData")),
 ): Promise<BrowserWindow> {
   const appSession = session.fromPartition("persist:openminion");
   const capturePlatform = new ElectronCapturePlatform(appSession);
@@ -821,12 +819,21 @@ let activeFileGrants: FileGrantService | null = null;
 let activeCapture: CaptureService | null = null;
 let activeObservation: ObservationService | null = null;
 
-const supervisor = new DaemonSupervisor({
-  openminionExecutable: process.env.OPENMINION_ODF_EXECUTABLE,
-});
+export function createDesktopSupervisor(userDataRoot: string): DaemonSupervisor {
+  return new DaemonSupervisor({
+    runtimeRoot: join(userDataRoot, "runtime"),
+    homeRoot: userDataRoot,
+    dataRoot: join(userDataRoot, "data"),
+    configPath: join(userDataRoot, "agents.json"),
+    openminionExecutable: process.env.OPENMINION_EXECUTABLE,
+  });
+}
 
-app.whenReady().then(() => launchDesktop(supervisor));
-registerQuitLifecycle(app, supervisor);
+app.whenReady().then(() => {
+  const supervisor = createDesktopSupervisor(app.getPath("userData"));
+  registerQuitLifecycle(app, supervisor);
+  return launchDesktop(supervisor);
+});
 app.on("window-all-closed", () => {
   app.quit();
 });

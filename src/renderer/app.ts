@@ -204,6 +204,15 @@ export function statusView(status: DaemonStatus): StatusView {
       showRecovery: false,
     };
   }
+  if (status.state === "running") {
+    return {
+      label: "OpenMinion running",
+      summary: "The local runtime is ready; Desktop chat is not connected yet.",
+      tone: "pending",
+      showRetry: false,
+      showRecovery: true,
+    };
+  }
   if (status.state === "degraded") {
     return {
       label: "Not connected",
@@ -1618,7 +1627,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const refresh = async (): Promise<void> => {
     let status = await api.daemon.status();
     renderStatus(status);
-    if (status.state !== "ready" && status.state !== "degraded") {
+    if (!["running", "ready", "degraded"].includes(status.state)) {
       status = await api.daemon.retry();
       renderStatus(status);
     }

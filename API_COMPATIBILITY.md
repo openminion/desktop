@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -14,26 +14,26 @@ no supported npm import surface.
 Its supported user-facing boundary is the local application behavior described
 in [README.md](README.md), [SUPPORT.md](SUPPORT.md), and `docs/`.
 
-## Desktop-daemon protocol
+## Desktop-daemon boundary
 
-The compatibility boundary is the versioned local contract between the desktop
-main process and `openminion daemon desktop-bootstrap`. The daemon remains the
-owner of sessions, messages, approvals, policy, artifacts, and agent execution.
-The desktop owns presentation, local attachment grants, capture lifecycle, and
-operating-system integration.
+The Desktop main process owns installation and lifecycle. It currently installs
+the pinned `openminion==0.0.18` PyPI package into app-managed storage and calls
+the ordinary `config init` and `daemon start/status/stop` commands. OpenMinion
+remains the owner of sessions, messages, approvals, policy, artifacts, and agent
+execution. Desktop owns presentation, local attachment grants, capture
+lifecycle, and operating-system integration.
 
-Protocol fields use explicit schemas and reject unsupported or malformed
-payloads at the owning process boundary. A compatible OpenMinion daemon
-revision is required; Desktop does not provide a fallback agent runtime.
+Desktop does not require or add a Desktop-specific command, bootstrap endpoint,
+or lease protocol in OpenMinion. The main process keeps the managed executable,
+runtime roots, and configuration path outside the renderer boundary.
 
 ## Current integration status
 
-OpenMinion `dev` includes the Desktop daemon contract through merge
-`447b9269`. As of 2026-09-07, OpenMinion `main` does not expose
-`openminion daemon desktop-bootstrap`. The current Desktop integration therefore
-requires a matching desktop-capable development revision. Do not present an
-ordinary OpenMinion `main` checkout as Desktop-compatible until that daemon
-contract and its validation land there.
+Lifecycle integration works with the public PyPI `0.0.18` command surface and
+has real-daemon start/status/stop proof. Rich chat, session, approval, media, and
+artifact transport is not connected in this lifecycle slice. It must be adapted
+to existing public OpenMinion interfaces without restoring Desktop-only code in
+the OpenMinion package.
 
 ## Internal application surfaces
 
@@ -49,6 +49,7 @@ Compatibility expectations for the documented boundary are:
 
 1. prefer additive protocol and user-facing changes,
 2. call out removals or incompatible changes in [CHANGELOG.md](CHANGELOG.md),
-3. keep Desktop and OpenMinion protocol changes validated together, and
-4. run the real-daemon integration test against the intended OpenMinion
-   revision before making a compatibility or release claim.
+3. test Desktop lifecycle changes against the pinned public package,
+4. validate later transport work against the existing public interface it uses,
+   and
+5. do not describe lifecycle proof as chat or provider-backed proof.
