@@ -76,3 +76,27 @@ type-error budget at 364 findings against a baseline of 363. No Python code was
 changed by this renderer refinement, and concurrent backend work was preserved.
 This does not invalidate the passing Desktop package gates or establish a clean
 whole-workspace gate.
+
+## Connection Panel Follow-up
+
+September 8 follow-up: the expanded sidebar should contain one short connection
+status, a useful explanation and a compact Reconnect action. Put runtime,
+protocol, version and troubleshooting in collapsed Technical details. Preserve
+keyboard focus, connection state truth and draft-safe retry ownership. Remove
+the duplicate status heading rather than hide another copy.
+
+Completed and independently reviewed. The final source passed `npm run ci-check`
+(172 tests passed, five explicit integration cases skipped). `npm run
+electron-check` passed the real sandboxed app and draft-safe recovery checks;
+`npm run package` rebuilt the unsigned arm64 app and verified 30 runtime entries.
+The actual disconnected renderer was inspected at 1180 × 800 and 760 × 560,
+with both collapsed and expanded diagnostics. Reconnect remains reachable;
+keyboard focus stays visible, and the panel scrolls without displacing the
+composer. An independent source and visual reviewer found no material blocker.
+The bounded post-authoring pass removed the old heading from HTML, renderer and
+all fixtures, and kept presentation in the existing owners. No new behavior
+framework or capture authority was introduced.
+
+The repeated OpenMinion workspace checks produced the same separate result:
+Ruff passed; `make lint` remained blocked at services 364 against baseline 363.
+The Desktop gates above passed independently.

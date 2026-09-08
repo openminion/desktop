@@ -475,6 +475,5 @@ notice.textContent = "UI preview · Sample data only. No daemon, model, files, o
 document.querySelector(".sidebar-brand")!.after(notice);
 await mount(api);
 document.querySelector("#connection-label")!.textContent = "UI preview";
-document.querySelector("#status-label")!.textContent = "UI preview";
 document.querySelector("#status-summary")!.textContent =
   "Local sample data. No daemon is connected.";

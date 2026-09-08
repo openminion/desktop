@@ -43,18 +43,17 @@
               <span class="summary-chevron" aria-hidden="true">›</span>
             </summary>
             <div class="runtime-detail">
-              <p id="status-label" class="status-label">Connecting</p>
               <p id="status-summary" class="status-summary">
                 Finding your local OpenMinion daemon…
               </p>
-              <div class="runtime-facts">
-                <span>Runtime <strong id="daemon-version">—</strong></span>
-                <span>Protocol <strong id="protocol-version">—</strong></span>
-              </div>
-              <p id="shell-version" class="version"></p>
-              <button id="retry" type="button" hidden>Retry connection</button>
+              <button id="retry" class="quiet-button" type="button" hidden>Reconnect</button>
               <details class="connection-help">
-                <summary>Troubleshooting</summary>
+                <summary>Technical details</summary>
+                <dl class="runtime-facts">
+                  <div><dt>Runtime</dt><dd id="daemon-version">Unavailable</dd></div>
+                  <div><dt>Protocol</dt><dd id="protocol-version">Unavailable</dd></div>
+                  <div><dt>Desktop</dt><dd id="shell-version"></dd></div>
+                </dl>
                 <p>Check <code>openminion daemon status</code> or view logs with <code>openminion daemon logs</code>. No prompt or action is replayed on reconnect.</p>
               </details>
             </div>

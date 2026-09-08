@@ -197,8 +197,8 @@ export function captureRegionFromPercentages(values: readonly string[]): Capture
 export function statusView(status: DaemonStatus): StatusView {
   if (status.state === "ready") {
     return {
-      label: "Daemon connected",
-      summary: "Your authenticated local OpenMinion runtime is ready.",
+      label: "Connected",
+      summary: "Ready for messages and screen context.",
       tone: "ready",
       showRetry: false,
       showRecovery: false,
@@ -206,8 +206,8 @@ export function statusView(status: DaemonStatus): StatusView {
   }
   if (status.state === "degraded") {
     return {
-      label: "Connection needs attention",
-      summary: "The secure daemon connection could not be established.",
+      label: "Not connected",
+      summary: "Reconnect to send messages and use screen context.",
       tone: "degraded",
       showRetry: true,
       showRecovery: true,
@@ -529,7 +529,7 @@ export async function recoverSession(
 export async function mount(api: NativeApi, root: Document = document): Promise<void> {
   const elements = rendererElements(root);
   const info = await api.app.info();
-  elements.shellVersion.textContent = `Desktop ${info.shellVersion}`;
+  elements.shellVersion.textContent = info.shellVersion;
   let sessions: SessionSummaryV1[] = [];
   let selected: SessionSummaryV1 | null = null;
   let daemonReady = false;
@@ -1606,12 +1606,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       };
     }
     elements.statusDot.className = `status-dot ${view.tone}`;
-    elements.statusLabel.textContent = view.label;
     elements.statusSummary.textContent = view.summary;
     elements.retry.hidden = !view.showRetry;
     elements.recovery.hidden = !view.showRecovery;
-    elements.daemonVersion.textContent = status.daemonVersion ?? "—";
-    elements.protocolVersion.textContent = status.protocol?.toString() ?? "—";
+    elements.daemonVersion.textContent = status.daemonVersion ?? "Unavailable";
+    elements.protocolVersion.textContent = status.protocol?.toString() ?? "Unavailable";
     elements.connectionLabel.textContent = view.label;
     renderChat();
   };
@@ -2168,7 +2167,6 @@ function invalidArtifactResponse(): ErrorV1 {
 function rendererElements(root: Document) {
   return {
     statusDot: required(root, "status-dot"),
-    statusLabel: required(root, "status-label"),
     statusSummary: required(root, "status-summary"),
     retry: required(root, "retry") as HTMLButtonElement,
     showConnection: required(root, "show-connection"),

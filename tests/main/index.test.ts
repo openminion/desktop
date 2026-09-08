@@ -3656,7 +3656,6 @@ class CaptureFixtureDocument {
   addEventListener = vi.fn();
   private static readonly ids = [
     "status-dot",
-    "status-label",
     "status-summary",
     "retry",
     "show-connection",

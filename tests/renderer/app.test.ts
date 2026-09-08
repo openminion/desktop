@@ -219,7 +219,7 @@ describe("renderer status view", () => {
       api.daemon.status = async () => status({ state: "leasing" });
       const startingPage = new FixtureDocument();
       await mount(api, startingPage.asDocument());
-      expect(startingPage.element("connection-label").textContent).toBe("Daemon connected");
+      expect(startingPage.element("connection-label").textContent).toBe("Connected");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -2267,7 +2267,6 @@ interface FixtureEvent {
 class FixtureDocument {
   private static readonly requiredIds = [
     "status-dot",
-    "status-label",
     "status-summary",
     "retry",
     "show-connection",
