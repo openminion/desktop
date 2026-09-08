@@ -65,6 +65,12 @@ You can write a local draft before the daemon connects. Creating a saved task,
 attaching real context, and sending require the daemon connection. Draft text
 is preserved when you connect and create the task.
 
+Unsent text stays with its task when you switch between tasks during the same
+app session. Creating another task starts with an empty composer. These local
+drafts are not persisted after quitting the app. After sending, your message remains
+visible while OpenMinion works, then the conversation refreshes from saved
+history. Rejected submissions keep the text in the composer for correction.
+
 Create a **New task** in the sidebar, then write your message. Use the send
 button or **Command+Enter** on macOS (**Ctrl+Enter** elsewhere). Enter alone
 adds a new line.

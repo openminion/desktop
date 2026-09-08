@@ -1007,6 +1007,7 @@ describe("renderer status view", () => {
       );
       await vi.waitFor(() => expect(page.attachmentText()).toEqual([]));
       expect(submit).toHaveBeenCalledTimes(1);
+      expect(page.findText()).toContain("Describe this image");
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "done",
@@ -1032,6 +1033,19 @@ describe("renderer status view", () => {
         }),
       );
       await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Other"));
+      expect(page.element("composer").value).toBe("");
+      page.element("composer").value = "Other task draft";
+      page.element("composer").dispatch("input");
+      page.sessionButtons()[0]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("chat-status").textContent).toContain("History loaded"),
+      );
+      expect(page.element("composer").value).toBe("Next");
+      page.sessionButtons()[1]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("chat-status").textContent).toContain("History loaded"),
+      );
+      expect(page.element("composer").value).toBe("Other task draft");
       page.element("attach-image").click();
       await vi.waitFor(() =>
         expect(page.attachmentText()).toContain("pagehide.png · 1 KB · image/png"),
@@ -1062,6 +1076,8 @@ describe("renderer status view", () => {
       await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(2));
       expect(reloaded.attachmentText()).toContain("retry.png · 1 KB · image/png");
       expect(reloaded.element("chat-status").textContent).toBe("Try again later.");
+      expect(reloaded.element("composer").value).toBe("Retry safely");
+      expect(reloaded.findText()).not.toContain("Retry safely");
       reloaded.element("composer-form").dispatch("submit");
       await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(3));
       expect(reloaded.attachmentText()).toEqual([]);
@@ -1083,6 +1099,7 @@ describe("renderer status view", () => {
       expect(reloaded.element("artifact-list").children).toEqual([]);
       expect(reloaded.element("artifact-status").textContent).toBe("This session is closed.");
       expect(reloaded.element("refresh-artifacts").disabled).toBe(true);
+      expect(reloaded.sessionButtons()[0]!.textContent).toContain(" · Closed");
       expect(JSON.stringify(reloaded.attachmentText())).not.toMatch(
         /artifact|sha256|token|endpoint|\/v1\/|\/private/i,
       );

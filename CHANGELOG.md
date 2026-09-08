@@ -7,6 +7,13 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Kept unsent drafts with their tasks instead of carrying them into another
+  task; creating another task starts with an empty composer.
+- Showed the submitted message during an active turn and moved the timeline
+  to that message when sending, while preserving draft text on rejection.
+- Distinguished closed tasks in the sidebar and added full attachment
+  tooltips and specific accessible removal labels.
+
 - Fixed sandboxed preload loading so the real app connects its UI handlers
   instead of remaining on the initial Connecting screen.
 - Waited for the supervisor's startup result instead of abandoning renderer

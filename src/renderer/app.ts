@@ -505,6 +505,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let daemonReady = false;
   let creatingTask = false;
   let messages: MessageV1[] = [];
+  const drafts = new Map<string, string>();
+  let submittedText: string | null = null;
   let activity: ActivityItem[] = [];
   let attachments: MediaAttachmentV1[] = [];
   let artifacts: ArtifactCatalogItemV1[] = [];
@@ -1189,7 +1191,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderTimeline(
       root,
       elements.timeline,
-      messages,
+      submittedText === null ? messages : [...messages, { role: "user", body: submittedText }],
       automaticObservation,
       activity,
       deciding,
@@ -1240,6 +1242,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       (guidancePending?.traceId === terminalTraceId || guidanceView?.traceId === terminalTraceId);
     if (!terminalGuidance) clearGuidance();
     if (selected && selected.sessionId !== session.sessionId) {
+      drafts.set(selected.sessionId, chat.active ? "" : elements.composer.value);
+      elements.composer.value = drafts.get(session.sessionId) ?? "";
       captureGeneration += 1;
       observationGeneration += 1;
       observationPending = false;
@@ -1262,6 +1266,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     submissionGeneration += 1;
     selected = session;
     messages = [];
+    submittedText = null;
     capturePending = Boolean(captureApi);
     artifacts = [];
     artifactView = null;
@@ -1568,10 +1573,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       guidanceMessage = "Submitting guidance request…";
     }
     chat = { ...chat, active: true, label: "Submitting turn…", error: null };
+    submittedText = message;
     releaseFileGrants(api, fileGrants);
     fileGrants = [];
     fileLabel = "File grants released for this turn.";
     renderChat();
+    elements.timeline.scrollTop = elements.timeline.scrollHeight;
     const generation = ++submissionGeneration;
     const includeCurrentView = asGuidance || elements.includeCurrentView.checked;
     const result = await api.turns.submit({
@@ -1587,6 +1594,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     if (!result.ok) {
       chat = { ...chat, active: false };
+      submittedText = null;
       if (asGuidance) clearGuidance();
       if (result.error.code === "submission_ambiguous") {
         attachments = [];
@@ -1611,6 +1619,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       }
     }
     elements.composer.value = "";
+    drafts.delete(selected.sessionId);
     elements.includeCurrentView.checked = false;
     attachments = [];
     chat = applySubmitResult(chat, result.value);
@@ -2159,6 +2168,7 @@ function renderAttachments(
       const name = root.createElement("span");
       name.className = "attachment-name";
       name.textContent = `${attachment.name} · ${formatBytes(attachment.sizeBytes)} · ${attachment.mimeType}`;
+      name.title = name.textContent;
       chip.append(name);
       if (!attachment.turnCompatible) {
         const state = root.createElement("span");
@@ -2170,6 +2180,7 @@ function renderAttachments(
       button.type = "button";
       button.className = "quiet-button attachment-remove";
       button.textContent = "Remove";
+      button.setAttribute("aria-label", `Remove ${attachment.name}`);
       button.addEventListener("click", () => remove(attachment.mediaId));
       chip.append(button);
       return chip;
@@ -2208,7 +2219,7 @@ function renderSessions(
     const button = root.createElement("button");
     button.type = "button";
     button.className = `session-item${session.sessionId === selectedId ? " selected" : ""}`;
-    button.textContent = session.title ?? "Untitled task";
+    button.textContent = `${session.title ?? "Untitled task"}${session.status === "closed" ? " · Closed" : ""}`;
     button.title = button.textContent;
     button.setAttribute("aria-current", session.sessionId === selectedId ? "true" : "false");
     button.addEventListener("click", () => select(session.sessionId));
@@ -2226,7 +2237,7 @@ function renderSessions(
 function renderTimeline(
   root: Document,
   timeline: HTMLElement,
-  messages: MessageV1[],
+  messages: ReadonlyArray<Pick<MessageV1, "role" | "body">>,
   automaticObservation: ObservationFrameFactV1 | null,
   activity: ActivityItem[],
   deciding: Set<string>,
