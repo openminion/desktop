@@ -18,8 +18,9 @@ application.
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |
 | macOS native capture | opt-in permissioned test | requires acceptance on an authorized host |
 | OpenMinion installation and daemon lifecycle | pinned PyPI 0.0.18; isolated config; real start/status/stop proof | development-ready |
-| Text chat and saved sessions | real PyPI 0.0.18 CLI and production Electron GUI; echo turn, restart recovery, canonical close | development-ready |
-| Cancellation | existing authenticated API; session/trace fencing and terminal stream tests | needs live long-running provider acceptance |
+| Text chat and saved sessions | real PyPI 0.0.18 CLI and production Electron GUI; first send, task switching, drafts, resizing, outage/restart recovery, canonical close | development-ready |
+| Provider errors and recovery | real PyPI daemon with a local controlled HTTP provider | locally verified; paid-provider acceptance pending |
+| Cancellation | authenticated request and saved-event evidence; PyPI 0.0.18 can complete an in-flight provider request after acknowledgement | runtime interruption gap remains |
 | Approvals, media, artifacts, full Focus commands | preview UI and legacy typed client; public-interface adaptation pending | not connected |
 | Signed and notarized macOS app | no evidence | not ready |
 | Update, rollback, migration, uninstall | no evidence | not ready |

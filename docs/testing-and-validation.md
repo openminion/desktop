@@ -74,14 +74,30 @@ npm run build
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/pypi.mjs
 ```
 
-These opt-in tests create private temporary config/data roots and use the echo
-provider. They prove text turns, canonical history, daemon restart recovery, a same-session
-follow-up,
-and session closing. The Electron test drives the production main, preload, and
-renderer, checks the local-draft label and unavailable attachments, and reloads
-the renderer after restarting the daemon. Both stop their isolated daemon.
-They do not prove paid provider behavior, live long-running cancellation,
-approvals, media delivery, or full Focus command parity.
+These opt-in tests create private temporary config/data roots. The CLI/API test
+uses echo and proves canonical history, a same-session follow-up after daemon
+restart, and session closing.
+
+The Electron test drives production main, preload, and renderer and covers:
+
+- first send from an empty workspace, whitespace rejection, and real keyboard input;
+- help and unsupported slash commands without creating a model turn;
+- two conversations, task-local unsent drafts, and visible clearing without deleting history;
+- populated layout at 760 × 560, 1180 × 800, and 1800 × 1000;
+- daemon outage detection through connection details, reconnect with the draft intact,
+  renderer reload, restored history, and closed-session send rejection;
+- cancellation requests while the real daemon is waiting on a local controlled provider,
+  provider rejection, and a successful subsequent request.
+
+The provider fixture is a loopback HTTP server with a test credential, configured
+only in the test's isolated runtime. It can hold or reject a request. Both tests
+stop their isolated daemon and remove their temporary config/data roots.
+PyPI 0.0.18 can acknowledge cancellation and still complete an in-flight provider
+request. The GUI test checks the recorded cancellation request and presents the
+daemon's terminal outcome; it does not certify interruption of provider work.
+These checks do not contact a paid provider, record the user's screen, or certify
+approval/media delivery, full Focus command parity, or active-turn reattachment
+across an application quit.
 
 ## Workspace Regression Checks
 

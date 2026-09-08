@@ -7,6 +7,13 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Refreshed daemon status when opening connection details so a stopped runtime
+  exposes Reconnect while preserving the unsent draft.
+- Prevented late cancellation replies from reopening a completed turn or
+  changing another task's status.
+- Expanded real-runtime GUI checks across task switching, commands, resizing,
+  outage recovery, cancellation, provider failures, and recovery.
+
 - Enabled sending directly from the empty workspace: the first message creates
   its task automatically, without requiring a separate New task click.
 

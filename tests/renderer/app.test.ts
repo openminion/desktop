@@ -289,6 +289,16 @@ describe("renderer status view", () => {
         expect(page.element("command-title").textContent).toBe("Command unavailable");
       }
       expect(submit).not.toHaveBeenCalled();
+      page.element("composer").value = "Preserve during outage";
+      page.element("composer").dispatch("input");
+      api.daemon.status = async () => status({ state: "degraded" });
+      page.element("show-connection").click();
+      await vi.waitFor(() =>
+        expect(page.element("connection-label").textContent).toBe("Not connected"),
+      );
+      expect(page.element("composer").value).toBe("Preserve during outage");
+      expect(page.element("send").disabled).toBe(true);
+      expect(page.element("retry").hidden).toBe(false);
       api.daemon.status = async () => status({ state: "running" });
       const startingPage = new FixtureDocument();
       await mount(api, startingPage.asDocument());
@@ -1193,6 +1203,24 @@ describe("renderer status view", () => {
       page.element("composer").value = "/copy";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() => expect(api.app.copyText).toHaveBeenCalledWith("First chunk"));
+      let finishCancellation!: () => void;
+      const cancellation = new Promise<void>((resolve) => {
+        finishCancellation = resolve;
+      });
+      api.turns.cancel = vi.fn<NativeApi["turns"]["cancel"]>(async () => {
+        await cancellation;
+        return {
+          ok: true,
+          value: {
+            sessionId: "session-1",
+            traceId: "trace-1",
+            runId: "trace-1",
+            state: "requested",
+            terminal: false,
+          },
+        };
+      });
+      page.element("cancel").click();
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "done",
@@ -1204,6 +1232,10 @@ describe("renderer status view", () => {
       await vi.waitFor(() =>
         expect(page.element("chat-status").textContent).toContain("History loaded"),
       );
+      finishCancellation();
+      await vi.mocked(api.turns.cancel).mock.results[0]!.value;
+      expect(page.element("cancel").hidden).toBe(true);
+      expect(page.element("chat-status").textContent).toContain("History loaded");
 
       page.element("composer").value = "/clear";
       page.element("composer").dispatch("keydown", { key: "Enter" });

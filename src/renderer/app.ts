@@ -1761,9 +1761,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     { once: true },
   );
 
-  elements.showConnection.addEventListener("click", () => {
+  elements.showConnection.addEventListener("click", async () => {
     elements.connectionDetails.open = true;
     elements.retry.focus();
+    renderStatus(await api.daemon.status());
   });
   elements.retry.addEventListener("click", async () => {
     elements.retry.disabled = true;
@@ -2154,10 +2155,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       return;
     }
     elements.cancel.disabled = true;
-    const result = await api.turns.cancel({
-      sessionId: selected.sessionId,
-      traceId: chat.traceId,
-    });
+    const sessionId = selected.sessionId;
+    const traceId = chat.traceId;
+    const result = await api.turns.cancel({ sessionId, traceId });
+    if (selected?.sessionId !== sessionId || chat.traceId !== traceId || !chat.active) return;
     if (!result.ok) {
       showError(result.error);
       return;

@@ -72,6 +72,13 @@ artifact, and screen-context interactions that are not connected to PyPI yet.
 
 ## Workspace Basics
 
+If the daemon stops while the window stays open, click the connection indicator
+at the bottom of the sidebar. Opening its details checks the current connection;
+use **Reconnect** when offered. Your unsent message stays in the composer.
+
+With PyPI 0.0.18, **Cancel** requests cancellation, but an in-flight provider
+request can still complete. Desktop displays the outcome reported by the daemon.
+
 Text chat and completed conversation history work in the real app. Attachment
 sending, artifact browsing, approval decisions, and automatic watch remain
 preview-only; the connected app marks those integrations unavailable.
