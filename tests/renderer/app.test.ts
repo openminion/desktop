@@ -140,7 +140,12 @@ describe("renderer status view", () => {
         list: async () => ({ ok: true, value: { sessions: [], nextCursor: null, hasMore: false } }),
         load: async () => ({
           ok: true,
-          value: { session, messages: [], nextMessageCursor: "0", messagesHasMore: false },
+          value: {
+            session,
+            messages: [{ ...message("user-1", "User input only"), role: "user" }],
+            nextMessageCursor: "0",
+            messagesHasMore: false,
+          },
         }),
         events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
       },
@@ -168,6 +173,12 @@ describe("renderer status view", () => {
       await vi.waitFor(() => expect(page.element("send").disabled).toBe(false));
       expect(create).toHaveBeenCalledTimes(1);
       expect(page.element("composer").value).toBe("Keep this local draft");
+      await vi.waitFor(() => expect(page.findText()).toContain("User input only"));
+      page.element("composer").value = "/copy";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(api.app.copyText).not.toHaveBeenCalled();
+      expect(page.element("command-title").textContent).toBe("Copy reply");
+      page.element("composer").value = "Keep this local draft";
       page.element("show-commands").click();
       expect(page.element("command-menu").hidden).toBe(false);
       page.element("composer").dispatch("keydown", { key: "Escape" });
@@ -192,7 +203,14 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("keydown", { key: "Tab" });
       expect(page.element("composer").value).toBe("/help ");
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      expect(page.element("command-title").textContent).toBe("Desktop commands");
+      expect(page.element("command-title").textContent).toBe(
+        "Focus commands — partial integration",
+      );
+      for (const command of ["/files", "/screenshot", "/cancel", "/close", "/retry", "/resume"]) {
+        page.element("composer").value = command;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        expect(page.element("command-title").textContent).toBe("Command unavailable");
+      }
       expect(submit).not.toHaveBeenCalled();
       api.daemon.status = async () => status({ state: "leasing" });
       const startingPage = new FixtureDocument();
@@ -1089,6 +1107,18 @@ describe("renderer status view", () => {
         outcome: "complete",
       });
       await vi.waitFor(() => expect(page.element("attach-image").disabled).toBe(false));
+      await vi.waitFor(() =>
+        expect(page.element("chat-status").textContent).toContain("History loaded"),
+      );
+
+      page.element("composer").value = "/clear";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.findText()).not.toContain("History for session-1");
+      page.element("composer").value = "/copy";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(api.app.copyText).toHaveBeenCalledTimes(1);
+      page.sessionButtons()[0]!.click();
+      await vi.waitFor(() => expect(page.findText()).toContain("History for session-1"));
 
       page.element("composer").value = "Next";
       page.element("composer").dispatch("input");

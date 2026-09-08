@@ -85,7 +85,7 @@ async function check() {
     );
     assert.equal(
       await evaluate("document.querySelector('#command-title').textContent"),
-      "Desktop commands",
+      "Focus commands — partial integration",
     );
     await evaluate("document.querySelector('#command-panel').hidePopover()");
     assert.equal((await evaluate("window.openminion.app.copyText({invalid:true})")).ok, false);

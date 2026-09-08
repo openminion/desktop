@@ -6,6 +6,11 @@ Last updated: 2026-09-08
 Purpose: describe Desktop's working slash commands and the remaining daemon
 contracts needed for the broader OpenMinion Focus command surface.
 
+Desktop is the GUI representation of Focus/CLI. The current subset is an
+integration gap, not a separate product command set. Names, arguments, defaults,
+and runtime effects must follow Focus. The [Focus Parity Contract](focus-parity.md)
+defines the canonical owners, known differences, daemon handoff, and acceptance.
+
 ## Using Commands
 
 Type `/` in the composer, click its `/` button, or press Command+K (Ctrl+K
@@ -23,18 +28,19 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | --- | --- |
 | `/help` or `/` | Show the working Desktop command list. |
 | `/new`, `/new session` | Create a saved task through the daemon. Requires connection and no active turn in the selected task. |
-| `/sessions`, `/session`, `/resume` | Open a picker for saved tasks. |
+| `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration. |
 | `/status` | Show connection, selected task, active agent, reported model, and turn status. |
 | `/model` | Show the model facts reported by the daemon; changing models is not supported here yet. |
-| `/copy` | Copy the latest reply, including a currently streaming reply; use the latest message if no reply exists. Clipboard writes are capped at 1 MB. |
+| `/copy` | Copy the latest visible assistant reply, including a currently streaming reply. Never fall back to user input or cleared replies. Focus tool-output copying still needs integration. Clipboard writes are capped at 1 MB. |
 | `/clear`, `/cls` | Clear the visible chat while idle. Saved history remains in OpenMinion; selecting the task restores it. |
 | `/quiet` | Hide tool activity cards while keeping approvals visible. |
 | `/normal` | Restore tool activity cards. |
-| `/files` | Open local files and task outputs. |
-| `/screenshot` | Open screen context controls. It does not start capture or send an image. |
-| `/cancel` | Cancel the selected task's active turn. |
-| `/close` | Close the selected idle task through the daemon. |
-| `/retry` | Check or reconnect the local daemon. |
+
+Files, screenshots, cancellation, task closing, and reconnection use their
+existing GUI controls. Their former Desktop-only slash shortcuts were removed
+to keep the command language aligned with Focus. `/resume` is not an alias for
+`/sessions`: Focus filters prior sessions with messages in the current directory.
+That operation is not connected yet.
 
 Other than `/new session`, commands currently take no arguments. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
@@ -62,7 +68,7 @@ they do not expose the entire interactive CLI command surface.
 | `/agents`, model changes, `/effort` | List configured agents/models and explicitly update an admitted session's agent/model/effort. Return the effective settings; keep credentials daemon-owned. |
 | `/tools`, `/mcp`, `/skills` | Read the selected agent's configured tools, MCP status, and skills through bounded structured queries. |
 | `/permissions`, `/readonly` | Read and update session policy with canonical validation and visible effective policy. |
-| `/context`, `/context-review`, `/compact` | Query the context owner and request supported session compaction. `/files` is not a substitute for context-budget inspection. |
+| `/context`, `/context-review`, `/compact` | Query the context owner and request supported session compaction. The files panel is not a substitute for context-budget inspection. |
 | `/tokens`, `/cost` | Return durable session usage and supported cost accounting, with unavailable fields explicit. |
 | `/memory`, `/graph`, `/telemetry`, `/trace`, `/overview` | Expose bounded, redacted owner queries over the authenticated Desktop contract. |
 | `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership and routing operations for admitted sessions. |

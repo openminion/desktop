@@ -59,20 +59,15 @@ export type RecoveredSession = {
 export type ActivityItem = ToolProgressV1 | ApprovalEventV1;
 
 export const DESKTOP_COMMANDS = [
-  { name: "/help", description: "Show Desktop commands" },
-  { name: "/new", description: "Start a new task" },
-  { name: "/sessions", description: "Choose or resume a task" },
+  { name: "/help", description: "Show commands currently connected in Desktop" },
+  { name: "/new", description: "Start a new session" },
+  { name: "/sessions", description: "Pick a session" },
   { name: "/status", description: "Show connection, task, agent, and model" },
-  { name: "/model", description: "Show this task's configured model" },
+  { name: "/model", description: "Show reported model (selection not connected yet)" },
   { name: "/copy", description: "Copy the latest reply" },
   { name: "/clear", description: "Clear the visible chat; keep saved history" },
   { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
   { name: "/normal", description: "Show tool activity" },
-  { name: "/files", description: "Open files and task outputs" },
-  { name: "/screenshot", description: "Open screenshot controls" },
-  { name: "/cancel", description: "Cancel the current turn" },
-  { name: "/close", description: "Close the current task" },
-  { name: "/retry", description: "Check or reconnect the daemon" },
 ] as const;
 
 export function commandMatches(text: string) {
@@ -1249,7 +1244,6 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const aliases: Record<string, string> = {
       "/": "/help",
       "/session": "/sessions",
-      "/resume": "/sessions",
       "/cls": "/clear",
     };
     const command = aliases[name] ?? name;
@@ -1265,7 +1259,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       hideCommandMenu();
       showCommandResult(
         "Command arguments",
-        `${command} does not take arguments in Desktop. Agent and model changes are configured in OpenMinion.`,
+        `${command} arguments are not connected in Desktop yet. Use Focus/CLI for this operation.`,
       );
       return true;
     }
@@ -1276,8 +1270,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     switch (command) {
       case "/help":
         showCommandResult(
-          "Desktop commands",
-          "Type / and use ↑ / ↓. Enter runs a command; Tab completes its name. Escape dismisses the menu. Use // to send a message beginning with /. Commands run locally and are not model prompts.",
+          "Focus commands — partial integration",
+          "Desktop presents OpenMinion Focus. Only the commands below are connected so far; model selection and other Focus operations still require integration. Type / and use ↑ / ↓. Enter runs a command; Tab completes its name. Escape dismisses the menu. Use // for a message beginning with /.",
         );
         for (const item of DESKTOP_COMMANDS) {
           const button = root.createElement("button");
@@ -1291,9 +1285,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           elements.commandResult.append(button);
         }
         break;
-      case "/new":
-      case "/close": {
-        const button = command === "/new" ? elements.newSession : elements.closeSession;
+      case "/new": {
+        const button = elements.newSession;
         if (!daemonReady || button.disabled)
           showCommandResult(
             "Task unavailable",
@@ -1332,15 +1325,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             `Provider: ${selected?.model.provider ?? "Not reported"}`,
             `Model: ${selected?.model.modelId ?? "Not reported"}`,
             chat.label,
-            "Model selection and credentials are configured in OpenMinion.",
+            "Model selection through Focus is not connected in Desktop yet.",
           ].join("\n"),
         );
         break;
       case "/copy": {
         const text =
           responseText ||
-          messages.findLast((item) => item.role === "assistant")?.body ||
-          messages.at(-1)?.body;
+          messages.slice(hiddenMessageCount).findLast((item) => item.role === "assistant")?.body;
         if (!text) showCommandResult("Copy reply", "There is no reply to copy yet.");
         else {
           const result = await api.app.copyText(text);
@@ -1371,20 +1363,6 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         break;
       case "/normal":
         quietTools = false;
-        break;
-      case "/files":
-        elements.contextPanel.showPopover();
-        break;
-      case "/screenshot":
-        elements.screenPanel.showPopover();
-        break;
-      case "/cancel":
-        if (elements.cancel.disabled)
-          showCommandResult("Cancel turn", "There is no cancellable turn in this task.");
-        else elements.cancel.click();
-        break;
-      case "/retry":
-        await refresh();
         break;
     }
     renderChat();

@@ -7,6 +7,14 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Established Focus/CLI as Desktop's behavior contract and recorded the missing
+  shared command integration. Full Focus parity is not implemented yet.
+- Removed Desktop-only slash shortcuts for files, screenshots, cancellation,
+  closing tasks, and reconnection; their existing GUI controls remain available.
+- Stopped treating `/resume` as an alias for the different `/sessions` command.
+  Help and model selection now explicitly identify incomplete integration.
+- Prevented `/copy` from copying user input or replies hidden by `/clear`.
+
 - Added a keyboard-accessible slash command menu for task navigation, status,
   copying, visible chat clearing, tool activity, context panels, and cancellation.
 - Displayed incoming response text and preserved active-turn controls and
