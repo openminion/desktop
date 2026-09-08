@@ -14,6 +14,9 @@ const textEncoder = new TextEncoder();
 
 const api: NativeApi = {
   app: {
+    copyText(text) {
+      return ipcRenderer.invoke(IPC_CHANNELS.copyText, text);
+    },
     async info() {
       return {
         appName: "OpenMinion",

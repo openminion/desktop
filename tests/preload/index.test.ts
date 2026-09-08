@@ -38,7 +38,7 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
-    expect(Object.keys(api.app)).toEqual(["info"]);
+    expect(Object.keys(api.app)).toEqual(["copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["status", "retry"]);
     expect(Object.keys(api.sessions)).toEqual(["list", "create", "load", "close", "events"]);
     expect(Object.keys(api.turns)).toEqual(["submit", "cancel", "subscribe"]);
@@ -61,6 +61,9 @@ describe("preload surface", () => {
     expect(api).not.toHaveProperty("invoke");
 
     invoke.mockResolvedValue({ state: "ready" });
+    await api.app.copyText("Local reply");
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.copyText, "Local reply");
+    invoke.mockClear();
     await api.daemon.status();
     await api.daemon.retry();
     await api.sessions.list({ limit: 10 });

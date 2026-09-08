@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   desktopCapturer,
   ipcMain,
   powerMonitor,
@@ -187,6 +188,22 @@ export function registerIpcHandlers(
     return true;
   };
 
+  ipcMain.handle(IPC_CHANNELS.copyText, (event, text: unknown): ClientResult<null> => {
+    if (!isAppInvocation(event)) return forbiddenResult();
+    if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 1024 * 1024) {
+      return {
+        ok: false,
+        error: {
+          code: "invalid_request",
+          message: "Choose up to 1 MB of text to copy.",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      };
+    }
+    clipboard.writeText(text);
+    return { ok: true, value: null };
+  });
   ipcMain.handle(IPC_CHANNELS.daemonStatus, () => supervisor.status());
   ipcMain.handle(IPC_CHANNELS.daemonRetry, () => supervisor.retry());
   ipcMain.handle(IPC_CHANNELS.sessionsList, (event, input) =>

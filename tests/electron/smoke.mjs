@@ -66,6 +66,29 @@ async function check() {
       await evaluate(`document.querySelector('#${panel}').hidePopover()`);
     }
     const widths = [];
+    await evaluate("document.querySelector('#show-commands').click()");
+    assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), false);
+    await evaluate(
+      "document.querySelector('#composer').dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "A local draft while disconnected",
+    );
+    await evaluate(`
+      document.querySelector('#composer').value = '/help';
+      document.querySelector('#composer').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter'}));
+    `);
+    assert.equal(
+      await evaluate("document.querySelector('#command-panel').matches(':popover-open')"),
+      true,
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#command-title').textContent"),
+      "Desktop commands",
+    );
+    await evaluate("document.querySelector('#command-panel').hidePopover()");
+    assert.equal((await evaluate("window.openminion.app.copyText({invalid:true})")).ok, false);
     for (const [width, height] of [
       [760, 560],
       [1180, 800],
@@ -115,7 +138,7 @@ async function check() {
     assert.deepEqual(preloadErrors, []);
     worker.destroy();
     console.log(
-      "Electron check passed: real app/preloads, isolated bridge, offline draft, popovers, and fluid composer.",
+      "Electron check passed: real app/preloads, isolated bridge, offline draft, slash commands, popovers, and fluid composer.",
     );
     clearTimeout(timeout);
   } catch (error) {

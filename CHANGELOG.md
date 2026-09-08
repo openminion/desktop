@@ -7,6 +7,12 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Added a keyboard-accessible slash command menu for task navigation, status,
+  copying, visible chat clearing, tool activity, context panels, and cancellation.
+- Displayed incoming response text and preserved active-turn controls and
+  pending approvals when switching tasks within the same app.
+- Kept the composer editable during turns for local commands and unsent drafts.
+
 - Kept unsent drafts with their tasks instead of carrying them into another
   task; creating another task starts with an empty composer.
 - Showed the submitted message during an active turn and moved the timeline

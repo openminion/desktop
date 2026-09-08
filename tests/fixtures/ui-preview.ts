@@ -180,7 +180,18 @@ function finish(body: string, outcome: "complete" | "cancelled" = "complete") {
   turnListener({ schemaVersion: 1, kind: "done", sessionId: input.sessionId, traceId, outcome });
 }
 const api: NativeApi = {
-  app: { info: async () => ({ appName: "OpenMinion", shellVersion: "UI preview · simulated" }) },
+  app: {
+    copyText: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Clipboard access is disabled in UI preview. Copy is available in the real app.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
+    info: async () => ({ appName: "OpenMinion", shellVersion: "UI preview · simulated" }),
+  },
   daemon: {
     status: async () => ({
       state: "ready",

@@ -75,6 +75,11 @@ Create a **New task** in the sidebar, then write your message. Use the send
 button or **Command+Enter** on macOS (**Ctrl+Enter** elsewhere). Enter alone
 adds a new line.
 
+Type `/` or press **Command/Ctrl+K** to open Desktop commands. Arrow keys select,
+Tab completes, and Enter runs a command. Start with `/help`, `/new`, `/sessions`,
+`/status`, or `/cancel`. See [Desktop Commands and Focus Parity](commands.md)
+for the supported commands and remaining integration work.
+
 The **+** button beside the composer opens image and file attachments.
 **Screenshot** opens the screen or window chooser beside your message.
 Choose **Entire screen** or **Window**, select a source, and **Start preview**.

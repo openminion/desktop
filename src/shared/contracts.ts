@@ -602,6 +602,7 @@ export type CaptureEventV1 =
 export type NativeApi = {
   app: {
     info(): Promise<AppInfo>;
+    copyText(text: string): Promise<ClientResult<null>>;
   };
   daemon: {
     status(): Promise<DaemonStatus>;
@@ -682,6 +683,7 @@ export const DESKTOP_CAPABILITIES = [
   "tool_outputs.read.v1",
 ] as const;
 export const IPC_CHANNELS = {
+  copyText: "openminion:copy-text",
   daemonStatus: "openminion:daemon-status",
   daemonRetry: "openminion:daemon-retry",
   sessionsList: "openminion:sessions-list",

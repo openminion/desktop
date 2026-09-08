@@ -110,6 +110,7 @@
             </p>
           </div>
           <form id="composer-form" class="composer">
+            <div id="command-menu" class="command-menu" role="listbox" aria-label="Commands" hidden></div>
             <section id="screen-context-summary" class="screen-context-summary" aria-label="Screenshot context" hidden>
               <div class="screen-context-thumbnail">
                 <img id="screen-context-preview" alt="Local screen preview, not yet sent" hidden />
@@ -130,10 +131,13 @@
               rows="2"
               maxlength="250000"
               placeholder="Message OpenMinion…"
+              aria-controls="command-menu"
+              aria-autocomplete="list"
               disabled
             ></textarea>
             <div class="composer-actions">
               <div class="composer-tools">
+                <button id="show-commands" class="icon-only-button" type="button" aria-controls="command-menu" aria-expanded="false" aria-haspopup="listbox" aria-label="Show commands" title="Commands (/) or ⌘ / Ctrl + K">/</button>
                 <button class="icon-only-button" type="button" popovertarget="attachment-menu" aria-label="Add attachment" title="Add attachment">
                   ＋
                 </button>
@@ -155,6 +159,13 @@
               </div>
             </div>
           </form>
+          <section id="command-panel" class="command-panel" popover aria-labelledby="command-title">
+            <header class="panel-heading">
+              <h3 id="command-title">Commands</h3>
+              <button class="icon-only-button" type="button" popovertarget="command-panel" popovertargetaction="hide" aria-label="Close command result">×</button>
+            </header>
+            <div id="command-result" class="command-result"></div>
+          </section>
         </section>
 
         <aside id="screen-panel" class="artifacts-panel screen-panel" aria-label="Screen context" popover>

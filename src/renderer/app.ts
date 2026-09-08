@@ -58,6 +58,27 @@ export type RecoveredSession = {
 
 export type ActivityItem = ToolProgressV1 | ApprovalEventV1;
 
+export const DESKTOP_COMMANDS = [
+  { name: "/help", description: "Show Desktop commands" },
+  { name: "/new", description: "Start a new task" },
+  { name: "/sessions", description: "Choose or resume a task" },
+  { name: "/status", description: "Show connection, task, agent, and model" },
+  { name: "/model", description: "Show this task's configured model" },
+  { name: "/copy", description: "Copy the latest reply" },
+  { name: "/clear", description: "Clear the visible chat; keep saved history" },
+  { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
+  { name: "/normal", description: "Show tool activity" },
+  { name: "/files", description: "Open files and task outputs" },
+  { name: "/screenshot", description: "Open screenshot controls" },
+  { name: "/cancel", description: "Cancel the current turn" },
+  { name: "/close", description: "Close the current task" },
+  { name: "/retry", description: "Check or reconnect the daemon" },
+] as const;
+
+export function commandMatches(text: string) {
+  return DESKTOP_COMMANDS.filter((command) => command.name.startsWith(text.trim()));
+}
+
 export type ArtifactView = {
   item: ArtifactCatalogItemV1;
   contentKind: ArtifactContentKind;
@@ -294,6 +315,20 @@ export function applySubmitResult(state: ChatState, result: TurnSubmitValue): Ch
 export function applyActivityEvent(activity: ActivityItem[], event: ActivityItem): ActivityItem[] {
   const key = activityKey(event);
   const prior = activity.find((item) => activityKey(item) === key);
+  if (
+    prior?.kind === "approval" &&
+    event.kind === "approval" &&
+    prior.outcome !== "pending" &&
+    event.outcome === "pending"
+  )
+    return activity;
+  if (
+    prior?.kind === "tool" &&
+    event.kind === "tool" &&
+    prior.phase === "completed" &&
+    event.phase === "started"
+  )
+    return activity;
   const next =
     event.kind === "approval" && prior?.kind === "approval"
       ? {
@@ -507,6 +542,16 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let messages: MessageV1[] = [];
   const drafts = new Map<string, string>();
   let submittedText: string | null = null;
+  let responseText = "";
+  const liveTurns = new Map<
+    string,
+    { state: ChatState; responseText: string; activity: ActivityItem[] }
+  >();
+  let hiddenMessageCount = 0;
+  let quietTools = false;
+  let commandIndex = 0;
+  let commandDraft: string | null = null;
+  let commandsDismissed = false;
   let activity: ActivityItem[] = [];
   let attachments: MediaAttachmentV1[] = [];
   let artifacts: ArtifactCatalogItemV1[] = [];
@@ -1149,26 +1194,229 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderArtifacts();
   };
 
+  const hideCommandMenu = () => {
+    commandsDismissed = true;
+    elements.commandMenu.hidden = true;
+    elements.showCommands.setAttribute("aria-expanded", "false");
+    elements.composer.removeAttribute("aria-activedescendant");
+    if (commandDraft !== null) {
+      elements.composer.value = commandDraft;
+      commandDraft = null;
+    }
+  };
+
+  const renderCommandMenu = () => {
+    const value = elements.composer.value.trim();
+    const matches = commandMatches(value);
+    if (commandsDismissed || !value.startsWith("/") || !matches.length) {
+      elements.commandMenu.hidden = true;
+      elements.showCommands.setAttribute("aria-expanded", "false");
+      elements.composer.removeAttribute("aria-activedescendant");
+      return;
+    }
+    commandIndex = Math.min(commandIndex, matches.length - 1);
+    elements.commandMenu.replaceChildren(
+      ...matches.map((command, index) => {
+        const button = root.createElement("button");
+        button.id = `command-option-${index}`;
+        button.type = "button";
+        button.className = `command-option${index === commandIndex ? " active" : ""}`;
+        button.setAttribute("role", "option");
+        button.setAttribute("aria-selected", String(index === commandIndex));
+        button.textContent = `${command.name}  ${command.description}`;
+        button.addEventListener("click", () => void runCommand(command.name));
+        return button;
+      }),
+    );
+    elements.commandMenu.hidden = false;
+    elements.showCommands.setAttribute("aria-expanded", "true");
+    elements.composer.setAttribute("aria-activedescendant", `command-option-${commandIndex}`);
+    elements.commandMenu.children[commandIndex]?.scrollIntoView({ block: "nearest" });
+  };
+
+  const showCommandResult = (title: string, text: string) => {
+    elements.commandTitle.textContent = title;
+    const paragraph = root.createElement("p");
+    paragraph.textContent = text;
+    elements.commandResult.replaceChildren(paragraph);
+    elements.commandPanel.showPopover();
+  };
+
+  const runCommand = async (text: string): Promise<boolean> => {
+    const value = text.trim();
+    if (!value.startsWith("/") || value.startsWith("//")) return false;
+    const [name, ...args] = value.split(/\s+/);
+    const aliases: Record<string, string> = {
+      "/": "/help",
+      "/session": "/sessions",
+      "/resume": "/sessions",
+      "/cls": "/clear",
+    };
+    const command = aliases[name] ?? name;
+    if (!DESKTOP_COMMANDS.some((item) => item.name === command)) {
+      hideCommandMenu();
+      showCommandResult(
+        "Command unavailable",
+        `${name} is not available in Desktop. Type /help for supported commands. This text was not sent to the model.`,
+      );
+      return true;
+    }
+    if (args.length && !(command === "/new" && args.join(" ") === "session")) {
+      hideCommandMenu();
+      showCommandResult(
+        "Command arguments",
+        `${command} does not take arguments in Desktop. Agent and model changes are configured in OpenMinion.`,
+      );
+      return true;
+    }
+    elements.composer.value = commandDraft ?? "";
+    commandDraft = null;
+    hideCommandMenu();
+    elements.composer.focus();
+    switch (command) {
+      case "/help":
+        showCommandResult(
+          "Desktop commands",
+          "Type / and use ↑ / ↓. Enter runs a command; Tab completes its name. Escape dismisses the menu. Use // to send a message beginning with /. Commands run locally and are not model prompts.",
+        );
+        for (const item of DESKTOP_COMMANDS) {
+          const button = root.createElement("button");
+          button.type = "button";
+          button.className = "command-option";
+          button.textContent = `${item.name}  ${item.description}`;
+          button.addEventListener("click", () => {
+            elements.commandPanel.hidePopover();
+            void runCommand(item.name);
+          });
+          elements.commandResult.append(button);
+        }
+        break;
+      case "/new":
+      case "/close": {
+        const button = command === "/new" ? elements.newSession : elements.closeSession;
+        if (!daemonReady || button.disabled)
+          showCommandResult(
+            "Task unavailable",
+            "Connect OpenMinion and finish or cancel the active turn before changing this task.",
+          );
+        else button.click();
+        break;
+      }
+      case "/sessions":
+        showCommandResult(
+          "Choose a task",
+          sessions.length
+            ? "Resume a saved conversation."
+            : "No saved tasks. Connect OpenMinion and create a new task.",
+        );
+        for (const session of sessions) {
+          const button = root.createElement("button");
+          button.type = "button";
+          button.className = "command-option";
+          button.textContent = `${session.title ?? "Untitled task"} · ${session.status}`;
+          button.addEventListener("click", () => {
+            elements.commandPanel.hidePopover();
+            void selectSession(session);
+          });
+          elements.commandResult.append(button);
+        }
+        break;
+      case "/status":
+      case "/model":
+        showCommandResult(
+          command === "/model" ? "Configured model" : "Task status",
+          [
+            elements.connectionLabel.textContent,
+            `Task: ${selected?.title ?? "No task selected"}`,
+            `Agent: ${selected?.activeAgentId ?? "Not reported"}`,
+            `Provider: ${selected?.model.provider ?? "Not reported"}`,
+            `Model: ${selected?.model.modelId ?? "Not reported"}`,
+            chat.label,
+            "Model selection and credentials are configured in OpenMinion.",
+          ].join("\n"),
+        );
+        break;
+      case "/copy": {
+        const text =
+          responseText ||
+          messages.findLast((item) => item.role === "assistant")?.body ||
+          messages.at(-1)?.body;
+        if (!text) showCommandResult("Copy reply", "There is no reply to copy yet.");
+        else {
+          const result = await api.app.copyText(text);
+          showCommandResult(
+            "Copy reply",
+            result.ok ? "Copied to clipboard." : result.error.message,
+          );
+        }
+        break;
+      }
+      case "/clear":
+        if (chat.active)
+          showCommandResult(
+            "Turn in progress",
+            "Finish or cancel this turn before clearing the visible chat.",
+          );
+        else {
+          hiddenMessageCount = messages.length;
+          activity = [];
+          showCommandResult(
+            "Chat cleared",
+            "Saved history is unchanged. Select the task again to restore it.",
+          );
+        }
+        break;
+      case "/quiet":
+        quietTools = true;
+        break;
+      case "/normal":
+        quietTools = false;
+        break;
+      case "/files":
+        elements.contextPanel.showPopover();
+        break;
+      case "/screenshot":
+        elements.screenPanel.showPopover();
+        break;
+      case "/cancel":
+        if (elements.cancel.disabled)
+          showCommandResult("Cancel turn", "There is no cancellable turn in this task.");
+        else elements.cancel.click();
+        break;
+      case "/retry":
+        await refresh();
+        break;
+    }
+    renderChat();
+    return true;
+  };
+
   const renderChat = () => {
     const writable = Boolean(selected && selected.status !== "closed");
     const attachmentsValid = turnAttachmentsAreValid();
     elements.chatStatus.textContent = chat.label;
     elements.newSession.disabled = creatingTask || chat.active;
+    const isCommand =
+      elements.composer.value.trimStart().startsWith("/") &&
+      !elements.composer.value.trimStart().startsWith("//");
     elements.send.disabled =
-      !daemonReady ||
-      !writable ||
-      chat.active ||
-      attachmentPending ||
-      !elements.composer.value.trim() ||
-      !attachmentsValid;
+      !isCommand &&
+      (!daemonReady ||
+        !writable ||
+        chat.active ||
+        attachmentPending ||
+        !elements.composer.value.trim() ||
+        !attachmentsValid);
     elements.cancel.hidden = !chat.active;
     elements.cancel.disabled = !chat.active || !chat.traceId;
-    elements.send.title = !daemonReady
-      ? "Connect OpenMinion to send this draft"
-      : !writable
-        ? "Create or choose a task to send"
-        : "Send message (⌘ / Ctrl + Enter)";
-    elements.composer.disabled = selected?.status === "closed" || chat.active;
+    elements.send.title = isCommand
+      ? "Run command"
+      : !daemonReady
+        ? "Connect OpenMinion to send this draft"
+        : !writable
+          ? "Create or choose a task to send"
+          : "Send message (⌘ / Ctrl + Enter)";
+    elements.composer.disabled = false;
     elements.closeSession.disabled = !writable || chat.active || attachmentPending;
     elements.attachImage.disabled =
       !writable || chat.active || attachmentPending || attachments.length >= 4;
@@ -1191,9 +1439,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderTimeline(
       root,
       elements.timeline,
-      submittedText === null ? messages : [...messages, { role: "user", body: submittedText }],
+      [
+        ...messages.slice(hiddenMessageCount),
+        ...(submittedText === null ? [] : [{ role: "user" as const, body: submittedText }]),
+        ...(responseText ? [{ role: "assistant" as const, body: responseText }] : []),
+      ],
       automaticObservation,
-      activity,
+      quietTools ? activity.filter((item) => item.kind === "approval") : activity,
       deciding,
       (approval, decision) => {
         if (deciding.has(approval.approvalId)) {
@@ -1211,6 +1463,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           })
           .then((result) => {
             deciding.delete(approval.approvalId);
+            const live = liveTurns.get(approval.sessionId);
+            if (result.ok && live)
+              live.activity = applyActivityEvent(
+                live.activity,
+                resolvedApproval(approval, result.value),
+              );
             if (generation !== selectionGeneration || selected?.sessionId !== approval.sessionId) {
               return;
             }
@@ -1224,6 +1482,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       },
     );
     renderObservation();
+    renderCommandMenu();
   };
 
   const showError = (error: ErrorV1) => {
@@ -1242,7 +1501,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       (guidancePending?.traceId === terminalTraceId || guidanceView?.traceId === terminalTraceId);
     if (!terminalGuidance) clearGuidance();
     if (selected && selected.sessionId !== session.sessionId) {
-      drafts.set(selected.sessionId, chat.active ? "" : elements.composer.value);
+      hideCommandMenu();
+      drafts.set(selected.sessionId, elements.composer.value);
       elements.composer.value = drafts.get(session.sessionId) ?? "";
       captureGeneration += 1;
       observationGeneration += 1;
@@ -1267,6 +1527,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     selected = session;
     messages = [];
     submittedText = null;
+    responseText = "";
+    hiddenMessageCount = 0;
     capturePending = Boolean(captureApi);
     artifacts = [];
     artifactView = null;
@@ -1315,6 +1577,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       terminalTraceId,
       label: terminalLabel(recovered.events),
     };
+    const live = liveTurns.get(session.sessionId);
+    if (live) {
+      chat = live.state;
+      // Accepted user text is already present in authoritative history after switching.
+      submittedText = null;
+      responseText = live.responseText;
+      for (const item of live.activity) activity = applyActivityEvent(activity, item);
+    }
     renderChat();
   };
 
@@ -1406,6 +1676,18 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const unsubscribe = api.turns.subscribe((event) => {
+    const live = liveTurns.get(event.sessionId);
+    if (live) {
+      const matchesTurn = live.state.traceId === event.traceId;
+      if (matchesTurn && (event.kind === "tool" || event.kind === "approval"))
+        live.activity = applyActivityEvent(live.activity, event);
+      if (matchesTurn && event.kind === "progress" && event.progressKind === "text")
+        live.responseText += event.text;
+      if (matchesTurn && event.kind === "response") live.responseText = event.finalText;
+      live.state = applyTurnEvent(live.state, event);
+      if (selected?.sessionId === event.sessionId) responseText = live.responseText;
+      if (event.kind === "done" && matchesTurn) liveTurns.delete(event.sessionId);
+    }
     acceptGuidanceTurnEvent(event);
     if (
       (event.kind === "tool" || event.kind === "approval") &&
@@ -1548,10 +1830,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderCapture();
   });
   const submitTurn = async (asGuidance: boolean) => {
+    if (!asGuidance && (await runCommand(elements.composer.value))) return;
     if (!selected || !daemonReady || chat.active) {
       return;
     }
-    const message = elements.composer.value.trim();
+    const draft = elements.composer.value;
+    const message = draft.trim().replace(/^\/\//, "/");
     if (!message) {
       return;
     }
@@ -1574,6 +1858,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     chat = { ...chat, active: true, label: "Submitting turn…", error: null };
     submittedText = message;
+    responseText = "";
+    const sessionId = selected.sessionId;
+    liveTurns.set(sessionId, { state: chat, responseText: "", activity: [] });
     releaseFileGrants(api, fileGrants);
     fileGrants = [];
     fileLabel = "File grants released for this turn.";
@@ -1589,7 +1876,15 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         : {}),
       ...(includeCurrentView ? { observation: { includeCurrentView: true as const } } : {}),
     });
+    const live = liveTurns.get(sessionId);
+    if (live && result.ok) live.state = applySubmitResult(live.state, result.value);
+    if (!result.ok) liveTurns.delete(sessionId);
     if (generation !== submissionGeneration) {
+      if (result.ok && drafts.get(sessionId) === draft) drafts.delete(sessionId);
+      if (selected?.sessionId === sessionId) {
+        if (result.ok && elements.composer.value === draft) elements.composer.value = "";
+        void selectSession(selected);
+      }
       return;
     }
     if (!result.ok) {
@@ -1618,7 +1913,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         if (observationStatus) acceptGuidanceObservation(observationStatus);
       }
     }
-    elements.composer.value = "";
+    if (elements.composer.value === draft) elements.composer.value = "";
     drafts.delete(selected.sessionId);
     elements.includeCurrentView.checked = false;
     attachments = [];
@@ -1630,8 +1925,64 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     void submitTurn(false);
   });
   elements.askGuidance.addEventListener("click", () => void submitTurn(true));
-  elements.composer.addEventListener("input", renderChat);
+  elements.composer.addEventListener("input", () => {
+    commandIndex = 0;
+    commandsDismissed = false;
+    renderChat();
+  });
+  const openCommands = () => {
+    if (!elements.composer.value.startsWith("/")) commandDraft = elements.composer.value;
+    elements.composer.value = "/";
+    commandsDismissed = false;
+    commandIndex = 0;
+    elements.composer.focus();
+    renderChat();
+  };
+  elements.showCommands.addEventListener("click", openCommands);
+  root.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      openCommands();
+    }
+  });
   elements.composer.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
+    const matches = commandMatches(elements.composer.value);
+    if (!elements.commandMenu.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        hideCommandMenu();
+        renderChat();
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        commandIndex =
+          (commandIndex + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+        renderCommandMenu();
+        return;
+      }
+      if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+        event.preventDefault();
+        const command = matches[commandIndex];
+        if (command && event.key === "Tab") {
+          elements.composer.value = `${command.name} `;
+          commandsDismissed = true;
+          renderChat();
+        } else if (command) void runCommand(command.name);
+        return;
+      }
+    }
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      elements.composer.value.startsWith("/") &&
+      !elements.composer.value.startsWith("//")
+    ) {
+      event.preventDefault();
+      void runCommand(elements.composer.value);
+      return;
+    }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) {
       event.preventDefault();
       if (!elements.send.disabled) void submitTurn(false);
@@ -1795,6 +2146,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       active: !result.value.terminal,
       label: result.value.terminal ? `Turn ${result.value.state}.` : "Cancellation requested…",
     };
+    if (result.value.terminal) liveTurns.delete(selected.sessionId);
     renderChat();
   });
 
@@ -1846,6 +2198,13 @@ function rendererElements(root: Document) {
     chatStatus: required(root, "chat-status"),
     composerForm: required(root, "composer-form") as HTMLFormElement,
     composer: required(root, "composer") as HTMLTextAreaElement,
+    showCommands: required(root, "show-commands"),
+    commandMenu: required(root, "command-menu"),
+    commandPanel: required(root, "command-panel"),
+    commandTitle: required(root, "command-title"),
+    commandResult: required(root, "command-result"),
+    contextPanel: required(root, "context-panel"),
+    screenPanel: required(root, "screen-panel"),
     send: required(root, "send") as HTMLButtonElement,
     cancel: required(root, "cancel") as HTMLButtonElement,
     askGuidance: required(root, "ask-guidance") as HTMLButtonElement,

@@ -127,7 +127,10 @@ describe("renderer status view", () => {
     const create = vi.fn().mockResolvedValue({ ok: true, value: session });
     const submit = vi.fn();
     const api = {
-      app: { info: async () => ({ shellVersion: "test" }) },
+      app: {
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+        info: async () => ({ shellVersion: "test" }),
+      },
       daemon: {
         status: async () => status({ state: "degraded" }),
         retry: async () => status({ state: "ready", reachable: true }),
@@ -165,6 +168,32 @@ describe("renderer status view", () => {
       await vi.waitFor(() => expect(page.element("send").disabled).toBe(false));
       expect(create).toHaveBeenCalledTimes(1);
       expect(page.element("composer").value).toBe("Keep this local draft");
+      page.element("show-commands").click();
+      expect(page.element("command-menu").hidden).toBe(false);
+      page.element("composer").dispatch("keydown", { key: "Escape" });
+      expect(page.element("composer").value).toBe("Keep this local draft");
+      page.element("composer").value = "/sta";
+      page.element("composer").dispatch("input");
+      expect(page.element("command-menu").children).toHaveLength(1);
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-title").textContent).toBe("Task status");
+      page.element("composer").value = "/permissions readonly";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(page.element("command-title").textContent).toBe("Command unavailable"),
+      );
+      expect(submit).not.toHaveBeenCalled();
+      expect(page.element("composer").value).toBe("/permissions readonly");
+      page.element("composer").value = "/model other-model";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-title").textContent).toBe("Command arguments");
+      page.element("composer").value = "/help";
+      page.element("composer").dispatch("input");
+      page.element("composer").dispatch("keydown", { key: "Tab" });
+      expect(page.element("composer").value).toBe("/help ");
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-title").textContent).toBe("Desktop commands");
+      expect(submit).not.toHaveBeenCalled();
       api.daemon.status = async () => status({ state: "leasing" });
       const startingPage = new FixtureDocument();
       await mount(api, startingPage.asDocument());
@@ -439,7 +468,10 @@ describe("renderer status view", () => {
       },
     });
     const api = {
-      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      app: {
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+        info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+      },
       daemon: {
         status: vi.fn().mockResolvedValue(
           status({
@@ -703,6 +735,8 @@ describe("renderer status view", () => {
         outcome: "applied",
       }),
     ]);
+    const settled = applyActivityEvent([requested], resolved);
+    expect(applyActivityEvent(settled, requested)).toEqual(settled);
   });
 
   it("recovers one canonical approval card without replay", async () => {
@@ -740,7 +774,10 @@ describe("renderer status view", () => {
         },
       });
     const api = {
-      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      app: {
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+        info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+      },
       daemon: {
         status: vi.fn().mockResolvedValue(
           status({
@@ -913,7 +950,10 @@ describe("renderer status view", () => {
       listener: null,
     };
     const api = {
-      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      app: {
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+        info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+      },
       daemon: {
         status: vi.fn().mockResolvedValue(
           status({
@@ -1008,6 +1048,39 @@ describe("renderer status view", () => {
       await vi.waitFor(() => expect(page.attachmentText()).toEqual([]));
       expect(submit).toHaveBeenCalledTimes(1);
       expect(page.findText()).toContain("Describe this image");
+      turnSubscription.listener?.({
+        schemaVersion: 1,
+        kind: "progress",
+        progressKind: "text",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        text: "First ",
+        createdAt: "2026-09-08T00:00:00Z",
+      });
+      turnSubscription.listener?.({
+        schemaVersion: 1,
+        kind: "progress",
+        progressKind: "text",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        text: "chunk",
+        createdAt: "2026-09-08T00:00:01Z",
+      });
+      expect(page.findText()).toContain("First chunk");
+      page.element("composer").value = "Draft during the active turn";
+      page.element("composer").dispatch("input");
+      page.sessionButtons()[1]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("chat-status").textContent).toContain("History loaded"),
+      );
+      page.sessionButtons()[0]!.click();
+      await vi.waitFor(() => expect(page.element("cancel").disabled).toBe(false));
+      expect(page.element("cancel").hidden).toBe(false);
+      expect(page.findText()).toContain("First chunk");
+      expect(page.element("composer").value).toBe("Draft during the active turn");
+      page.element("composer").value = "/copy";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() => expect(api.app.copyText).toHaveBeenCalledWith("First chunk"));
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "done",
@@ -1147,7 +1220,10 @@ describe("renderer status view", () => {
       .mockReturnValueOnce(grantReleasePending)
       .mockResolvedValue({ ok: true, value: { released: true } });
     const api = {
-      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      app: {
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+        info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+      },
       daemon: {
         status: vi.fn().mockResolvedValue(status({ state: "ready", reachable: true, protocol: 1 })),
         retry: vi.fn(),
@@ -1304,7 +1380,10 @@ describe("renderer status view", () => {
       .mockReturnValueOnce(mismatchPromise);
     const mediaPick = vi.fn();
     const api = {
-      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      app: {
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+        info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+      },
       daemon: {
         status: vi.fn().mockResolvedValue(status({ state: "ready", reachable: true, protocol: 1 })),
         retry: vi.fn(),
@@ -1898,7 +1977,10 @@ describe("renderer status view", () => {
         value: { ...session, status: "closed" },
       });
     const api = {
-      app: { info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }) },
+      app: {
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+        info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+      },
       daemon: {
         status: vi.fn().mockResolvedValue(status({ state: "ready", reachable: true, protocol: 1 })),
         retry: vi.fn(),
@@ -2088,6 +2170,10 @@ describe("renderer status view", () => {
 
 class FixtureElement {
   focus = vi.fn();
+  scrollIntoView = vi.fn();
+  removeAttribute = vi.fn();
+  showPopover = vi.fn();
+  hidePopover = vi.fn();
   textContent = "";
   className = "";
   hidden = false;
@@ -2162,6 +2248,13 @@ class FixtureDocument {
     "chat-status",
     "composer-form",
     "composer",
+    "show-commands",
+    "command-menu",
+    "command-panel",
+    "command-title",
+    "command-result",
+    "context-panel",
+    "screen-panel",
     "send",
     "cancel",
     "ask-guidance",
@@ -2241,6 +2334,8 @@ class FixtureDocument {
     this.element("capture-region-y").value = "0";
     this.element("observation-trigger").value = "changes";
   }
+
+  addEventListener = vi.fn();
 
   getElementById(id: string): FixtureElement | null {
     return this.elements.get(id) ?? null;

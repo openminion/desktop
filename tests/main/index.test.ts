@@ -122,6 +122,7 @@ vi.mock("electron", () => {
       quit: vi.fn(),
       dock: { setBadge: vi.fn(), setIcon: vi.fn() },
     },
+    clipboard: { writeText: vi.fn() },
     BrowserWindow,
     desktopCapturer: {
       getSources: vi.fn(async () => mocks.desktopSources),
@@ -306,6 +307,7 @@ describe("desktop main boundary", () => {
     );
     expect(observation.connectTurnOwner).toHaveBeenCalledOnce();
     expect([...mocks.ipcHandlers.keys()]).toEqual([
+      IPC_CHANNELS.copyText,
       IPC_CHANNELS.daemonStatus,
       IPC_CHANNELS.daemonRetry,
       IPC_CHANNELS.sessionsList,
@@ -350,6 +352,15 @@ describe("desktop main boundary", () => {
       mainFrame,
     };
     const event = { senderFrame: mainFrame, sender };
+    const copyText = mocks.ipcHandlers.get(IPC_CHANNELS.copyText)!;
+    const { clipboard } = await import("electron");
+    expect(copyText(event, { text: "Wrong shape" })).toMatchObject({ ok: false });
+    expect(copyText(event, "x".repeat(1024 * 1024 + 1))).toMatchObject({ ok: false });
+    expect(clipboard.writeText).not.toHaveBeenCalled();
+    expect(copyText(event, "Local reply")).toEqual({ ok: true, value: null });
+    expect(clipboard.writeText).toHaveBeenCalledWith("Local reply");
+    expect(copyText({ senderFrame: null }, "Denied")).toMatchObject({ ok: false });
+    expect(clipboard.writeText).toHaveBeenCalledTimes(1);
     client.create.mockResolvedValue({ ok: true, value: { sessionId: "session-1" } });
     client.load.mockResolvedValue({
       ok: true,
@@ -3595,6 +3606,10 @@ async function localJsonRequest(
 }
 
 class CaptureFixtureElement {
+  removeAttribute = vi.fn();
+  scrollIntoView = vi.fn();
+  showPopover = vi.fn();
+  hidePopover = vi.fn();
   textContent = "";
   className = "";
   hidden = false;
@@ -3638,6 +3653,7 @@ class CaptureFixtureElement {
 }
 
 class CaptureFixtureDocument {
+  addEventListener = vi.fn();
   private static readonly ids = [
     "status-dot",
     "status-label",
@@ -3656,6 +3672,13 @@ class CaptureFixtureDocument {
     "chat-status",
     "composer-form",
     "composer",
+    "show-commands",
+    "command-menu",
+    "command-panel",
+    "command-title",
+    "command-result",
+    "context-panel",
+    "screen-panel",
     "send",
     "cancel",
     "ask-guidance",
