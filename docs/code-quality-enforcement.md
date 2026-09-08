@@ -56,7 +56,9 @@ commit, then validate the subject at commit time. `npm run hooks:run` checks the
 same policy against the current revision.
 
 GitHub Actions validates workflow definitions and new commit subjects, runs the
-complete package check on Linux and macOS, and builds an unsigned macOS package.
+complete package check on Linux and macOS, builds an unsigned macOS package,
+and launches the actual sandboxed application with `npm run electron-check`
+on macOS.
 Workflow steps call stable package scripts instead of duplicating their
 internal sequences.
 

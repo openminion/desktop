@@ -1377,6 +1377,7 @@ describe("desktop main boundary", () => {
     expect(created).toBe(recorded);
     expect(recorded.loadedUrl).toBe("openminion://app/");
     expect(recorded.options.icon).toMatch(/renderer\/logo\.png$/);
+    expect(webPreferences.preload).toMatch(/preload\/index\.cjs$/);
     expect(webPreferences).toMatchObject({
       contextIsolation: true,
       nodeIntegration: false,
@@ -3680,7 +3681,6 @@ class CaptureFixtureDocument {
     "artifact-content",
     "close-artifact",
     "choose-file",
-    "choose-folder",
     "file-status",
     "file-grant-list",
     "capture-state",

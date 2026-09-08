@@ -897,6 +897,7 @@ details[open] > summary .summary-chevron {
 }
 
 .chat-panel {
+  --conversation-gutter: clamp(16px, 4vw, 64px);
   display: grid;
   min-height: 0;
   min-width: 0;
@@ -969,7 +970,7 @@ details[open] > summary .summary-chevron {
   flex-direction: column;
   gap: 24px;
   overflow-y: auto;
-  padding: 24px max(24px, calc((100% - 760px) / 2));
+  padding: 24px var(--conversation-gutter);
 }
 
 .timeline-empty {
@@ -1065,7 +1066,7 @@ details[open] > summary .summary-chevron {
 
 .chat-status {
   min-height: 28px;
-  padding: 4px max(24px, calc((100% - 760px) / 2));
+  padding: 4px var(--conversation-gutter);
   font-size: 12px;
 }
 
@@ -1073,7 +1074,7 @@ details[open] > summary .summary-chevron {
   display: flex;
   flex-direction: column;
   max-height: 50vh;
-  margin: 0 max(24px, calc((100% - 760px) / 2)) 24px;
+  margin: 0 var(--conversation-gutter) 24px;
   padding: 11px 12px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 18px;
@@ -1274,7 +1275,7 @@ details[open] > summary .summary-chevron {
 }
 
 .guidance-card {
-  margin: 0 max(24px, calc((100% - 760px) / 2)) 6px;
+  margin: 0 var(--conversation-gutter) 6px;
   padding: 14px;
   border: 1px solid var(--line-strong);
   border-radius: 14px;
@@ -1311,12 +1312,12 @@ details[open] > summary .summary-chevron {
 }
 
 #guidance-status {
-  margin: 0 max(24px, calc((100% - 760px) / 2)) 6px;
+  margin: 0 var(--conversation-gutter) 6px;
 }
 
 .recovery {
   max-height: 30vh;
-  margin: 0 max(24px, calc((100% - 760px) / 2)) 12px;
+  margin: 0 var(--conversation-gutter) 12px;
   overflow: auto;
   padding: 16px 18px;
   border: 1px solid rgb(240 165 107 / 22%);

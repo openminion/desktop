@@ -440,7 +440,7 @@ export class ElectronCapturePlatform implements CapturePlatform {
         sandbox: true,
         backgroundThrottling: false,
         session: this.#session,
-        preload: join(import.meta.dirname, "../preload/capture.js"),
+        preload: join(import.meta.dirname, "../preload/capture.cjs"),
       },
     });
     worker.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -684,7 +684,7 @@ export async function createWindow(
       nodeIntegration: false,
       sandbox: true,
       session: appSession,
-      preload: join(import.meta.dirname, "../preload/index.js"),
+      preload: join(import.meta.dirname, "../preload/index.cjs"),
     },
   });
   let loaded = false;

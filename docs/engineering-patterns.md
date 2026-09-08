@@ -36,6 +36,11 @@ approval, audit, and user-visible behavior.
 
 ## Boundary Rules
 
+Sandboxed preloads must be bundled as CommonJS, with shared contracts included
+and only `electron` left external. Keep `sandbox: true` and context isolation;
+do not disable them to accommodate ESM preload imports. The main process and
+renderer keep their existing ESM output.
+
 1. Treat renderer payloads as untrusted.
 2. Never expose raw IPC, Node.js, filesystem, shell, credential, or generic
    network authority to the renderer.

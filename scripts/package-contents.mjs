@@ -33,7 +33,8 @@ if (unexpected.length > 0) {
 
 const required = [
   "/dist/src/main/index.js",
-  "/dist/src/preload/index.js",
+  "/dist/src/preload/index.cjs",
+  "/dist/src/preload/capture.cjs",
   "/dist/src/renderer/app.js",
   "/dist/src/renderer/capture-worker.html",
   "/dist/src/renderer/capture-worker.js",

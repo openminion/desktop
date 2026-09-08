@@ -66,6 +66,26 @@ integration tier requires a matching desktop-capable development revision.
 
 ## Workspace Regression Checks
 
+Run the actual sandboxed application startup check on macOS:
+
+```bash
+npm run electron-check
+```
+
+This launches built Electron main, both CommonJS preload bundles, and the
+renderer through the real local protocol. It checks bridge availability,
+sandbox settings, disconnected draft entry, popovers, and fluid composer
+widths. It deliberately uses a missing daemon executable and never requests
+native capture. Hosted macOS CI runs this in addition to the normal package
+gate; importing TypeScript under a mocked Electron module cannot prove that
+Electron can load the distributed preloads.
+
+Use `npm run preview` for interactive component acceptance with explicit
+sample data. The fixture exercises the same renderer, including task actions,
+approvals and cancellation, attachments and file grants, output viewing and
+detach/restore, screenshot selection and regions, pause/resume, guidance, and
+watch controls. It does not certify the corresponding native/daemon behavior.
+
 Test the built renderer in Electron at the minimum 760 × 560 window, the normal
 1180 × 800 window, and a large 1600 × 1000 window. Exercise:
 
@@ -76,7 +96,8 @@ Test the built renderer in Electron at the minimum 760 × 560 window, the normal
   close controls while scrolling;
 - approval decisions, active turns, cancellation, denied capture permission,
   connection failure, and recovery;
-- Command/Ctrl+Enter, visible keyboard focus, and reduced motion.
+- Command/Ctrl+Enter, visible keyboard focus, and reduced motion;
+- composer width growth as the window widens, and editable disconnected drafts.
 
 Use synthetic data for layout screenshots. A fixture bridge verifies renderer
 behavior without capturing the user's desktop or contacting a model provider.

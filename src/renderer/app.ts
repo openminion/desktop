@@ -502,6 +502,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.shellVersion.textContent = `Desktop ${info.shellVersion}`;
   let sessions: SessionSummaryV1[] = [];
   let selected: SessionSummaryV1 | null = null;
+  let daemonReady = false;
+  let creatingTask = false;
   let messages: MessageV1[] = [];
   let activity: ActivityItem[] = [];
   let attachments: MediaAttachmentV1[] = [];
@@ -952,8 +954,6 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const renderFiles = () => {
     const writable = Boolean(selected && selected.status !== "closed" && api.files);
     elements.chooseFile.disabled = !writable || chat.active || attachmentPending;
-    elements.chooseFolder.disabled = true;
-    elements.chooseFolder.title = "Folder import requires native filesystem support.";
     elements.fileStatus.textContent = fileLabel;
     renderFileGrants(
       root,
@@ -1151,7 +1151,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const writable = Boolean(selected && selected.status !== "closed");
     const attachmentsValid = turnAttachmentsAreValid();
     elements.chatStatus.textContent = chat.label;
+    elements.newSession.disabled = creatingTask || chat.active;
     elements.send.disabled =
+      !daemonReady ||
       !writable ||
       chat.active ||
       attachmentPending ||
@@ -1159,7 +1161,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       !attachmentsValid;
     elements.cancel.hidden = !chat.active;
     elements.cancel.disabled = !chat.active || !chat.traceId;
-    elements.composer.disabled = !writable || chat.active;
+    elements.send.title = !daemonReady
+      ? "Connect OpenMinion to send this draft"
+      : !writable
+        ? "Create or choose a task to send"
+        : "Send message (⌘ / Ctrl + Enter)";
+    elements.composer.disabled = selected?.status === "closed" || chat.active;
     elements.closeSession.disabled = !writable || chat.active || attachmentPending;
     elements.attachImage.disabled =
       !writable || chat.active || attachmentPending || attachments.length >= 4;
@@ -1328,7 +1335,15 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
 
   const renderStatus = (status: DaemonStatus) => {
     const view = statusView(status);
-    elements.newSession.disabled = status.state !== "ready";
+    daemonReady = status.state === "ready";
+    if (!selected) {
+      chat = {
+        ...chat,
+        label: daemonReady
+          ? "Write a draft, then create a task to send."
+          : "You can draft here. Connect OpenMinion to create a task and send.",
+      };
+    }
     elements.statusDot.className = `status-dot ${view.tone}`;
     elements.statusLabel.textContent = view.label;
     elements.statusSummary.textContent = view.summary;
@@ -1337,16 +1352,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.daemonVersion.textContent = status.daemonVersion ?? "—";
     elements.protocolVersion.textContent = status.protocol?.toString() ?? "—";
     elements.connectionLabel.textContent = view.label;
+    renderChat();
   };
 
   const refresh = async (): Promise<void> => {
-    let remainingPolls = 20;
     let status = await api.daemon.status();
     renderStatus(status);
-    while (status.state !== "ready" && status.state !== "degraded" && remainingPolls > 0) {
-      remainingPolls -= 1;
-      await wait(500);
-      status = await api.daemon.status();
+    if (status.state !== "ready" && status.state !== "degraded") {
+      status = await api.daemon.retry();
       renderStatus(status);
     }
     if (status.state === "ready") {
@@ -1460,7 +1473,15 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.retry.disabled = false;
   });
   elements.newSession.addEventListener("click", async () => {
+    if (creatingTask || chat.active) return;
+    if (!daemonReady) {
+      elements.composer.focus();
+      return;
+    }
+    creatingTask = true;
+    renderChat();
     const result = await api.sessions.create({ title: "New task" });
+    creatingTask = false;
     if (!result.ok) {
       showError(result.error);
       return;
@@ -1522,7 +1543,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderCapture();
   });
   const submitTurn = async (asGuidance: boolean) => {
-    if (!selected || chat.active) {
+    if (!selected || !daemonReady || chat.active) {
       return;
     }
     const message = elements.composer.value.trim();
@@ -1837,7 +1858,6 @@ function rendererElements(root: Document) {
     artifactContent: required(root, "artifact-content"),
     closeArtifact: required(root, "close-artifact") as HTMLButtonElement,
     chooseFile: required(root, "choose-file") as HTMLButtonElement,
-    chooseFolder: required(root, "choose-folder") as HTMLButtonElement,
     fileStatus: required(root, "file-status"),
     fileGrantList: required(root, "file-grant-list"),
     captureState: required(root, "capture-state"),
@@ -2433,10 +2453,6 @@ function required(root: Document, id: string): HTMLElement {
     throw new Error(`missing renderer element ${id}`);
   }
   return element;
-}
-
-function wait(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 if (typeof window !== "undefined" && window.openminion) {

@@ -70,3 +70,7 @@ jobs:
       - name: Build unsigned macOS package
         if: matrix.os == 'macos-latest'
         run: npm run package
+
+      - name: Launch the sandboxed Electron application
+        if: matrix.os == 'macos-latest'
+        run: npm run electron-check

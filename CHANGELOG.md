@@ -7,6 +7,17 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Fixed sandboxed preload loading so the real app connects its UI handlers
+  instead of remaining on the initial Connecting screen.
+- Waited for the supervisor's startup result instead of abandoning renderer
+  connection checks after ten seconds.
+- Added an explicit UI preview command with sample tasks and working controls
+  for trying the renderer before daemon integration.
+- Made the composer expand with the window and accept local drafts while
+  disconnected; removed the inactive folder-import placeholder.
+- Added a real Electron startup check to macOS CI covering both preloads,
+  disconnected drafting, popovers, and composer resizing.
+
 - Kept long task titles, attachment names, and approval details within the
   workspace at the minimum window size; added visible composer focus and
   persistent popover close controls.

@@ -28,6 +28,20 @@ npm run ci-check
 
 ## First Run
 
+To try every UI workflow before configuring OpenMinion, run:
+
+```bash
+npm run preview
+```
+
+The window is labeled **UI preview**. It uses sample tasks, attachments, files,
+outputs, and screenshot images. Sending a message presents a sample approval;
+allow, deny, or cancel it to exercise the turn controls. No daemon, model,
+local files, or screen capture is accessed, and changes are discarded when
+the window closes. This development fixture is excluded from packaged apps.
+
+For the real application, use the following setup.
+
 Configure OpenMinion with a nonblank `runtime.ipc_token`. If the intended
 `openminion` executable is on `PATH`, start Desktop with:
 
@@ -46,6 +60,10 @@ The executable must provide `openminion daemon desktop-bootstrap`. As of
 matched desktop-capable development revision.
 
 ## Workspace Basics
+
+You can write a local draft before the daemon connects. Creating a saved task,
+attaching real context, and sending require the daemon connection. Draft text
+is preserved when you connect and create the task.
 
 Create a **New task** in the sidebar, then write your message. Use the send
 button or **Command+Enter** on macOS (**Ctrl+Enter** elsewhere). Enter alone

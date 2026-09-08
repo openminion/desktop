@@ -37,16 +37,19 @@
     "hooks:run": "npm run precommit && node scripts/commit-message.mjs --git-head",
     "start": "npm run build && electron .",
     "package": "npm run build && electron-forge package && node scripts/package-contents.mjs",
-    "make": "npm run build && electron-forge make && node scripts/package-contents.mjs"
+    "make": "npm run build && electron-forge make && node scripts/package-contents.mjs",
+    "electron-check": "npm run build && electron tests/electron/smoke.mjs",
+    "preview": "npm run build && electron scripts/preview.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
-    "@electron/asar": "3.4.1",
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-dmg": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
+    "@electron/asar": "3.4.1",
     "@types/node": "24.13.3",
     "electron": "43.1.1",
+    "esbuild": "0.28.2",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   }

@@ -122,6 +122,58 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it("keeps drafts editable offline and preserves them when creating a connected task", async () => {
+    const session = sessionSummary();
+    const create = vi.fn().mockResolvedValue({ ok: true, value: session });
+    const submit = vi.fn();
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: {
+        status: async () => status({ state: "degraded" }),
+        retry: async () => status({ state: "ready", reachable: true }),
+      },
+      sessions: {
+        create,
+        list: async () => ({ ok: true, value: { sessions: [], nextCursor: null, hasMore: false } }),
+        load: async () => ({
+          ok: true,
+          value: { session, messages: [], nextMessageCursor: "0", messagesHasMore: false },
+        }),
+        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+      },
+      turns: { submit, subscribe: () => () => {} },
+      media: { release: vi.fn() },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      expect(page.element("composer").disabled).toBe(false);
+      expect(page.element("new-session").disabled).toBe(false);
+      page.element("composer").value = "Keep this local draft";
+      page.element("composer").dispatch("input");
+      page.element("new-session").click();
+      page.element("composer-form").dispatch("submit");
+      expect(page.element("composer").focus).toHaveBeenCalledOnce();
+      expect(create).not.toHaveBeenCalled();
+      expect(submit).not.toHaveBeenCalled();
+      expect(page.element("send").disabled).toBe(true);
+      page.element("retry").click();
+      await vi.waitFor(() => expect(page.element("recovery").hidden).toBe(true));
+      page.element("new-session").click();
+      page.element("new-session").click();
+      await vi.waitFor(() => expect(page.element("send").disabled).toBe(false));
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(page.element("composer").value).toBe("Keep this local draft");
+      api.daemon.status = async () => status({ state: "leasing" });
+      const startingPage = new FixtureDocument();
+      await mount(api, startingPage.asDocument());
+      expect(startingPage.element("connection-label").textContent).toBe("Daemon connected");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("shows connected daemon state without exposing transport facts", () => {
     const view = statusView(status({ state: "ready", reachable: true, daemonVersion: "0.0.9" }));
     expect(view).toMatchObject({ tone: "ready", showRetry: false });
@@ -1118,8 +1170,6 @@ describe("renderer status view", () => {
     try {
       const page = new FixtureDocument();
       await mount(api, page.asDocument());
-      expect(page.element("choose-folder").disabled).toBe(true);
-      page.element("choose-folder").click();
       expect(pick).not.toHaveBeenCalled();
       expect(list).not.toHaveBeenCalled();
       page.element("choose-file").click();
@@ -2020,6 +2070,7 @@ describe("renderer status view", () => {
 });
 
 class FixtureElement {
+  focus = vi.fn();
   textContent = "";
   className = "";
   hidden = false;
@@ -2119,7 +2170,6 @@ class FixtureDocument {
     "artifact-content",
     "close-artifact",
     "choose-file",
-    "choose-folder",
     "file-status",
     "file-grant-list",
     "capture-state",
