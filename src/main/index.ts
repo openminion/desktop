@@ -670,12 +670,15 @@ export async function createWindow(
   appSession: Session,
   rendererLost?: () => void,
 ): Promise<BrowserWindow> {
+  const icon = join(import.meta.dirname, "../renderer/logo.png");
+  app.dock?.setIcon(icon);
   const window = new BrowserWindow({
+    icon,
     width: 1180,
     height: 800,
     minWidth: 760,
     minHeight: 560,
-    backgroundColor: "#0c111a",
+    backgroundColor: "#202020",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

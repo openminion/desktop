@@ -17,7 +17,7 @@ application.
 | Linux source compatibility | provider-free CI | supported as a CI host, not a packaged product |
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |
 | macOS native capture | opt-in permissioned test | requires acceptance on an authorized host |
-| OpenMinion daemon contract | explicit real-daemon test; command absent from OpenMinion `main` as of 2026-09-07 | development-branch integration only |
+| OpenMinion daemon contract | contract merged to OpenMinion `dev` at `447b9269`; explicit real-daemon acceptance uses a matched development revision | development-branch integration only |
 | Signed and notarized macOS app | no evidence | not ready |
 | Update, rollback, migration, uninstall | no evidence | not ready |
 | Windows and Linux packages | no evidence | not ready |

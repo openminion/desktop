@@ -45,6 +45,29 @@ The executable must provide `openminion daemon desktop-bootstrap`. As of
 2026-09-07, OpenMinion `main` does not contain that command; use the explicitly
 matched desktop-capable development revision.
 
+## Workspace Basics
+
+Create a **New task** in the sidebar, then write your message. Use the send
+button or **Command+Enter** on macOS (**Ctrl+Enter** elsewhere). Enter alone
+adds a new line.
+
+The **+** button beside the composer opens image and file attachments.
+**Screenshot** opens the screen or window chooser beside your message.
+Choose **Entire screen** or **Window**, select a source, and **Start preview**.
+The composer shows the selected source and its local preview. Check
+**Include screenshot**, write your instruction, and send: OpenMinion receives
+one latest frame with that message, not a video stream. The checkbox resets
+after sending. Pause, change, or stop the preview from **Screenshot**.
+
+Preview stays local until you explicitly send it, ask for guidance, or enable
+the advanced **Automatic watch**. Watch sends repeated screenshots and can
+incur model costs; it is not continuous video or computer control.
+
+**Context** contains local files and task outputs. Both option panels close
+with Escape or an outside click; neither is a permanent side panel. See
+[Screen Context](screen-context.md) for the current behavior and longer-term
+design direction.
+
 ## Read First
 
 1. [README.md](../README.md) explains the product boundary.

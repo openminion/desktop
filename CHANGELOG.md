@@ -7,6 +7,24 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Kept long task titles, attachment names, and approval details within the
+  workspace at the minimum window size; added visible composer focus and
+  persistent popover close controls.
+- Preserved conversation reading position while editing a draft and cleared
+  the previous conversation when loading another task.
+- Distinguished local screenshot preview from inclusion in the next message
+  and hid source-selection controls while a preview is active.
+- Aligned real-daemon observation tests with reported provider token usage.
+
+- Applied the OpenMinion logo to the packaged macOS app, development Dock icon,
+  sidebar, and empty conversation state.
+- Simplified the chat workspace with a restrained palette, consistent task
+  navigation, an attachment menu, and dismissible context options.
+- Made Screenshot a first-class composer action, with screen/window selection,
+  a local preview, explicit one-image inclusion, and visible automatic-watch
+  status. Documented the direction toward multiple captures and streaming.
+- Added Command/Ctrl+Enter to send, an expanding composer, reduced-motion
+  support, and clearer connection recovery at smaller window sizes.
 - Added the secure Electron shell for the persistent OpenMinion daemon.
 - Added local sessions and chat, bounded attachments, tool progress and
   approvals, artifact views, screen or window observation, and guide mode.

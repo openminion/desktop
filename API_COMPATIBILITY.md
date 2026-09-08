@@ -28,7 +28,8 @@ revision is required; Desktop does not provide a fallback agent runtime.
 
 ## Current integration status
 
-As of 2026-09-07, OpenMinion `main` does not expose
+OpenMinion `dev` includes the Desktop daemon contract through merge
+`447b9269`. As of 2026-09-07, OpenMinion `main` does not expose
 `openminion daemon desktop-bootstrap`. The current Desktop integration therefore
 requires a matching desktop-capable development revision. Do not present an
 ordinary OpenMinion `main` checkout as Desktop-compatible until that daemon

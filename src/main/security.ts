@@ -19,7 +19,7 @@ const readinessKeys = new Set([
   "expires_at",
 ]);
 
-export type AppAssetKey = "index" | "script" | "styles";
+export type AppAssetKey = "index" | "script" | "styles" | "logo";
 export type CapturePreviewRequest = {
   kind: "candidates" | "frames";
   id: string;
@@ -102,6 +102,9 @@ export function validateAppRequest(request: Request): AppAssetKey | null {
   }
   if (url.pathname === "/styles.css") {
     return "styles";
+  }
+  if (url.pathname === "/logo.png") {
+    return "logo";
   }
   return null;
 }

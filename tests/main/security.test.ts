@@ -52,6 +52,9 @@ describe("security helpers", () => {
     expect(validateAppRequest(new Request("openminion://app/"))).toBe("index");
     expect(validateAppRequest(new Request("openminion://app/app.js"))).toBe("script");
     expect(validateAppRequest(new Request("openminion://app/styles.css"))).toBe("styles");
+    expect(validateAppRequest(new Request("openminion://app/logo.png"))).toBe("logo");
+    expect(validateAppRequest(new Request("openminion://app/logo.png?file=other"))).toBeNull();
+    expect(validateAppRequest(new Request("openminion://evil/logo.png"))).toBeNull();
     expect(validateAppRequest(new Request("openminion://evil/"))).toBeNull();
     expect(validateAppRequest(new Request("openminion://app/admin"))).toBeNull();
     expect(validateAppRequest(new Request("openminion://app/?route=/v1/health"))).toBeNull();

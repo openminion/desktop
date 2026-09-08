@@ -120,7 +120,7 @@ vi.mock("electron", () => {
       whenReady: vi.fn(() => new Promise(() => {})),
       on: vi.fn(),
       quit: vi.fn(),
-      dock: { setBadge: vi.fn() },
+      dock: { setBadge: vi.fn(), setIcon: vi.fn() },
     },
     BrowserWindow,
     desktopCapturer: {
@@ -1376,6 +1376,7 @@ describe("desktop main boundary", () => {
     const webPreferences = recorded.options.webPreferences as Record<string, unknown>;
     expect(created).toBe(recorded);
     expect(recorded.loadedUrl).toBe("openminion://app/");
+    expect(recorded.options.icon).toMatch(/renderer\/logo\.png$/);
     expect(webPreferences).toMatchObject({
       contextIsolation: true,
       nodeIntegration: false,
@@ -2984,8 +2985,10 @@ it.skipIf(!integrationExecutable)(
             inferencesCompleted: 3,
           },
           usage: {
-            usageAvailable: false,
-            totalTokens: null,
+            usageAvailable: true,
+            inputTokens: 7,
+            outputTokens: 3,
+            totalTokens: 10,
             costSource: "unavailable",
           },
         },
@@ -3008,7 +3011,9 @@ it.skipIf(!integrationExecutable)(
         );
       }
       expect(page.element("observation-counters").textContent).toContain("3 started");
-      expect(page.element("observation-usage").textContent).toBe("Inference usage unavailable.");
+      expect(page.element("observation-usage").textContent).toMatch(
+        /^7 input \+ 3 output tokens · 1 model call · \d+ ms · Cost unavailable$/,
+      );
 
       page.element("stop-observation").click();
       await vi.waitFor(async () => {
@@ -3661,6 +3666,10 @@ class CaptureFixtureDocument {
     "guidance-status",
     "attachments",
     "include-current-view",
+    "screen-context-summary",
+    "screen-context-name",
+    "screen-context-status",
+    "screen-context-preview",
     "attach-image",
     "attach-file",
     "refresh-artifacts",

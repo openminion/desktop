@@ -59,9 +59,29 @@ OPENMINION_ODF_EXECUTABLE=/path/to/openminion \
   npm test -- tests/main/index.test.ts
 ```
 
-Use an OpenMinion revision that implements the Desktop bootstrap contract. As
+Use an OpenMinion revision that implements the Desktop bootstrap contract.
+The contract is included on OpenMinion `dev` through merge `447b9269`. As
 of 2026-09-07, OpenMinion `main` does not contain that command, so the
 integration tier requires a matching desktop-capable development revision.
+
+## Workspace Regression Checks
+
+Test the built renderer in Electron at the minimum 760 × 560 window, the normal
+1180 × 800 window, and a large 1600 × 1000 window. Exercise:
+
+- empty tasks and conversations, a populated sidebar, and long task titles;
+- long messages, long drafts, and bounded attachment chips;
+- screenshot selection, local preview, explicit inclusion, and pause/resume;
+- Context and Screenshot popovers, Escape/outside dismissal, and reachable
+  close controls while scrolling;
+- approval decisions, active turns, cancellation, denied capture permission,
+  connection failure, and recovery;
+- Command/Ctrl+Enter, visible keyboard focus, and reduced motion.
+
+Use synthetic data for layout screenshots. A fixture bridge verifies renderer
+behavior without capturing the user's desktop or contacting a model provider.
+The daemon integration test separately uses a local provider fixture to verify
+frame delivery, guidance, and reported token usage.
 
 ## Proof Boundary
 

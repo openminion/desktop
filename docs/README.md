@@ -10,6 +10,7 @@ OpenMinion Desktop repository.
 | If you want to... | Read |
 | --- | --- |
 | Set up and start the source-development app | [Getting Started](getting-started.md) |
+| Use screenshots and understand the screen-context direction | [Screen Context](screen-context.md) |
 | Understand repository and process ownership | [Source Tree Owner Map](source-tree-owner-map.md) |
 | Follow implementation and simplicity rules | [Engineering Patterns](engineering-patterns.md) |
 | Understand local hooks and hosted checks | [Code Quality Enforcement](code-quality-enforcement.md) |

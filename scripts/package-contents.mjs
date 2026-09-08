@@ -39,6 +39,7 @@ const required = [
   "/dist/src/renderer/capture-worker.js",
   "/dist/src/renderer/index.html",
   "/dist/src/renderer/styles.css",
+  "/dist/src/renderer/logo.png",
   "/package.json",
 ];
 const missing = required.filter((entry) => !entries.includes(entry));

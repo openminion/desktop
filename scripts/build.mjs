@@ -20,3 +20,4 @@ mkdirSync(rendererOutput, { recursive: true });
 for (const asset of ["capture-worker.html", "index.html", "styles.css"]) {
   copyFileSync(join(repositoryRoot, "src/renderer", asset), join(rendererOutput, asset));
 }
+copyFileSync(join(repositoryRoot, "assets/icon.png"), join(rendererOutput, "logo.png"));

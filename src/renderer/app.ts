@@ -212,7 +212,7 @@ export function initialChatState(): ChatState {
     traceId: null,
     terminalTraceId: null,
     active: false,
-    label: "Choose a session to begin.",
+    label: "Choose or create a task to begin.",
     error: null,
   };
 }
@@ -686,12 +686,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     );
     elements.askGuidance.disabled = !eligible;
     elements.guidanceStatus.textContent = guidanceMessage;
+    elements.guidanceStatus.hidden = !guidanceView && !guidancePending;
     elements.guidanceCard.hidden = guidanceView === null;
     elements.guidanceState.textContent = guidanceView?.state === "stale" ? "Stale" : "Current";
     elements.guidanceText.textContent = guidanceView?.text ?? "";
-    elements.guidancePreview.src =
-      guidanceView?.state === "current" ? guidanceView.frame.previewUrl : "";
-    elements.guidancePreview.hidden = !elements.guidancePreview.src;
+    const previewUrl = guidanceView?.state === "current" ? guidanceView.frame.previewUrl : "";
+    elements.guidancePreview.src = previewUrl;
+    elements.guidancePreview.hidden = !previewUrl;
     elements.guidanceFacts.textContent = guidanceView
       ? `${guidanceView.sourceLabel} · ${guidanceView.sourceKind} · ${guidanceView.frame.width} × ${guidanceView.frame.height} · captured ${relativeAge(guidanceView.frame.capturedAt)} · sent ${relativeAge(guidanceView.frame.sentAt!)} · ${expiryCopy(guidanceView.frame.expiresAt)}`
       : "";
@@ -739,6 +740,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       captureState?.state !== "observing" ||
       captureFrame === null ||
       attachments.length > 3;
+    elements.screenContextStatus.textContent = observationStatus?.watchEnabled
+      ? "Automatic watch enabled · sends repeated screenshots"
+      : captureState?.state === "observing"
+        ? elements.includeCurrentView.checked
+          ? "Included with next message · latest eligible frame"
+          : "Local preview only · screenshot not included"
+        : captureStatusCopy(captureState, selected !== null);
     renderObservationFrame(
       elements.observationSelected,
       elements.observationSelectedPreview,
@@ -814,10 +822,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderRegionOverlay(elements, region);
     const live =
       state === "observing" || state === "paused" || state === "starting" || state === "stopping";
+    elements.captureCandidates.hidden = live;
+    elements.captureRegionControls.hidden = live || selectedCandidate === null;
     elements.captureLive.hidden = !live;
-    elements.capturePreview.src =
-      state === "observing" && captureFrame ? captureFrame.previewUrl : "";
-    elements.capturePreview.hidden = !elements.capturePreview.src;
+    elements.screenContextSummary.hidden = !live;
+    elements.screenContextName.textContent = captureState?.sourceLabel ?? "Screen context";
+    elements.screenContextName.setAttribute("title", elements.screenContextName.textContent);
+    const previewUrl = state === "observing" && captureFrame ? captureFrame.previewUrl : "";
+    elements.capturePreview.src = previewUrl;
+    elements.capturePreview.hidden = !previewUrl;
+    elements.screenContextPreview.src = previewUrl;
+    elements.screenContextPreview.hidden = !previewUrl;
     elements.pauseCapture.hidden = state !== "observing";
     elements.resumeCapture.hidden = state !== "paused";
     elements.pauseCapture.disabled = capturePending;
@@ -1149,7 +1164,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.attachImage.disabled =
       !writable || chat.active || attachmentPending || attachments.length >= 4;
     elements.attachFile.disabled = elements.attachImage.disabled;
-    elements.currentTitle.textContent = selected?.title ?? "New conversation";
+    elements.currentTitle.textContent = selected?.title ?? "New task";
+    elements.currentTitle.title = elements.currentTitle.textContent;
     renderAttachments(root, elements.attachments, attachments, (mediaId) => {
       const attachment = attachments.find((item) => item.mediaId === mediaId);
       if (!attachment) {
@@ -1238,6 +1254,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const generation = ++selectionGeneration;
     submissionGeneration += 1;
     selected = session;
+    messages = [];
     capturePending = Boolean(captureApi);
     artifacts = [];
     artifactView = null;
@@ -1249,7 +1266,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       ...initialChatState(),
       sessionId: session.sessionId,
       terminalTraceId,
-      label: "Loading canonical history…",
+      label: "Loading conversation…",
     };
     renderSessions(root, elements.sessionList, sessions, session.sessionId, (id) => {
       const next = sessions.find((item) => item.sessionId === id);
@@ -1311,6 +1328,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
 
   const renderStatus = (status: DaemonStatus) => {
     const view = statusView(status);
+    elements.newSession.disabled = status.state !== "ready";
     elements.statusDot.className = `status-dot ${view.tone}`;
     elements.statusLabel.textContent = view.label;
     elements.statusSummary.textContent = view.summary;
@@ -1442,13 +1460,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.retry.disabled = false;
   });
   elements.newSession.addEventListener("click", async () => {
-    const result = await api.sessions.create({ title: "New chat" });
+    const result = await api.sessions.create({ title: "New task" });
     if (!result.ok) {
       showError(result.error);
       return;
     }
     sessions = [result.value, ...sessions];
     await selectSession(result.value);
+    elements.composer.focus();
   });
   elements.closeSession.addEventListener("click", async () => {
     if (!selected || chat.active) {
@@ -1582,6 +1601,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   });
   elements.askGuidance.addEventListener("click", () => void submitTurn(true));
   elements.composer.addEventListener("input", renderChat);
+  elements.composer.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) {
+      event.preventDefault();
+      if (!elements.send.disabled) void submitTurn(false);
+    }
+  });
   const pickMedia = async (kind: "image" | "file") => {
     if (!selected || chat.active || attachmentPending || attachments.length >= 4) {
       return;
@@ -1779,6 +1804,10 @@ function rendererElements(root: Document) {
     protocolVersion: required(root, "protocol-version"),
     shellVersion: required(root, "shell-version"),
     connectionLabel: required(root, "connection-label"),
+    screenContextSummary: required(root, "screen-context-summary"),
+    screenContextName: required(root, "screen-context-name"),
+    screenContextStatus: required(root, "screen-context-status"),
+    screenContextPreview: required(root, "screen-context-preview") as HTMLImageElement,
     sessionList: required(root, "session-list"),
     newSession: required(root, "new-session") as HTMLButtonElement,
     closeSession: required(root, "close-session") as HTMLButtonElement,
@@ -2159,7 +2188,8 @@ function renderSessions(
     const button = root.createElement("button");
     button.type = "button";
     button.className = `session-item${session.sessionId === selectedId ? " selected" : ""}`;
-    button.textContent = session.title ?? "Untitled session";
+    button.textContent = session.title ?? "Untitled task";
+    button.title = button.textContent;
     button.setAttribute("aria-current", session.sessionId === selectedId ? "true" : "false");
     button.addEventListener("click", () => select(session.sessionId));
     return button;
@@ -2167,7 +2197,7 @@ function renderSessions(
   if (!items.length) {
     const empty = root.createElement("p");
     empty.className = "empty-note";
-    empty.textContent = "No sessions yet.";
+    empty.textContent = "Your tasks will appear here.";
     items.push(empty);
   }
   list.replaceChildren(...items);
@@ -2182,6 +2212,8 @@ function renderTimeline(
   deciding: Set<string>,
   decide: (approval: ApprovalEventV1, decision: ApprovalDecision) => void,
 ): void {
+  const scrollTop = timeline.scrollTop;
+  const followLatest = timeline.scrollHeight - timeline.clientHeight - scrollTop <= 1;
   const items: HTMLElement[] = messages.map((message) => {
     const article = root.createElement("article");
     article.className = `message ${message.role}`;
@@ -2220,11 +2252,11 @@ function renderTimeline(
   if (!items.length) {
     const empty = root.createElement("p");
     empty.className = "timeline-empty";
-    empty.textContent = "Start a conversation. Your canonical history appears here.";
+    empty.textContent = "What would you like to work on?";
     items.push(empty);
   }
   timeline.replaceChildren(...items);
-  timeline.scrollTop = timeline.scrollHeight;
+  timeline.scrollTop = followLatest ? timeline.scrollHeight : scrollTop;
 }
 
 function renderToolCard(root: Document, item: ToolProgressV1): HTMLElement {

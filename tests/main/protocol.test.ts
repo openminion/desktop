@@ -39,6 +39,7 @@ describe("local app protocol", () => {
       index: join(root, "dist/src/renderer/index.html"),
       script: join(root, "dist/src/renderer/app.js"),
       styles: join(root, "dist/src/renderer/styles.css"),
+      logo: join(root, "dist/src/renderer/logo.png"),
       workerHtml: join(root, "dist/src/renderer/capture-worker.html"),
       workerScript: join(root, "dist/src/renderer/capture-worker.js"),
     });
@@ -51,6 +52,7 @@ describe("local app protocol", () => {
       index: join(root, "index.html"),
       script: join(root, "app.js"),
       styles: join(root, "styles.css"),
+      logo: join(root, "logo.png"),
       workerHtml: join(root, "capture-worker.html"),
       workerScript: join(root, "capture-worker.js"),
     };
@@ -58,6 +60,7 @@ describe("local app protocol", () => {
       writeFile(assets.index, "<main>OpenMinion</main>"),
       writeFile(assets.script, "export {};"),
       writeFile(assets.styles, "body {}"),
+      writeFile(assets.logo, Buffer.from([137, 80, 78, 71])),
       writeFile(assets.workerHtml, "<video></video>"),
       writeFile(assets.workerScript, "export {};"),
     ]);
@@ -75,6 +78,10 @@ describe("local app protocol", () => {
     expect(index.status).toBe(200);
     expect(index.headers.get("Cache-Control")).toBe("no-store");
     expect(await index.text()).toContain("OpenMinion");
+    const logo = await handler!(new Request("openminion://app/logo.png"));
+    expect(logo.status).toBe(200);
+    expect(logo.headers.get("Content-Type")).toBe("image/png");
+    expect(Buffer.from(await logo.arrayBuffer())).toEqual(Buffer.from([137, 80, 78, 71]));
     expect((await handler!(new Request("openminion://app/v1/health"))).status).toBe(404);
     expect((await handler!(new Request("openminion://evil/app.js"))).status).toBe(404);
     const worker = await handler!(new Request("openminion://app/capture-worker.html"));
@@ -93,6 +100,7 @@ describe("local app protocol", () => {
       index: join(root, "index.html"),
       script: join(root, "app.js"),
       styles: join(root, "styles.css"),
+      logo: join(root, "logo.png"),
       workerHtml: join(root, "capture-worker.html"),
       workerScript: join(root, "capture-worker.js"),
     };

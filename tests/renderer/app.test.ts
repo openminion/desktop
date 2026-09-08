@@ -732,6 +732,15 @@ describe("renderer status view", () => {
     try {
       const firstDocument = new FixtureDocument();
       await mount(api, firstDocument.asDocument());
+      const timeline = firstDocument.element("timeline");
+      timeline.scrollHeight = 1600;
+      timeline.clientHeight = 400;
+      timeline.scrollTop = 200;
+      firstDocument.element("composer").dispatch("input");
+      expect(timeline.scrollTop).toBe(200);
+      timeline.scrollTop = 1200;
+      firstDocument.element("composer").dispatch("input");
+      expect(timeline.scrollTop).toBe(1600);
       const pendingButtons = firstDocument.findButtons();
       expect(pendingButtons.map((button) => button.textContent)).toEqual(["Deny", "Allow once"]);
       expect(pendingButtons.every((button) => !button.disabled)).toBe(true);
@@ -873,7 +882,7 @@ describe("renderer status view", () => {
           ok: true,
           value: {
             session: sessionId === "session-2" ? secondSession : session,
-            messages: [],
+            messages: [message("history-1", `History for ${sessionId}`)],
             nextMessageCursor: "message-zero",
             messagesHasMore: false,
           },
@@ -919,6 +928,8 @@ describe("renderer status view", () => {
       page.element("composer").value = "Describe this image";
       page.element("composer").dispatch("input");
       expect(page.element("send").disabled).toBe(true);
+      page.element("composer").dispatch("keydown", { key: "Enter", metaKey: true });
+      expect(submit).not.toHaveBeenCalled();
 
       page.attachmentButtons()[1]!.click();
       expect(release).toHaveBeenCalledWith({
@@ -926,7 +937,15 @@ describe("renderer status view", () => {
         mediaId: file.mediaId,
       });
       expect(page.element("send").disabled).toBe(false);
-      page.element("composer-form").dispatch("submit");
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      page.element("composer").dispatch("keydown", {
+        key: "Enter",
+        metaKey: true,
+        isComposing: true,
+      });
+      expect(submit).not.toHaveBeenCalled();
+      page.element("composer").dispatch("keydown", { key: "Enter", metaKey: true });
+      page.element("composer").dispatch("keydown", { key: "Enter", ctrlKey: true });
       await vi.waitFor(() =>
         expect(submit).toHaveBeenCalledWith({
           sessionId: "session-1",
@@ -935,6 +954,7 @@ describe("renderer status view", () => {
         }),
       );
       await vi.waitFor(() => expect(page.attachmentText()).toEqual([]));
+      expect(submit).toHaveBeenCalledTimes(1);
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "done",
@@ -950,7 +970,9 @@ describe("renderer status view", () => {
       await vi.waitFor(() =>
         expect(page.attachmentText()).toContain("later.webp · 1 KB · image/webp"),
       );
+      expect(page.findText()).toContain("History for session-1");
       page.sessionButtons()[1]!.click();
+      expect(page.findText()).not.toContain("History for session-1");
       await vi.waitFor(() =>
         expect(release).toHaveBeenCalledWith({
           sessionId: "session-1",
@@ -1356,9 +1378,13 @@ describe("renderer status view", () => {
         await vi.waitFor(() => expect(page.element("guidance-card").hidden).toBe(false));
       };
       expect(page.element("include-current-view").disabled).toBe(false);
+      expect(page.element("screen-context-status").textContent).toContain("Local preview only");
       page.element("composer").value = "What is visible?";
       page.element("include-current-view").checked = true;
       page.element("composer").dispatch("input");
+      expect(page.element("screen-context-status").textContent).toContain(
+        "Included with next message",
+      );
       page.element("composer-form").dispatch("submit");
       await vi.waitFor(() =>
         expect(submit).toHaveBeenCalledWith({
@@ -1904,13 +1930,21 @@ describe("renderer status view", () => {
         previewUrl: `openminion://app/capture/frames/${"b".repeat(48)}`,
       });
       expect(page.element("capture-preview").src).toContain("/capture/frames/");
+      expect(page.element("screen-context-summary").hidden).toBe(false);
+      expect(page.element("capture-candidates").hidden).toBe(true);
+      expect(page.element("capture-region-controls").hidden).toBe(true);
+      expect(page.element("screen-context-preview").src).toBe(page.element("capture-preview").src);
       expect(page.element("capture-facts").textContent).toContain("800 × 600");
       page.element("pause-capture").click();
       await vi.waitFor(() => expect(page.element("capture-preview").src).toBe(""));
+      expect(page.element("screen-context-preview").hidden).toBe(true);
+      expect(page.element("screen-context-preview").src).toBe("");
+      expect(page.element("include-current-view").checked).toBe(false);
       page.element("resume-capture").click();
       await vi.waitFor(() => expect(resume).toHaveBeenCalledOnce());
       page.element("stop-capture").click();
       await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(page.element("screen-context-summary").hidden).toBe(true));
       page.element("observe-computer").click();
       await vi.waitFor(() => expect(sources).toHaveBeenCalledTimes(2));
       page.captureButtons()[0]!.click();
@@ -2000,6 +2034,7 @@ class FixtureElement {
   dataset: Record<string, string> = {};
   scrollTop = 0;
   scrollHeight = 0;
+  clientHeight = 0;
   children: FixtureElement[] = [];
   private readonly listeners = new Map<string, Array<(event: FixtureEvent) => void>>();
 
@@ -2025,9 +2060,9 @@ class FixtureElement {
     }
   }
 
-  dispatch(type: string): void {
+  dispatch(type: string, event: Partial<KeyboardEvent> = {}): void {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({ preventDefault() {} });
+      listener({ preventDefault() {}, ...event });
     }
   }
 
@@ -2070,6 +2105,10 @@ class FixtureDocument {
     "guidance-status",
     "attachments",
     "include-current-view",
+    "screen-context-summary",
+    "screen-context-name",
+    "screen-context-status",
+    "screen-context-preview",
     "attach-image",
     "attach-file",
     "refresh-artifacts",
