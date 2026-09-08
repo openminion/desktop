@@ -166,6 +166,10 @@ describe("renderer status view", () => {
       expect(create).not.toHaveBeenCalled();
       expect(submit).not.toHaveBeenCalled();
       expect(page.element("send").disabled).toBe(true);
+      page.element("show-connection").click();
+      expect(page.element("connection-details").open).toBe(true);
+      expect(page.element("retry").focus).toHaveBeenCalledOnce();
+      expect(page.element("composer").value).toBe("Keep this local draft");
       page.element("retry").click();
       await vi.waitFor(() => expect(page.element("recovery").hidden).toBe(true));
       page.element("new-session").click();
@@ -2209,6 +2213,7 @@ class FixtureElement {
   hidden = false;
   disabled = false;
   checked = false;
+  open = false;
   value = "";
   src = "";
   alt = "";
@@ -2265,6 +2270,8 @@ class FixtureDocument {
     "status-label",
     "status-summary",
     "retry",
+    "show-connection",
+    "connection-details",
     "recovery",
     "daemon-version",
     "protocol-version",

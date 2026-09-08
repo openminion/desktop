@@ -53,6 +53,10 @@ async function check() {
     document.querySelector('#composer').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', metaKey:true}));
   `);
     assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
+    await evaluate("document.querySelector('#show-connection').click()");
+    assert.equal(await evaluate("document.querySelector('#connection-details').open"), true);
+    assert.equal(await evaluate("document.activeElement.id"), "retry");
+    await evaluate("document.querySelector('#connection-details').open = false");
     assert.equal(
       await evaluate("document.querySelector('#composer').value"),
       "A local draft while disconnected",
@@ -101,12 +105,31 @@ async function check() {
       const bounds = await evaluate(`(() => {
       const composer = document.querySelector('#composer-form').getBoundingClientRect();
       const send = document.querySelector('#send').getBoundingClientRect();
+      const commands = document.querySelector('#show-commands').getBoundingClientRect();
+      const icon = document.querySelector('#show-commands svg').getBoundingClientRect();
+      const attachment = document.querySelector('[popovertarget="attachment-menu"]').getBoundingClientRect();
+      const screenshot = document.querySelector('.screen-context-button').getBoundingClientRect();
       return {width:composer.width, right:composer.right, bottom:composer.bottom, sendBottom:send.bottom,
+        commands:commands.toJSON(), icon:icon.toJSON(), attachment:attachment.toJSON(), screenshot:screenshot.toJSON(),
         overflow:document.documentElement.scrollWidth > innerWidth, viewportWidth:innerWidth, viewportHeight:innerHeight};
     })()`);
       assert.equal(bounds.overflow, false);
       assert.ok(bounds.right <= bounds.viewportWidth && bounds.bottom <= bounds.viewportHeight);
       assert.ok(bounds.sendBottom <= bounds.viewportHeight);
+      assert.ok(bounds.commands.width >= 30 && bounds.commands.height >= 30);
+      assert.ok(
+        Math.abs(
+          bounds.icon.x + bounds.icon.width / 2 - bounds.commands.x - bounds.commands.width / 2,
+        ) < 1,
+      );
+      assert.ok(
+        Math.abs(
+          bounds.icon.y + bounds.icon.height / 2 - bounds.commands.y - bounds.commands.height / 2,
+        ) < 1,
+      );
+      assert.ok(bounds.commands.right <= bounds.attachment.left);
+      assert.ok(bounds.attachment.right <= bounds.screenshot.left);
+      assert.ok(bounds.screenshot.bottom <= bounds.viewportHeight);
       widths.push(bounds.width);
     }
     assert.ok(widths[2] > widths[1] + 400, "Composer must grow with a wider window");

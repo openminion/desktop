@@ -1218,7 +1218,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         button.className = `command-option${index === commandIndex ? " active" : ""}`;
         button.setAttribute("role", "option");
         button.setAttribute("aria-selected", String(index === commandIndex));
-        button.textContent = `${command.name}  ${command.description}`;
+        const name = root.createElement("span");
+        name.className = "command-name";
+        name.textContent = command.name;
+        const description = root.createElement("span");
+        description.className = "command-description";
+        description.textContent = command.description;
+        button.append(name, description);
         button.addEventListener("click", () => void runCommand(command.name));
         return button;
       }),
@@ -1594,7 +1600,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         ...chat,
         label: daemonReady
           ? "Write a draft, then create a task to send."
-          : "You can draft here. Connect OpenMinion to create a task and send.",
+          : view.showRecovery
+            ? ""
+            : "Connecting to OpenMinion…",
       };
     }
     elements.statusDot.className = `status-dot ${view.tone}`;
@@ -1728,6 +1736,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     { once: true },
   );
 
+  elements.showConnection.addEventListener("click", () => {
+    elements.connectionDetails.open = true;
+    elements.retry.focus();
+  });
   elements.retry.addEventListener("click", async () => {
     elements.retry.disabled = true;
     const status = await api.daemon.retry();
@@ -2159,6 +2171,8 @@ function rendererElements(root: Document) {
     statusLabel: required(root, "status-label"),
     statusSummary: required(root, "status-summary"),
     retry: required(root, "retry") as HTMLButtonElement,
+    showConnection: required(root, "show-connection"),
+    connectionDetails: required(root, "connection-details") as HTMLDetailsElement,
     recovery: required(root, "recovery"),
     daemonVersion: required(root, "daemon-version"),
     protocolVersion: required(root, "protocol-version"),

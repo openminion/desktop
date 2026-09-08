@@ -1,0 +1,78 @@
+# Composer Refinement
+
+Status: implemented and reviewed
+Last updated: 2026-09-08
+
+Purpose: record the bounded composer refinement and its visual and interaction
+acceptance, while preserving OpenMinion's visible screenshot controls.
+
+## Specification
+
+The slash control should align with neighboring controls instead of appearing
+as a large text glyph. Keep a quiet desktop workspace, consistent toolbar hit
+areas, readable command names and descriptions, and a compact connection notice
+that leads directly to existing recovery controls.
+
+Keep Screenshot visible next to attachments. Local preview, explicit screenshot
+inclusion, source and region selection, pause/resume/stop, guidance and automatic
+watch retain their existing owners and behavior. Commands keep their existing
+Focus names, keyboard behavior and draft restoration. No new command, capture
+authority, daemon retry policy or runtime abstraction belongs in this change.
+
+## Work Tracking
+
+| Item | State | Acceptance |
+| --- | --- | --- |
+| Composer and command menu | done | Centered slash/attachment/send icons, clear selected command, no overlap at supported sizes |
+| Connection notice | done | Compact notice opens sidebar recovery, focuses retry and preserves draft; troubleshooting remains available |
+| Screenshot and interaction regression | done | Real renderer with sample data exercises source/region, inclusion, pause/resume/stop, guidance/watch and ordinary task flows |
+| Independent review and package checks | done | Final changed-file review, provider-free package gate and sandboxed Electron smoke pass |
+
+## Validation Boundary
+
+Use the actual renderer at 760 × 560, 1180 × 800 and a large window. Check
+empty/disconnected, command menu and active screenshot states visually. Use
+synthetic fixtures for captured content; this pass does not certify native
+Screen Recording permission, live providers or daemon reconnection.
+
+Keep evidence under the workspace temporary-artifact directory. Product code
+changes are limited to renderer HTML/CSS and presentation event handling;
+regressions extend the existing renderer and Electron test owners.
+
+## Validation Results
+
+On September 8, using Node.js 24.19.0 and npm 11.12.1:
+
+- `npm run ci-check`: formatting, lint, types, public surface and build passed;
+  172 tests passed and five explicit native/daemon integration cases skipped.
+- `npm run electron-check`: actual main, sandboxed preload and renderer passed
+  disconnected draft, recovery navigation, command keyboard behavior, popovers
+  and composer/icon geometry checks at 760 × 560, 1180 × 800 and 1800 × 1000.
+- The existing preview fixture was bundled and exercised in Electron: empty
+  task, command browsing/Escape draft restore, attachment/removal, window-region
+  selection, local preview, pause/resume, automatic watch start/stop, explicit
+  screenshot submission/reset, approval deny/allow, guidance, long drafts at
+  three sizes, cancellation and stopping capture passed. Seven synthetic-state
+  screenshots and three disconnected-state screenshots were visually reviewed.
+- `npm run package`: unsigned macOS arm64 package built; the runtime archive
+  boundary check passed with 30 entries.
+- Two independent reviewers passed the final source and visual/evidence review.
+  The initial review also checked capture and command invariants before edits.
+
+The first package run exposed a test fixture missing the new recovery element
+IDs. Updating the existing main-process fixture resolved it; no production
+fallback or additional dependency was added.
+
+The bounded post-authoring pass covered renderer HTML/CSS and presentation,
+the two existing renderer/main test fixtures, Electron smoke, this record and
+the docs index. No daemon, preload, capture, observation or provider owner was
+changed. The connection notice improves recovery navigation; it does not repair
+a missing or incompatible daemon. Native capture, live model outcomes and signed
+distribution are not claimed by these results.
+
+The additional workspace cross-check ran in the separate OpenMinion checkout:
+`.venv/bin/python3.11 -m ruff check .` passed; `make lint` failed its services
+type-error budget at 364 findings against a baseline of 363. No Python code was
+changed by this renderer refinement, and concurrent backend work was preserved.
+This does not invalidate the passing Desktop package gates or establish a clean
+whole-workspace gate.

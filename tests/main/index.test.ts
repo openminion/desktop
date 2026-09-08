@@ -3659,6 +3659,8 @@ class CaptureFixtureDocument {
     "status-label",
     "status-summary",
     "retry",
+    "show-connection",
+    "connection-details",
     "recovery",
     "daemon-version",
     "protocol-version",
