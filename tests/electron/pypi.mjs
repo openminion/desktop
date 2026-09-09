@@ -226,11 +226,23 @@ async function check() {
     );
     const after = await evaluate("window.openminion.sessions.list({})");
     assert.ok(after.value.sessions.some((item) => item.sessionId === sessionId));
+    await evaluate(`
+      window.historyFlashes = 0;
+      window.historyObserver = new MutationObserver(() => {
+        if (!document.querySelector('.message') || document.querySelector('.timeline-empty')) window.historyFlashes++;
+      });
+      window.historyObserver.observe(document.querySelector('#timeline'), {childList:true, subtree:true});
+    `);
     await evaluate(
       `document.querySelector('#composer').value = 'GUI follow-up after restart'; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#send').click()`,
     );
     await waitFor(
-      "document.querySelectorAll('.message').length === 4 && document.querySelector('#cancel').hidden",
+      "document.querySelectorAll('.message').length === 4 && document.querySelector('#cancel').hidden && document.querySelector('#timeline').getAttribute('aria-busy') === 'false'",
+    );
+    await evaluate("window.historyObserver.disconnect()");
+    assert.equal(await evaluate("window.historyFlashes"), 0);
+    console.log(
+      "PASS: conversation stays visible throughout the reply and canonical history refresh.",
     );
     assert.match(
       await evaluate("document.querySelector('#timeline').textContent"),

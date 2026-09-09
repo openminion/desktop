@@ -1311,6 +1311,15 @@ describe("renderer status view", () => {
         };
       });
       page.element("cancel").click();
+      let finishHistoryRefresh!: () => void;
+      const historyRefresh = new Promise<void>((resolve) => {
+        finishHistoryRefresh = resolve;
+      });
+      const load = vi.mocked(api.sessions.load).getMockImplementation()!;
+      vi.mocked(api.sessions.load).mockImplementationOnce(async (input) => {
+        await historyRefresh;
+        return load(input);
+      });
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "done",
@@ -1318,12 +1327,42 @@ describe("renderer status view", () => {
         traceId: "trace-1",
         outcome: "complete",
       });
+      expect(page.findText()).toContain("History for session-1");
+      expect(page.findText()).toContain("First chunk");
+      expect(page.findText()).not.toContain("What would you like to work on?");
+      expect(page.element("chat-status").textContent).not.toBe("Loading conversation…");
+      page.element("composer").value = "Draft while history refreshes";
+      page.element("composer").dispatch("input");
+      expect(page.element("send").disabled).toBe(true);
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(submit).toHaveBeenCalledTimes(1);
+      finishHistoryRefresh();
+      await vi.waitFor(() => expect(page.element("send").disabled).toBe(false));
+      expect(page.element("composer").value).toBe("Draft while history refreshes");
+      expect(page.findText().filter((text) => text === "History for session-1")).toHaveLength(1);
+      expect(page.findText()).not.toContain("First chunk");
       await vi.waitFor(() => expect(page.element("attach-image").disabled).toBe(false));
       await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe(""));
       finishCancellation();
       await vi.mocked(api.turns.cancel).mock.results[0]!.value;
       expect(page.element("cancel").hidden).toBe(true);
       expect(page.element("chat-status").textContent).toBe("");
+
+      vi.mocked(api.sessions.load).mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "history_unavailable",
+          message: "Could not refresh history.",
+          retryable: true,
+          retryAfterMs: null,
+        },
+      });
+      page.sessionButtons()[0]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("chat-status").textContent).toBe("Could not refresh history."),
+      );
+      expect(page.findText()).toContain("History for session-1");
+      expect(page.findText()).not.toContain("What would you like to work on?");
 
       page.element("composer").value = "/clear";
       page.element("composer").dispatch("keydown", { key: "Enter" });
@@ -1343,6 +1382,7 @@ describe("renderer status view", () => {
       expect(page.findText()).toContain("History for session-1");
       page.sessionButtons()[1]!.click();
       expect(page.findText()).not.toContain("History for session-1");
+      expect(page.findText()).not.toContain("What would you like to work on?");
       await vi.waitFor(() =>
         expect(release).toHaveBeenCalledWith({
           sessionId: "session-1",
@@ -1792,6 +1832,7 @@ describe("renderer status view", () => {
 
       page.element("composer").value = "Show me the safest next step";
       page.element("composer").dispatch("input");
+      await vi.waitFor(() => expect(page.element("ask-guidance").disabled).toBe(false));
       expect(page.element("ask-guidance").disabled).toBe(false);
       page.element("ask-guidance").click();
       await vi.waitFor(() =>
@@ -2375,6 +2416,7 @@ describe("renderer status view", () => {
         previewUrl: `openminion://app/capture/frames/${"e".repeat(48)}`,
       });
       expect(page.element("capture-preview").src).toBe("");
+      await vi.waitFor(() => expect(page.element("close-session").disabled).toBe(false));
       page.element("close-session").click();
       await vi.waitFor(() =>
         expect(close).toHaveBeenCalledWith({ sessionId: secondSession.sessionId }),

@@ -544,6 +544,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let daemonReady = false;
   let richContextReady = false;
   let creatingTask = false;
+  let conversationLoading = false;
   let messages: MessageV1[] = [];
   const drafts = new Map<string, string>();
   let submittedText: string | null = null;
@@ -729,6 +730,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       richContextReady &&
         selected &&
         selected.status !== "closed" &&
+        !conversationLoading &&
         !chat.active &&
         !attachmentPending &&
         attachments.length <= 3 &&
@@ -1397,6 +1399,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const writable = Boolean(selected && selected.status !== "closed");
     const attachmentsValid = turnAttachmentsAreValid();
     elements.chatStatus.textContent = chat.label;
+    elements.timeline.setAttribute("aria-busy", String(conversationLoading));
     elements.chatStatus.className = `chat-status${chat.active && !chat.error ? " working" : ""}`;
     elements.newSession.disabled = creatingTask || chat.active;
     const isCommand =
@@ -1407,6 +1410,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       (!isCommand &&
         (!daemonReady ||
           selected?.status === "closed" ||
+          conversationLoading ||
           chat.active ||
           attachmentPending ||
           !elements.composer.value.trim() ||
@@ -1421,7 +1425,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           ? "Create or choose an open task to send"
           : "Send message (Enter)";
     elements.composer.disabled = false;
-    elements.closeSession.disabled = !writable || chat.active || attachmentPending;
+    elements.closeSession.disabled =
+      !writable || conversationLoading || chat.active || attachmentPending;
     elements.attachImage.disabled =
       !richContextReady || !writable || chat.active || attachmentPending || attachments.length >= 4;
     elements.attachFile.disabled = elements.attachImage.disabled;
@@ -1443,6 +1448,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderTimeline(
       root,
       elements.timeline,
+      conversationLoading,
       [
         ...messages.slice(hiddenMessageCount),
         ...(submittedText === null ? [] : [{ role: "user" as const, body: submittedText }]),
@@ -1507,6 +1513,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     terminalTraceId: string | null = null,
     preserveGuidance = false,
   ) => {
+    const refreshing = selected?.sessionId === session.sessionId;
     const terminalGuidance =
       preserveGuidance &&
       terminalTraceId !== null &&
@@ -1537,23 +1544,26 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const generation = ++selectionGeneration;
     submissionGeneration += 1;
     selected = session;
-    messages = [];
-    submittedText = null;
-    responseText = "";
-    hiddenMessageCount = 0;
-    capturePending = Boolean(captureApi);
-    artifacts = [];
-    artifactView = null;
-    artifactLabel = "Loading artifacts…";
-    fileLabel = "Choose a local file to import.";
-    activity = [];
-    deciding.clear();
-    chat = {
-      ...initialChatState(),
-      sessionId: session.sessionId,
-      terminalTraceId,
-      label: "Loading conversation…",
-    };
+    conversationLoading = true;
+    if (!refreshing) {
+      messages = [];
+      submittedText = null;
+      responseText = "";
+      hiddenMessageCount = 0;
+      capturePending = Boolean(captureApi);
+      artifacts = [];
+      artifactView = null;
+      artifactLabel = "Loading artifacts…";
+      fileLabel = "Choose a local file to import.";
+      activity = [];
+      deciding.clear();
+      chat = {
+        ...initialChatState(),
+        sessionId: session.sessionId,
+        terminalTraceId,
+        label: "Loading conversation…",
+      };
+    }
     renderSessions(root, elements.sessionList, sessions, session.sessionId, (id) => {
       const next = sessions.find((item) => item.sessionId === id);
       if (next) {
@@ -1576,6 +1586,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       return;
     }
     capturePending = false;
+    conversationLoading = false;
     renderCapture();
     if ("code" in recovered) {
       showError(recovered);
@@ -1583,6 +1594,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     selected = recovered.session;
     messages = recovered.messages;
+    submittedText = null;
+    responseText = "";
+    hiddenMessageCount = 0;
     automaticObservation = null;
     activity = recoverActivity(recovered.session.sessionId, recovered.events);
     chat = {
@@ -1805,7 +1819,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
   elements.newSession.addEventListener("click", () => void createTask());
   elements.closeSession.addEventListener("click", async () => {
-    if (!selected || chat.active) {
+    if (!selected || conversationLoading || chat.active) {
       return;
     }
     const generation = selectionGeneration;
@@ -1858,7 +1872,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   });
   const submitTurn = async (asGuidance: boolean) => {
     if (!asGuidance && (await runCommand(elements.composer.value))) return;
-    if (!daemonReady || creatingTask || chat.active || selected?.status === "closed") {
+    if (
+      !daemonReady ||
+      creatingTask ||
+      conversationLoading ||
+      chat.active ||
+      selected?.status === "closed"
+    ) {
       return;
     }
     const draft = elements.composer.value;
@@ -2632,6 +2652,7 @@ function renderSessions(
 function renderTimeline(
   root: Document,
   timeline: HTMLElement,
+  loading: boolean,
   messages: ReadonlyArray<Pick<MessageV1, "role" | "body" | "profileName">>,
   automaticObservation: ObservationFrameFactV1 | null,
   activity: ActivityItem[],
@@ -2684,7 +2705,7 @@ function renderTimeline(
         : renderApprovalCard(root, item, deciding.has(item.approvalId), decide),
     ),
   );
-  if (!items.length) {
+  if (!items.length && !loading) {
     const empty = root.createElement("p");
     empty.className = "timeline-empty";
     empty.textContent = "What would you like to work on?";
