@@ -131,6 +131,7 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
             | "user"
             | "assistant",
           body: requireString(row.body),
+          profileName: optionalString(requireRecord(row.metadata ?? {}).display_name ?? null),
           createdAt: requireString(row.created_at),
         }));
       const offset = cursorOffset(value.messageAfter);

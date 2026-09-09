@@ -43,7 +43,7 @@ const messages: MessageV1[] = [
     sessionId: sessions[0]!.sessionId,
     role: "assistant",
     createdAt: now(),
-    body: "This is a UI preview. Nothing is sent to a model. Try attachments, screen/window selection, local preview, task outputs, and sending a message. Each sample turn pauses for an approval so you can try Allow once, Deny, or Cancel turn. Changes disappear when this window closes.",
+    body: "This is a UI preview. Nothing is sent to a model. Try attachments, screen/window selection, local preview, task outputs, and sending a message. Each sample turn pauses for an approval so you can try Allow once, Deny, or Stop. Changes disappear when this window closes.",
   },
 ];
 let turnListener: (event: TurnEventV1) => void = () => {};

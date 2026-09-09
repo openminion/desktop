@@ -114,12 +114,28 @@ async function check() {
     assert.equal(before.ok, true);
     assert.equal(before.value.sessions.length, 1);
     const sessionId = before.value.sessions[0].sessionId;
+    await waitFor("document.querySelector('.message-profile') !== null");
+    const savedReply = (
+      await evaluate(`window.openminion.sessions.load({sessionId:${JSON.stringify(sessionId)}})`)
+    ).value.messages.find((message) => message.role === "assistant");
+    assert.equal(
+      await evaluate("document.querySelector('.message-profile').textContent"),
+      savedReply.profileName,
+    );
+    const prefix = `${savedReply.profileName}: `;
+    assert.equal(
+      await evaluate("document.querySelector('.message.assistant .message-body').textContent"),
+      savedReply.body.startsWith(prefix) ? savedReply.body.slice(prefix.length) : savedReply.body,
+    );
+    assert.equal(await evaluate("document.querySelector('#chat-status').textContent"), "");
     console.log(
       "PASS: empty/whitespace draft, real Enter, help, unsupported command, first click send.",
     );
     await fill("Unsent draft for first task");
     await evaluate("document.querySelector('#new-session').click()");
-    await waitFor("document.querySelector('#chat-status').textContent.includes('Local draft')");
+    await waitFor(
+      "document.querySelector('#chat-status').textContent.includes('Send a message to start')",
+    );
     assert.equal(await evaluate("document.querySelector('#composer').value"), "");
     await fill("Second task via keyboard");
     await key("Return");
@@ -312,7 +328,9 @@ async function check() {
     await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
     assert.equal((await runCommand(executable, [...args, "daemon", "start"], 30_000)).exitCode, 0);
     await evaluate("document.querySelector('#new-session').click()");
-    await waitFor("document.querySelector('#chat-status').textContent.includes('Local draft')");
+    await waitFor(
+      "document.querySelector('#chat-status').textContent.includes('Send a message to start')",
+    );
     await fill("Test cancellation of a delayed request");
     const cancellationSession = (
       await evaluate("window.openminion.sessions.list({})")
@@ -327,9 +345,14 @@ async function check() {
       providerCalls > 0,
       "The real daemon must reach the local provider before cancellation",
     );
+    assert.equal(await evaluate("document.querySelector('#cancel').textContent.trim()"), "Stop");
+    assert.equal(
+      await evaluate("document.querySelector('#chat-status').classList.contains('working')"),
+      true,
+    );
     await evaluate("document.querySelector('#cancel').click()");
     await waitFor(
-      "document.querySelector('#cancel').hidden && document.querySelector('#chat-status').textContent.startsWith('Last turn')",
+      "document.querySelector('#cancel').hidden && ['', 'Stopped.', 'Something went wrong. Check the reply before trying again.'].includes(document.querySelector('#chat-status').textContent)",
     );
     const cancellationHistory = await evaluate(
       `window.openminion.sessions.events({sessionId:${JSON.stringify(cancellationSession)}})`,
@@ -342,7 +365,7 @@ async function check() {
     assert.ok(["completed", "cancelled"].includes(terminalState));
     assert.equal(
       await evaluate("document.querySelector('#chat-status').textContent"),
-      `Last turn ${terminalState}.`,
+      terminalState === "completed" ? "" : "Stopped.",
     );
     if (terminalState === "completed")
       console.log(
@@ -351,11 +374,13 @@ async function check() {
     console.log("PASS: cancellation request recorded; GUI matches the canonical terminal outcome.");
     providerMode = "error";
     await evaluate("document.querySelector('#new-session').click()");
-    await waitFor("document.querySelector('#chat-status').textContent.includes('Local draft')");
+    await waitFor(
+      "document.querySelector('#chat-status').textContent.includes('Send a message to start')",
+    );
     await fill("Test provider rejection");
     await evaluate("document.querySelector('#send').click()");
     await waitFor(
-      "document.querySelector('#cancel').hidden && document.querySelector('#chat-status').textContent.startsWith('Last turn')",
+      "document.querySelector('#cancel').hidden && ['', 'Stopped.', 'Something went wrong. Check the reply before trying again.'].includes(document.querySelector('#chat-status').textContent)",
     );
     const rejectionText = await evaluate(
       "[...document.querySelectorAll('.message.assistant .message-body')].map(node => node.textContent).join('\\n')",
@@ -365,7 +390,9 @@ async function check() {
     assert.match(rejectionText, /401|unauthorized|api.key|error|fail/i);
     providerMode = "success";
     await evaluate("document.querySelector('#new-session').click()");
-    await waitFor("document.querySelector('#chat-status').textContent.includes('Local draft')");
+    await waitFor(
+      "document.querySelector('#chat-status').textContent.includes('Send a message to start')",
+    );
     await fill("Test successful recovery after provider rejection");
     await evaluate("document.querySelector('#send').click()");
     await waitFor(

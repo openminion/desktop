@@ -155,9 +155,9 @@ describe("PyPI CLI client", () => {
               type: "message",
               id: "m2",
               role: "outbound",
-              body: "Answer",
+              body: "writer: Answer",
               created_at: now,
-              metadata: {},
+              metadata: { display_name: "writer", token: "private" },
             },
             {
               type: "event",
@@ -194,7 +194,10 @@ describe("PyPI CLI client", () => {
       await client.load({ sessionId: "saved", messageAfter: "1", messageLimit: 1 }),
     ).toMatchObject({
       ok: true,
-      value: { messages: [{ body: "Answer" }], messagesHasMore: false },
+      value: {
+        messages: [{ body: "writer: Answer", profileName: "writer" }],
+        messagesHasMore: false,
+      },
     });
     const events = await client.events({ sessionId: "saved", after: "0" });
     expect(events).toMatchObject({

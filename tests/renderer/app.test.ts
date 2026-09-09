@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   applyActivityEvent,
+  assistantBody,
   applySubmitResult,
   applyTurnEvent,
   captureRegionFromPercentages,
@@ -680,6 +681,68 @@ describe("renderer status view", () => {
     }
   });
 
+  it("moves only an exact reported speaker prefix out of an answer", () => {
+    expect(assistantBody("minimax-m2-7: 391", "minimax-m2-7")).toBe("391");
+    expect(
+      assistantBody("minimax-m2-7: Note: keep this\nminimax-m2-7: quoted", "minimax-m2-7"),
+    ).toBe("Note: keep this\nminimax-m2-7: quoted");
+    expect(assistantBody("Note: keep this", "minimax-m2-7")).toBe("Note: keep this");
+    expect(assistantBody("other-profile: keep this", "minimax-m2-7")).toBe(
+      "other-profile: keep this",
+    );
+    expect(assistantBody("minimax-m2-7: keep this")).toBe("minimax-m2-7: keep this");
+  });
+
+  it("keeps each saved speaker in the header and copies the displayed reply", async () => {
+    const session = sessionSummary();
+    const history = [
+      { ...message("user", "writer: a user quote"), role: "user" as const },
+      { ...message("reply", "writer: Answer: with punctuation"), profileName: "writer" },
+    ];
+    const api = {
+      app: {
+        info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+      },
+      daemon: {
+        status: vi.fn().mockResolvedValue(status({ state: "ready", reachable: true, protocol: 1 })),
+        retry: vi.fn(),
+      },
+      sessions: {
+        list: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { sessions: [session], nextCursor: null, hasMore: false },
+        }),
+        load: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { session, messages: history, nextMessageCursor: "2", messagesHasMore: false },
+        }),
+        events: vi
+          .fn()
+          .mockResolvedValue({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+      },
+      turns: { subscribe: vi.fn().mockReturnValue(vi.fn()) },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      expect(page.findText()).toContain("writer");
+      expect(page.findText()).toContain("Answer: with punctuation");
+      expect(page.findText()).toContain("writer: a user quote");
+      expect(page.findText()).not.toContain("writer: Answer: with punctuation");
+      expect(page.element("chat-status").textContent).toBe("");
+      page.element("composer").value = "/copy";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(api.app.copyText).toHaveBeenCalledWith("Answer: with punctuation"),
+      );
+      expect(history[1]!.body).toBe("writer: Answer: with punctuation");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("tracks one active trace through progress, response, and terminal state", () => {
     const submitting = {
       ...initialChatState(),
@@ -740,8 +803,37 @@ describe("renderer status view", () => {
       active: false,
       traceId: null,
       terminalTraceId: "trace-1",
-      label: "Turn complete.",
+      label: "",
     });
+    expect(
+      applyTurnEvent(
+        {
+          ...started,
+          error: {
+            code: "provider_error",
+            message: "Reconnect and try again.",
+            retryable: true,
+            retryAfterMs: null,
+          },
+        },
+        {
+          schemaVersion: 1,
+          kind: "done",
+          sessionId: "session-1",
+          traceId: "trace-1",
+          outcome: "error",
+        },
+      ).label,
+    ).toBe("Reconnect and try again.");
+    expect(
+      applyTurnEvent(started, {
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        outcome: "cancelled",
+      }).label,
+    ).toBe("Stopped.");
     expect(
       applySubmitResult(done, {
         requestId: "request-1",
@@ -1192,9 +1284,7 @@ describe("renderer status view", () => {
       page.element("composer").value = "Draft during the active turn";
       page.element("composer").dispatch("input");
       page.sessionButtons()[1]!.click();
-      await vi.waitFor(() =>
-        expect(page.element("chat-status").textContent).toContain("History loaded"),
-      );
+      await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe(""));
       page.sessionButtons()[0]!.click();
       await vi.waitFor(() => expect(page.element("cancel").disabled).toBe(false));
       expect(page.element("cancel").hidden).toBe(false);
@@ -1229,13 +1319,11 @@ describe("renderer status view", () => {
         outcome: "complete",
       });
       await vi.waitFor(() => expect(page.element("attach-image").disabled).toBe(false));
-      await vi.waitFor(() =>
-        expect(page.element("chat-status").textContent).toContain("History loaded"),
-      );
+      await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe(""));
       finishCancellation();
       await vi.mocked(api.turns.cancel).mock.results[0]!.value;
       expect(page.element("cancel").hidden).toBe(true);
-      expect(page.element("chat-status").textContent).toContain("History loaded");
+      expect(page.element("chat-status").textContent).toBe("");
 
       page.element("composer").value = "/clear";
       page.element("composer").dispatch("keydown", { key: "Enter" });
@@ -1266,14 +1354,10 @@ describe("renderer status view", () => {
       page.element("composer").value = "Other task draft";
       page.element("composer").dispatch("input");
       page.sessionButtons()[0]!.click();
-      await vi.waitFor(() =>
-        expect(page.element("chat-status").textContent).toContain("History loaded"),
-      );
+      await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe(""));
       expect(page.element("composer").value).toBe("Next");
       page.sessionButtons()[1]!.click();
-      await vi.waitFor(() =>
-        expect(page.element("chat-status").textContent).toContain("History loaded"),
-      );
+      await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe(""));
       expect(page.element("composer").value).toBe("Other task draft");
       page.element("attach-image").click();
       await vi.waitFor(() =>

@@ -259,7 +259,7 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
       traceId: event.traceId,
       terminalTraceId: null,
       active: true,
-      label: "OpenMinion is working…",
+      label: "Working…",
       error: null,
     };
   }
@@ -269,16 +269,13 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
   if (event.kind === "progress") {
     return {
       ...state,
-      label:
-        event.progressKind === "status"
-          ? (event.label ?? event.detailText ?? "OpenMinion is working…")
-          : "Receiving response…",
+      label: event.progressKind === "status" ? (event.label ?? "Working…") : "Writing…",
     };
   }
   if (event.kind === "response") {
     return {
       ...state,
-      label: event.errors.length ? "Turn completed with an error." : "Response received.",
+      label: event.errors[0]?.message ?? "Finishing…",
       error: event.errors[0] ?? null,
     };
   }
@@ -295,10 +292,10 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
     active: false,
     label:
       event.outcome === "complete"
-        ? "Turn complete."
+        ? ""
         : event.outcome === "cancelled"
-          ? "Turn cancelled."
-          : "Turn ended with an error.",
+          ? "Stopped."
+          : (state.error?.message ?? "Something went wrong. Try again."),
   };
 }
 
@@ -315,7 +312,7 @@ export function applySubmitResult(state: ChatState, result: TurnSubmitValue): Ch
     ...state,
     traceId: result.traceId,
     active: true,
-    label: "OpenMinion is working…",
+    label: "Working…",
   };
 }
 
@@ -1356,9 +1353,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         );
         break;
       case "/copy": {
-        const text =
-          responseText ||
-          messages.slice(hiddenMessageCount).findLast((item) => item.role === "assistant")?.body;
+        const reply = responseText
+          ? { body: responseText, profileName: selected?.activeAgentId }
+          : messages.slice(hiddenMessageCount).findLast((item) => item.role === "assistant");
+        const text = reply && assistantBody(reply.body, reply.profileName);
         if (!text) showCommandResult("Copy reply", "There is no reply to copy yet.");
         else {
           const result = await api.app.copyText(text);
@@ -1399,6 +1397,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const writable = Boolean(selected && selected.status !== "closed");
     const attachmentsValid = turnAttachmentsAreValid();
     elements.chatStatus.textContent = chat.label;
+    elements.chatStatus.className = `chat-status${chat.active && !chat.error ? " working" : ""}`;
     elements.newSession.disabled = creatingTask || chat.active;
     const isCommand =
       elements.composer.value.trimStart().startsWith("/") &&
@@ -1447,7 +1446,15 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       [
         ...messages.slice(hiddenMessageCount),
         ...(submittedText === null ? [] : [{ role: "user" as const, body: submittedText }]),
-        ...(responseText ? [{ role: "assistant" as const, body: responseText }] : []),
+        ...(responseText
+          ? [
+              {
+                role: "assistant" as const,
+                body: responseText,
+                profileName: selected?.activeAgentId,
+              },
+            ]
+          : []),
       ],
       automaticObservation,
       quietTools ? activity.filter((item) => item.kind === "approval") : activity,
@@ -1583,7 +1590,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       sessionId: recovered.session.sessionId,
       terminalTraceId,
       label: recovered.session.isDraft
-        ? "Local draft. Your first message creates the saved conversation."
+        ? "Send a message to start this task."
         : terminalLabel(recovered.events),
     };
     const live = liveTurns.get(session.sessionId);
@@ -1843,7 +1850,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         void selectSession(next);
       }
     });
-    chat = { ...chat, label: "Session closed." };
+    chat = { ...chat, label: "Task closed. Start a new task to continue." };
     renderChat();
     renderArtifacts();
     renderFiles();
@@ -1878,7 +1885,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       guidanceView = null;
       guidanceMessage = "Submitting guidance request…";
     }
-    chat = { ...chat, active: true, label: "Submitting turn…", error: null };
+    chat = { ...chat, active: true, label: "Sending…", error: null };
     submittedText = message;
     responseText = "";
     const sessionId = selected.sessionId;
@@ -2166,7 +2173,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     chat = {
       ...chat,
       active: !result.value.terminal,
-      label: result.value.terminal ? `Turn ${result.value.state}.` : "Cancellation requested…",
+      label: !result.value.terminal
+        ? "Stop requested…"
+        : result.value.state === "completed"
+          ? ""
+          : result.value.state === "cancelled"
+            ? "Stopped."
+            : "Something went wrong. Check the reply before trying again.",
     };
     if (result.value.terminal) liveTurns.delete(selected.sessionId);
     renderChat();
@@ -2619,7 +2632,7 @@ function renderSessions(
 function renderTimeline(
   root: Document,
   timeline: HTMLElement,
-  messages: ReadonlyArray<Pick<MessageV1, "role" | "body">>,
+  messages: ReadonlyArray<Pick<MessageV1, "role" | "body" | "profileName">>,
   automaticObservation: ObservationFrameFactV1 | null,
   activity: ActivityItem[],
   deciding: Set<string>,
@@ -2633,9 +2646,18 @@ function renderTimeline(
     const role = root.createElement("p");
     role.className = "message-role";
     role.textContent = message.role === "user" ? "You" : "OpenMinion";
+    if (message.role === "assistant" && message.profileName) {
+      const profile = root.createElement("span");
+      profile.className = "message-profile";
+      profile.textContent = message.profileName;
+      role.append(profile);
+    }
     const body = root.createElement("p");
     body.className = "message-body";
-    body.textContent = message.body;
+    body.textContent =
+      message.role === "assistant"
+        ? assistantBody(message.body, message.profileName)
+        : message.body;
     article.append(role, body);
     return article;
   });
@@ -2829,15 +2851,21 @@ function decisionFact(event: SessionEventV1): ApprovalDecision | null {
   return value === "allow_once" || value === "deny" ? value : null;
 }
 
+export function assistantBody(body: string, profileName?: string | null): string {
+  // PyPI responses include a speaker envelope; move only the reported speaker to the header.
+  const prefix = profileName ? `${profileName}: ` : null;
+  return prefix && body.startsWith(prefix) ? body.slice(prefix.length) : body;
+}
+
 function terminalLabel(events: SessionEventV1[]): string {
   const last = events.at(-1);
   if (!last?.state) {
-    return "History loaded. Ready for a new turn.";
+    return "";
   }
-  if (["completed", "failed", "cancelled"].includes(last.state)) {
-    return `Last turn ${last.state}.`;
-  }
-  return "History loaded. A previous turn may still be active.";
+  if (last.state === "completed") return "";
+  if (last.state === "cancelled") return "Stopped.";
+  if (last.state === "failed") return "Something went wrong. Check the reply before trying again.";
+  return "This task may still be running. Check its status before sending again.";
 }
 
 function required(root: Document, id: string): HTMLElement {

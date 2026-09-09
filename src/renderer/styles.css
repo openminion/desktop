@@ -1057,10 +1057,24 @@ details[open] > summary .summary-chevron {
 }
 
 .message-role {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
   margin-bottom: 7px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 550;
+}
+
+.message-profile {
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.message-profile::before {
+  margin-right: 8px;
+  content: "·";
 }
 
 .message-body {
@@ -1118,6 +1132,29 @@ details[open] > summary .summary-chevron {
 
 .chat-status:empty {
   display: none;
+}
+
+.chat-status.working::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: working-pulse 1.4s ease-in-out infinite;
+  content: "";
+}
+
+@keyframes working-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-status.working::before {
+    animation: none;
+  }
 }
 
 .composer {

@@ -76,7 +76,7 @@ If the daemon stops while the window stays open, click the connection indicator
 at the bottom of the sidebar. Opening its details checks the current connection;
 use **Reconnect** when offered. Your unsent message stays in the composer.
 
-With PyPI 0.0.18, **Cancel** requests cancellation, but an in-flight provider
+With PyPI 0.0.18, **Stop** requests cancellation, but an in-flight provider
 request can still complete. Desktop displays the outcome reported by the daemon.
 
 Text chat and completed conversation history work in the real app. Attachment
@@ -97,9 +97,15 @@ Write your first message and send it to create a task automatically. Use
 **New task** in the sidebar to start another conversation. Use the send
 button or **Enter** to send. **Shift+Enter** adds a new line.
 
+Assistant replies show the reported profile beside **OpenMinion**. Desktop moves
+a matching speaker prefix out of the displayed answer and copied reply; saved
+transcripts remain unchanged. Progress uses a subtle working indicator, while
+successful completion leaves the composer quiet. Stop requests and errors remain
+visible; a stop request is not treated as confirmed cancellation.
+
 Type `/` or press **Command/Ctrl+K** to open the command menu. Arrow keys select,
 Tab completes, and Enter runs a command. Start with `/help`, `/new`, `/sessions`,
-or `/status`. Use the **Cancel** button to stop a running turn.
+or `/status`. Use the **Stop** button to stop a running turn.
 Desktop is the GUI for Focus; command integration is currently incomplete.
 See [Desktop Commands and Focus Parity](commands.md)
 for the supported commands and remaining integration work.

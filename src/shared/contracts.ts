@@ -68,6 +68,7 @@ export type MessageV1 = {
   sessionId: string;
   role: "user" | "assistant";
   body: string;
+  profileName?: string | null;
   createdAt: string;
 };
 
