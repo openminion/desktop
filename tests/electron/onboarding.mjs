@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,7 +57,7 @@ let finishing = false;
 const timeout = setTimeout(() => {
   console.error("Onboarding timed out");
   void finish(1);
-}, 180_000);
+}, 300_000);
 async function finish(code) {
   if (finishing) return;
   finishing = true;
@@ -75,6 +75,12 @@ async function check() {
     const window = await loaded;
     window.webContents.setBackgroundThrottling(false);
     const evaluate = (code) => window.webContents.executeJavaScript(code);
+    const capture = async (name) => {
+      const directory = process.env.OPENMINION_E2E_ARTIFACTS;
+      if (!directory) return;
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, name), (await window.webContents.capturePage()).toPNG());
+    };
     const waitFor = async (code) => {
       for (let i = 0; i < 400; i++) {
         if (await evaluate(code)) return;
@@ -88,32 +94,76 @@ async function check() {
       "document.querySelector('#profile-dialog').open && document.querySelector('#setup-provider').options.length > 0 && !document.querySelector('#profile-save').disabled",
     );
     assert.equal(requests.length, 0);
-    assert.equal((await evaluate("window.openminion.profiles.read()")).value.setupRequired, true);
+    const initial = (await evaluate("window.openminion.profiles.read()")).value;
+    assert.equal(initial.setupRequired, true);
+    const initialConfig = await readFile(join(root, "agents.json"), "utf8");
+    const referencePath = join(root, "cli-reference.json");
+    const cliSetup = async (provider, options, environment) => {
+      await writeFile(referencePath, initialConfig, { mode: 0o600 });
+      const result = await runCommand(
+        executable,
+        [
+          ...args.slice(0, -1),
+          referencePath,
+          "setup",
+          "--no-chat",
+          "--agent",
+          initial.defaultAgent,
+          "--provider",
+          provider,
+          ...options,
+        ],
+        30_000,
+        environment,
+      );
+      assert.equal(result.exitCode, 0, "The independent CLI setup must succeed.");
+      return JSON.parse(await readFile(referencePath, "utf8"));
+    };
+    window.setContentSize(760, 560);
+    await waitFor("window.innerWidth === 760");
+    await capture("01-welcome.png");
+    await evaluate(
+      "document.querySelector('#setup-key').value='discarded-fixture-key'; document.querySelector('#close-settings').click()",
+    );
+    await waitFor(
+      "!document.querySelector('#profile-dialog').open && document.querySelector('#setup-key').value === ''",
+    );
+    assert.equal(await readFile(join(root, "agents.json"), "utf8"), initialConfig);
+    assert.equal((await evaluate("window.openminion.sessions.list({})")).value.sessions.length, 0);
+    await evaluate("document.querySelector('#show-settings').click()");
+    await waitFor(
+      "document.querySelector('#profile-dialog').open && !document.querySelector('#profile-save').disabled",
+    );
     await evaluate(
       "document.querySelector('#setup-provider').value='minimax'; document.querySelector('#setup-provider').dispatchEvent(new Event('change'))",
     );
-    assert.equal(await evaluate("document.querySelector('#setup-model').value"), "MiniMax-M2.7");
+    const minimax = await cliSetup("minimax", [], { MINIMAX_API_KEY: "unused-fixture-key" });
+    const minimaxModel = minimax.providers[minimax.agents[initial.defaultAgent].provider];
+    assert.equal(
+      await evaluate("document.querySelector('#setup-model').value"),
+      minimaxModel.model,
+    );
     assert.equal(
       await evaluate("document.querySelector('#setup-endpoint').value"),
-      "https://api.minimax.io/v1",
+      minimaxModel.base_url,
     );
+    assert.equal(requests.length, 0);
+    await capture("02-minimax-defaults.png");
     await evaluate("document.querySelector('#profile-save').click()");
     assert.equal(
       await evaluate("document.querySelector('#setup-key').validity.valueMissing"),
       true,
     );
+    assert.equal(await readFile(join(root, "agents.json"), "utf8"), initialConfig);
     await evaluate(
       `document.querySelector('#setup-provider').value='custom-openai-compatible'; document.querySelector('#setup-provider').dispatchEvent(new Event('change')); document.querySelector('#setup-model').value='fixture-model'; document.querySelector('#setup-endpoint').value=${JSON.stringify(endpoint)}; document.querySelector('#setup-key').value='onboarding-private-key'`,
     );
-    if (process.env.OPENMINION_E2E_ARTIFACTS) {
-      window.setContentSize(760, 560);
-      await waitFor("window.innerWidth === 760");
-      // Capture before entering any real credentials; this is a synthetic fixture key.
-      await writeFile(
-        join(process.env.OPENMINION_E2E_ARTIFACTS, "onboarding.png"),
-        (await window.webContents.capturePage()).toPNG(),
-      );
-    }
+    await capture("03-model-setup.png");
+    const reference = await cliSetup(
+      "custom-openai-compatible",
+      ["--model", "fixture-model", "--base-url", endpoint],
+      { OPENAI_COMPATIBLE_API_KEY: "onboarding-private-key" },
+    );
     await evaluate("document.querySelector('#profile-save').click()");
     await waitFor(
       "document.querySelector('#profile-status').textContent.startsWith('Saved and applied')",
@@ -124,6 +174,12 @@ async function check() {
     assert.equal(settings.agents[0].keyConfigured, true);
     assert.ok(!JSON.stringify(settings).includes("onboarding-private-key"));
     assert.equal(await evaluate("document.querySelector('#setup-key').value"), "");
+    const configured = JSON.parse(await readFile(join(root, "agents.json"), "utf8"));
+    assert.deepEqual(configured.agents, reference.agents);
+    assert.deepEqual(configured.providers, reference.providers);
+    assert.equal(configured.default_agent, reference.default_agent);
+    assert.equal((await stat(join(root, "agents.json"))).mode & 0o777, 0o600);
+    await capture("04-setup-complete.png");
     await evaluate("document.querySelector('#close-settings').click()");
     await evaluate(
       "document.querySelector('#composer').value='First configured chat'; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#send').click()",
@@ -132,8 +188,10 @@ async function check() {
       "document.querySelector('#cancel').hidden && document.querySelector('#timeline').textContent.includes('Desktop onboarding reply')",
     );
     assert.equal(requests[0].authorization, "Bearer onboarding-private-key");
+    assert.equal(requests[0].body.model, "fixture-model");
+    await capture("05-first-chat.png");
     console.log(
-      "PASS: first launch onboarding, CLI MiniMax defaults, missing-key validation, canonical setup, private key persistence and first real-provider-protocol chat.",
+      "PASS: first launch, discard without writes, independent CLI MiniMax defaults, missing-key validation, matching CLI-created model profiles, private key persistence and first configured chat.",
     );
 
     const seed = await runCommand(

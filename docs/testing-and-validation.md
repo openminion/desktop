@@ -96,11 +96,20 @@ The Electron test drives production main, preload, and renderer and covers:
 - cancellation requests while the real daemon is waiting on a local controlled provider,
   provider rejection, and a successful subsequent request.
 
-The onboarding test separately covers automatic first-launch setup, CLI-owned
-MiniMax defaults, required-key validation, canonical setup without a provider
-request, the first configured chat, missing-key startup guidance, and subsequent
-model/key edits. It also creates a conversation with the ordinary CLI and
+The onboarding test separately covers automatic first-launch setup, dismissing
+setup without writing a profile, and required-key validation. It independently
+runs the public CLI setup against a copy of the initial config, compares MiniMax
+defaults and the saved model profiles with Desktop, then checks the first
+configured chat, missing-key startup guidance, and subsequent model/key edits.
+It verifies that saving makes no provider request, stored config permissions
+remain private, and the first chat uses the entered model and credential. It also creates a conversation with the ordinary CLI and
 continues it in Desktop while preserving its saved channel and target.
+
+Set `OPENMINION_E2E_ARTIFACTS` to a scratch directory when running the onboarding
+test to save screenshots of welcome, provider defaults, model entry, saved setup,
+and the first reply. The simulation uses synthetic credentials and an isolated
+runtime; it does not configure or modify the user's installed profiles. Choosing
+MiniMax verifies CLI-owned setup defaults, not paid MiniMax authentication.
 
 The provider fixture is a loopback HTTP server with a test credential, configured
 only in the test's isolated runtime. It can hold or reject a request. These tests
