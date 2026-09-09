@@ -8,6 +8,7 @@ import {
   captureRegionFromPercentages,
   captureStatusCopy,
   initialChatState,
+  waitingTime,
   listArtifacts,
   listSessions,
   mount,
@@ -744,6 +745,8 @@ describe("renderer status view", () => {
   });
 
   it("tracks one active trace through progress, response, and terminal state", () => {
+    expect(waitingTime(1000, 1000)).toBe("0s");
+    expect(waitingTime(1000, 62500)).toBe("1m 01s");
     const submitting = {
       ...initialChatState(),
       sessionId: "session-1",
@@ -774,6 +777,18 @@ describe("renderer status view", () => {
       createdAt: "2026-08-19T00:00:01Z",
     });
     expect(progress.label).toBe("Thinking");
+    const stopping = { ...started, stopRequested: true, label: "Stop requested…" };
+    expect(
+      applyTurnEvent(stopping, {
+        schemaVersion: 1,
+        kind: "progress",
+        progressKind: "text",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        text: "Late reply",
+        createdAt: "2026-09-08T00:00:00Z",
+      }),
+    ).toEqual(stopping);
     const response = applyTurnEvent(progress, {
       schemaVersion: 1,
       kind: "response",
@@ -1311,6 +1326,12 @@ describe("renderer status view", () => {
         };
       });
       page.element("cancel").click();
+      page.element("composer").dispatch("input");
+      expect(page.element("cancel").disabled).toBe(true);
+      expect(page.element("send").hidden).toBe(true);
+      expect(page.element("chat-status").textContent).toBe("Requesting stop…");
+      page.element("cancel").click();
+      expect(api.turns.cancel).toHaveBeenCalledTimes(1);
       let finishHistoryRefresh!: () => void;
       const historyRefresh = new Promise<void>((resolve) => {
         finishHistoryRefresh = resolve;
@@ -1331,6 +1352,7 @@ describe("renderer status view", () => {
       expect(page.findText()).toContain("First chunk");
       expect(page.findText()).not.toContain("What would you like to work on?");
       expect(page.element("chat-status").textContent).not.toBe("Loading conversation…");
+      expect(page.element("chat-status").textContent).toBe("Finishing…");
       page.element("composer").value = "Draft while history refreshes";
       page.element("composer").dispatch("input");
       expect(page.element("send").disabled).toBe(true);
@@ -1346,6 +1368,8 @@ describe("renderer status view", () => {
       finishCancellation();
       await vi.mocked(api.turns.cancel).mock.results[0]!.value;
       expect(page.element("cancel").hidden).toBe(true);
+      expect(page.element("send").hidden).toBe(false);
+      expect(page.element("chat-elapsed").textContent).toBe("");
       expect(page.element("chat-status").textContent).toBe("");
 
       vi.mocked(api.sessions.load).mockResolvedValueOnce({
@@ -2530,6 +2554,8 @@ class FixtureDocument {
     "current-title",
     "timeline",
     "chat-status",
+    "chat-elapsed",
+    "composer-hint",
     "composer-form",
     "composer",
     "show-commands",

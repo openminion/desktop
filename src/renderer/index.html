@@ -101,9 +101,12 @@
               <p>Connect to OpenMinion to send. You can keep drafting.</p>
               <button id="show-connection" class="quiet-button" type="button">Connection details</button>
             </aside>
-            <p id="chat-status" class="chat-status" aria-live="polite">
+            <div class="chat-status-line">
+              <p id="chat-status" class="chat-status" role="status" aria-live="polite" aria-atomic="true">
               Choose or create a task to begin.
-            </p>
+              </p>
+              <span id="chat-elapsed" class="chat-elapsed" aria-hidden="true" title="Time since you sent this message"></span>
+            </div>
           </div>
           <form id="composer-form" class="composer">
             <div id="command-menu" class="command-menu" role="listbox" aria-label="Commands" hidden></div>
@@ -149,10 +152,11 @@
                 </button>
               </div>
               <div class="composer-submit-actions">
-                <button id="cancel" class="quiet-button danger-button" type="button" hidden>
-                  Stop
+                <span id="composer-hint" class="composer-hint" aria-hidden="true">Enter to send · Shift+Enter for new line</span>
+                <button id="cancel" type="button" title="Stop response" hidden>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" /></svg>
+                  <span class="sr-only">Stop</span>
                 </button>
-                <span class="composer-hint" aria-hidden="true">Enter to send · Shift+Enter for new line</span>
                 <button id="send" type="submit" aria-label="Send message" title="Send message (Enter)" disabled>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
                 </button>

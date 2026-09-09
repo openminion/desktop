@@ -1124,14 +1124,29 @@ details[open] > summary .summary-chevron {
   margin-top: 12px;
 }
 
-.chat-status {
+.chat-status-line {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   min-height: 28px;
   padding: 4px var(--conversation-gutter);
   font-size: 12px;
 }
 
-.chat-status:empty {
-  display: none;
+.chat-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-status.error {
+  color: #f0b37f;
+}
+
+.chat-elapsed {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-status.working::before {
@@ -1367,7 +1382,8 @@ details[open] > summary .summary-chevron {
   font-size: 11px;
 }
 
-#send {
+#send,
+#cancel {
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -1591,7 +1607,7 @@ code {
     font-size: 21px;
   }
 
-  .chat-status {
+  .chat-status-line {
     padding-right: 16px;
     padding-left: 16px;
   }

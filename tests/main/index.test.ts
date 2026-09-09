@@ -3671,6 +3671,8 @@ class CaptureFixtureDocument {
     "current-title",
     "timeline",
     "chat-status",
+    "chat-elapsed",
+    "composer-hint",
     "composer-form",
     "composer",
     "show-commands",

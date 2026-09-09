@@ -344,6 +344,9 @@ async function check() {
       "document.querySelector('#chat-status').textContent.includes('Send a message to start')",
     );
     await fill("Test cancellation of a delayed request");
+    const idleComposerTop = await evaluate(
+      "document.querySelector('#composer-form').getBoundingClientRect().top",
+    );
     const cancellationSession = (
       await evaluate("window.openminion.sessions.list({})")
     ).value.sessions.find((session) => session.isDraft).sessionId;
@@ -358,11 +361,20 @@ async function check() {
       "The real daemon must reach the local provider before cancellation",
     );
     assert.equal(await evaluate("document.querySelector('#cancel').textContent.trim()"), "Stop");
+    assert.equal(await evaluate("document.querySelector('#send').hidden"), true);
+    await waitFor(
+      "document.querySelector('#chat-elapsed').textContent !== '0s' && document.querySelector('#chat-elapsed').textContent.endsWith('s')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer-form').getBoundingClientRect().top"),
+      idleComposerTop,
+    );
     assert.equal(
       await evaluate("document.querySelector('#chat-status').classList.contains('working')"),
       true,
     );
     await evaluate("document.querySelector('#cancel').click()");
+    assert.equal(await evaluate("document.querySelector('#cancel').disabled"), true);
     await waitFor(
       "document.querySelector('#cancel').hidden && ['', 'Stopped.', 'Something went wrong. Check the reply before trying again.'].includes(document.querySelector('#chat-status').textContent)",
     );
@@ -378,6 +390,12 @@ async function check() {
     assert.equal(
       await evaluate("document.querySelector('#chat-status').textContent"),
       terminalState === "completed" ? "" : "Stopped.",
+    );
+    assert.equal(await evaluate("document.querySelector('#chat-elapsed').textContent"), "");
+    assert.equal(await evaluate("document.querySelector('#send').hidden"), false);
+    assert.equal(
+      await evaluate("document.querySelector('#composer-form').getBoundingClientRect().top"),
+      idleComposerTop,
     );
     if (terminalState === "completed")
       console.log(

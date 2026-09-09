@@ -46,6 +46,8 @@ export type ChatState = {
   traceId: string | null;
   terminalTraceId: string | null;
   active: boolean;
+  startedAt: number | null;
+  stopRequested: boolean;
   label: string;
   error: ErrorV1 | null;
 };
@@ -240,6 +242,8 @@ export function initialChatState(): ChatState {
     traceId: null,
     terminalTraceId: null,
     active: false,
+    startedAt: null,
+    stopRequested: false,
     label: "Choose or create a task to begin.",
     error: null,
   };
@@ -255,10 +259,12 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
       return state;
     }
     return {
+      ...state,
       sessionId: event.sessionId,
       traceId: event.traceId,
       terminalTraceId: null,
       active: true,
+      startedAt: state.startedAt ?? Date.now(),
       label: "Working…",
       error: null,
     };
@@ -267,15 +273,16 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
     return state;
   }
   if (event.kind === "progress") {
+    if (state.stopRequested) return state;
     return {
       ...state,
-      label: event.progressKind === "status" ? (event.label ?? "Working…") : "Writing…",
+      label: event.progressKind === "status" ? event.label?.trim() || "Working…" : "Writing…",
     };
   }
   if (event.kind === "response") {
     return {
       ...state,
-      label: event.errors[0]?.message ?? "Finishing…",
+      label: event.errors[0]?.message ?? (state.stopRequested ? state.label : "Finishing…"),
       error: event.errors[0] ?? null,
     };
   }
@@ -290,6 +297,7 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
     traceId: null,
     terminalTraceId: event.traceId,
     active: false,
+    stopRequested: false,
     label:
       event.outcome === "complete"
         ? ""
@@ -312,7 +320,8 @@ export function applySubmitResult(state: ChatState, result: TurnSubmitValue): Ch
     ...state,
     traceId: result.traceId,
     active: true,
-    label: "Working…",
+    startedAt: state.startedAt ?? Date.now(),
+    label: state.stopRequested ? state.label : "Working…",
   };
 }
 
@@ -545,6 +554,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let richContextReady = false;
   let creatingTask = false;
   let conversationLoading = false;
+  let waitTimer: ReturnType<typeof setInterval> | null = null;
   let messages: MessageV1[] = [];
   const drafts = new Map<string, string>();
   let submittedText: string | null = null;
@@ -1395,12 +1405,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     return true;
   };
 
+  const renderWaitTime = () => {
+    elements.chatElapsed.textContent =
+      chat.active && chat.startedAt !== null ? waitingTime(chat.startedAt, Date.now()) : "";
+  };
+
   const renderChat = () => {
     const writable = Boolean(selected && selected.status !== "closed");
     const attachmentsValid = turnAttachmentsAreValid();
-    elements.chatStatus.textContent = chat.label;
+    elements.chatStatus.textContent =
+      conversationLoading && !chat.active && !chat.label ? "Finishing…" : chat.label;
     elements.timeline.setAttribute("aria-busy", String(conversationLoading));
-    elements.chatStatus.className = `chat-status${chat.active && !chat.error ? " working" : ""}`;
+    elements.chatStatus.className = `chat-status${(chat.active || conversationLoading) && !chat.error ? " working" : ""}${chat.error ? " error" : ""}`;
+    renderWaitTime();
+    if (chat.active && waitTimer === null) waitTimer = setInterval(renderWaitTime, 1000);
+    if (!chat.active && waitTimer !== null) {
+      clearInterval(waitTimer);
+      waitTimer = null;
+    }
     elements.newSession.disabled = creatingTask || chat.active;
     const isCommand =
       elements.composer.value.trimStart().startsWith("/") &&
@@ -1416,14 +1438,21 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           !elements.composer.value.trim() ||
           !attachmentsValid));
     elements.cancel.hidden = !chat.active;
-    elements.cancel.disabled = !chat.active || !chat.traceId;
+    elements.cancel.disabled = !chat.active || !chat.traceId || chat.stopRequested;
+    elements.cancel.title = chat.stopRequested ? "Waiting for OpenMinion to stop" : "Stop response";
+    elements.send.hidden = chat.active && !isCommand;
+    elements.composerHint.textContent = chat.active
+      ? "You can keep drafting while OpenMinion works"
+      : "Enter to send · Shift+Enter for new line";
     elements.send.title = isCommand
       ? "Run command"
       : !daemonReady
         ? "Connect OpenMinion to send this draft"
         : selected?.status === "closed"
           ? "Create or choose an open task to send"
-          : "Send message (Enter)";
+          : conversationLoading
+            ? "Waiting for conversation history"
+            : "Send message (Enter)";
     elements.composer.disabled = false;
     elements.closeSession.disabled =
       !writable || conversationLoading || chat.active || attachmentPending;
@@ -1767,6 +1796,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       captureGeneration += 1;
       observationGeneration += 1;
       clearGuidance();
+      if (waitTimer !== null) clearInterval(waitTimer);
       capturePending = false;
       captureMessage = null;
       unsubscribe();
@@ -1905,7 +1935,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       guidanceView = null;
       guidanceMessage = "Submitting guidance request…";
     }
-    chat = { ...chat, active: true, label: "Sending…", error: null };
+    chat = {
+      ...chat,
+      active: true,
+      startedAt: Date.now(),
+      stopRequested: false,
+      label: "Sending…",
+      error: null,
+    };
     submittedText = message;
     responseText = "";
     const sessionId = selected.sessionId;
@@ -2178,31 +2215,42 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderArtifacts();
   });
   elements.cancel.addEventListener("click", async () => {
-    if (!selected || !chat.traceId) {
+    if (!selected || !chat.traceId || chat.stopRequested) {
       return;
     }
-    elements.cancel.disabled = true;
     const sessionId = selected.sessionId;
     const traceId = chat.traceId;
-    const result = await api.turns.cancel({ sessionId, traceId });
-    if (selected?.sessionId !== sessionId || chat.traceId !== traceId || !chat.active) return;
-    if (!result.ok) {
-      showError(result.error);
-      return;
-    }
-    chat = {
-      ...chat,
-      active: !result.value.terminal,
-      label: !result.value.terminal
-        ? "Stop requested…"
-        : result.value.state === "completed"
-          ? ""
-          : result.value.state === "cancelled"
-            ? "Stopped."
-            : "Something went wrong. Check the reply before trying again.",
-    };
-    if (result.value.terminal) liveTurns.delete(selected.sessionId);
+    chat = { ...chat, stopRequested: true, label: "Requesting stop…", error: null };
+    const live = liveTurns.get(sessionId);
+    if (live) live.state = chat;
     renderChat();
+    const result = await api.turns.cancel({ sessionId, traceId });
+    const current = liveTurns.get(sessionId);
+    if (!current?.state.active || current.state.traceId !== traceId) return;
+    current.state = result.ok
+      ? {
+          ...current.state,
+          active: !result.value.terminal,
+          stopRequested: !result.value.terminal,
+          label: !result.value.terminal
+            ? "Stop requested…"
+            : result.value.state === "completed"
+              ? ""
+              : result.value.state === "cancelled"
+                ? "Stopped."
+                : "Something went wrong. Check the reply before trying again.",
+        }
+      : {
+          ...current.state,
+          stopRequested: false,
+          label: result.error.message,
+          error: result.error,
+        };
+    if (result.ok && result.value.terminal) liveTurns.delete(sessionId);
+    if (selected?.sessionId === sessionId && chat.traceId === traceId) {
+      chat = current.state;
+      renderChat();
+    }
   });
 
   renderChat();
@@ -2252,6 +2300,8 @@ function rendererElements(root: Document) {
     currentTitle: required(root, "current-title"),
     timeline: required(root, "timeline"),
     chatStatus: required(root, "chat-status"),
+    chatElapsed: required(root, "chat-elapsed"),
+    composerHint: required(root, "composer-hint"),
     composerForm: required(root, "composer-form") as HTMLFormElement,
     composer: required(root, "composer") as HTMLTextAreaElement,
     showCommands: required(root, "show-commands"),
@@ -2876,6 +2926,13 @@ export function assistantBody(body: string, profileName?: string | null): string
   // PyPI responses include a speaker envelope; move only the reported speaker to the header.
   const prefix = profileName ? `${profileName}: ` : null;
   return prefix && body.startsWith(prefix) ? body.slice(prefix.length) : body;
+}
+
+export function waitingTime(startedAt: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
 function terminalLabel(events: SessionEventV1[]): string {
