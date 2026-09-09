@@ -1265,6 +1265,21 @@ details[open] > summary .summary-chevron {
   line-height: 1.6;
 }
 
+.runtime-task {
+  border-top: 1px solid var(--line-strong);
+  padding-block: 12px;
+  overflow-wrap: anywhere;
+}
+
+.runtime-task h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.runtime-task button {
+  margin: 4px 8px 4px 0;
+}
+
 .composer textarea {
   flex: 1 1 auto;
   width: 100%;

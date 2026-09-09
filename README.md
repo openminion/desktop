@@ -82,6 +82,7 @@ inspects an unsigned local macOS application; it is not a public release.
 
 - browse, reopen, and close local OpenMinion sessions; create them with a first message
 - chat with streaming progress and typed terminal outcomes
+- inspect OpenMinion work with `/tasks` and pause, resume, or cancel it through core controls
 - cancel active turns and recover completed history after renderer reload or daemon restart
 - preview approvals, attachments, artifacts, and screen context in the UI fixture
 - select a screen or window for local preview when native permission is available

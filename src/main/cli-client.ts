@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { RuntimeTask, TaskControlValue } from "../shared/tasks.js";
 import { request, type IncomingMessage } from "node:http";
 import type {
   ClientResult,
@@ -45,11 +46,30 @@ type DraftSession = SessionSummaryV1 & { isDraft: true };
 type TranscriptRecord = Record<string, unknown>;
 type ActiveTurn = { identity: TurnSubmitValue | null };
 
+function runtimeTask(value: unknown): RuntimeTask {
+  const row = requireRecord(value);
+  return {
+    id: requireString(row.id),
+    title: optionalString(row.title ?? null),
+    status: optionalString(row.lifecycle_state ?? row.status ?? null),
+    kind: optionalString(row.task_kind ?? null),
+    schedule: optionalString(row.schedule_summary ?? null),
+    dueAt: optionalString(row.due_at ?? null),
+    operatorState: optionalString(row.operator_state ?? null),
+    resumeAction: optionalString(row.resume_action ?? null),
+    validActions: requireArray(row.valid_actions ?? []).filter(
+      (action): action is "pause" | "resume" | "cancel" =>
+        action === "pause" || action === "resume" || action === "cancel",
+    ),
+  };
+}
+
 export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient> {
   readonly #context: () => CliCommandContext | null;
   readonly #run: RunCommand;
   readonly #drafts = new Map<string, DraftSession>();
   readonly #active = new Map<string, ActiveTurn>();
+  readonly #taskControls = new Set<string>();
 
   constructor(context: () => CliCommandContext | null, run: RunCommand = runCommand) {
     this.#context = context;
@@ -59,13 +79,64 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
   #configuring = false;
 
   beginConfiguration(): boolean {
-    if (this.#configuring || this.#active.size > 0) return false;
+    if (this.#configuring || this.#active.size > 0 || this.#taskControls.size > 0) return false;
     this.#configuring = true;
     return true;
   }
 
   endConfiguration(): void {
     this.#configuring = false;
+  }
+
+  controlTasks(input: unknown): Promise<ClientResult<TaskControlValue>> {
+    return this.#control(async () => {
+      const value = requireRecord(input);
+      if (Object.keys(value).some((key) => !["sessionId", "action", "taskId"].includes(key)))
+        throw protocolError("invalid_request", "Choose a supported task operation.");
+      const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
+      const action = requireString(value.action);
+      if (!["list", "show", "pause", "resume", "cancel"].includes(action))
+        throw protocolError("invalid_request", "Choose a supported task action.");
+      const taskId = action === "list" ? null : requireString(value.taskId);
+      if (
+        taskId !== null &&
+        (!taskId || taskId.startsWith("-") || /\s|\0/.test(taskId) || taskId.length > 512)
+      )
+        throw protocolError("invalid_request", "Choose an exact task ID from OpenMinion.");
+      const mutating = !["list", "show"].includes(action);
+      if (this.#configuring || this.#taskControls.has(sessionId))
+        throw protocolError("task_control_busy", "Wait for the current operation to finish.");
+      if (mutating && this.#active.has(sessionId))
+        throw protocolError(
+          "session_turn_active",
+          "Finish or stop this turn before changing work.",
+        );
+      // Reserve before loading scope so a turn or Settings cannot race a task change.
+      if (mutating) this.#taskControls.add(sessionId);
+      try {
+        const loaded = await this.load({ sessionId, messageLimit: 1 });
+        if (!loaded.ok) throw protocolError(loaded.error.code, loaded.error.message);
+        const args = ["tasks", action];
+        if (taskId) args.push(taskId);
+        args.push("--session", sessionId, "--json");
+        if (loaded.value.session.activeAgentId)
+          args.push("--agent-id", loaded.value.session.activeAgentId);
+        const payload = requireRecord(await this.#json(args));
+        if (payload.ok !== true)
+          throw protocolError(
+            "task_control_failed",
+            "OpenMinion did not complete this task operation.",
+          );
+        return {
+          tasks: (action === "list" ? requireArray(payload.tasks) : [payload.task]).map(
+            runtimeTask,
+          ),
+          pendingActions: action === "list" ? requireArray(payload.pending_actions).length : 0,
+        };
+      } finally {
+        if (mutating) this.#taskControls.delete(sessionId);
+      }
+    });
   }
 
   list(input: SessionListInput): Promise<ClientResult<SessionListValue>> {
@@ -250,6 +321,11 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
           "settings_busy",
           "Settings are being applied. Try sending again in a moment.",
         );
+      if (this.#taskControls.has(value.sessionId))
+        return failure(
+          "task_control_busy",
+          "Wait for the task operation to finish before sending.",
+        );
       if (this.#active.has(value.sessionId))
         return failure("session_turn_active", "A turn is already active for this session.");
       const loaded = await this.load({ sessionId: value.sessionId, messageLimit: 1 });
@@ -258,6 +334,11 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
         return failure("session_closed", "The selected session is closed.");
       // Reserve before endpoint discovery so a second send cannot race admission.
       this.#requireContext();
+      if (this.#taskControls.has(value.sessionId))
+        return failure(
+          "task_control_busy",
+          "Wait for the task operation to finish before sending.",
+        );
       if (this.#configuring)
         return failure(
           "settings_busy",

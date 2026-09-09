@@ -190,6 +190,9 @@ export function registerIpcHandlers(
     return true;
   };
 
+  ipcMain.handle(IPC_CHANNELS.tasksControl, (event, input: unknown) =>
+    isAppInvocation(event) ? supervisor.client.controlTasks(input) : forbiddenResult(),
+  );
   ipcMain.handle(IPC_CHANNELS.copyText, (event, text: unknown): ClientResult<null> => {
     if (!isAppInvocation(event)) return forbiddenResult();
     if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 1024 * 1024) {

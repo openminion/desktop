@@ -18,7 +18,7 @@ elsewhere). Use the arrow keys to select a command. Enter runs it; Tab completes
 its name. Escape dismisses the menu. Opening the menu with the button or shortcut
 preserves an existing draft and restores it when you dismiss or run a command.
 
-Commands are local interactions. Unknown or unsupported slash commands produce
+Commands operate through Desktop presentation or fixed public OpenMinion operations. Unknown or unsupported slash commands produce
 an explanation and are never submitted to the model. Prefix a message with `//`
 to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 
@@ -29,6 +29,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/help` or `/` | Show the working Desktop command list. |
 | `/new`, `/new session` | Create a local task draft; its first message creates the saved session. Requires connection and no active turn in the selected task. |
 | `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration. |
+| `/tasks`, `/task` | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID or use the returned Pause, Resume, and Cancel controls. |
 | `/status` | Show connection, selected task, active agent, reported model, and turn status. |
 | `/model` | Show the model facts reported by the daemon; changing models is not supported here yet. |
 | `/copy` | Copy the latest visible assistant reply, including a currently streaming reply. Never fall back to user input or cleared replies. Focus tool-output copying still needs integration. Clipboard writes are capped at 1 MB. |
@@ -42,7 +43,17 @@ to keep the command language aligned with Focus. `/resume` is not an alias for
 `/sessions`: Focus filters prior sessions with messages in the current directory.
 That operation is not connected yet.
 
-Other than `/new session`, commands currently take no arguments. Model/provider
+`/tasks <task-id>` inspects work. `/tasks pause <task-id>`,
+`/tasks resume <task-id>`, and `/tasks cancel <task-id>` invoke the ordinary
+CLI task operations. The `/task` alias accepts the same arguments. Work is the
+runtime task inventory, which is distinct from the conversation sidebar.
+Only actions returned by OpenMinion appear as buttons. Reads work during a chat;
+changes wait for that conversation's active turn to finish. OpenMinion validates
+each transition; Desktop does not infer task state or schedule ownership.
+Pending approval decisions are counted but must still be resolved in Focus/CLI.
+The inventory uses the public CLI's default limit of 50.
+
+Except for these task commands and `/new session`, commands currently take no arguments. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
 The composer remains editable during a turn so you can write a draft or run a
@@ -61,7 +72,7 @@ provides the narrow clipboard-write bridge; neither surface reads the clipboard.
 Focus's canonical command catalog is owned by OpenMinion's CLI presentation
 layer. Its handlers operate on the CLI runtime. Desktop's legacy typed client
 models sessions, turns, approvals, media, and artifacts. The live CLI adapter
-connects text turns and saved sessions; approvals, media, artifacts, and broader
+connects text turns, saved sessions, and task inventory/lifecycle controls; approvals, media, artifacts, and broader
 Focus commands remain pending.
 
 | Focus command family | Required Desktop adaptation before it is connected |
@@ -73,7 +84,7 @@ Focus commands remain pending.
 | `/tokens`, `/cost` | Return durable session usage and supported cost accounting, with unavailable fields explicit. |
 | `/memory`, `/graph`, `/telemetry`, `/trace`, `/overview` | Expose bounded, redacted owner queries over the existing public interfaces. |
 | `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership and routing operations for admitted sessions. |
-| `/goal`, `/project`, `/delegate`, `/tasks`, `/queue` | Expose the existing goal, project, delegation, task, and queue owners; do not create Desktop-owned execution queues. |
+| `/goal`, `/project`, `/delegate`, `/queue` | Expose the existing goal, project, delegation, and queue owners; do not create Desktop-owned execution queues. |
 | `/init`, `/diff`, `/review`, `/undo`, `/browser` | Expose scoped workspace/browser operations and their existing permission and audit boundaries. |
 | `/theme`, `/statusline`, tool detail commands, `/export`, `/editor`, `/exit` | Additional Desktop presentation or native interactions; terminal-specific behavior requires an explicit Desktop equivalent. |
 
@@ -86,7 +97,8 @@ execute arbitrary CLI strings or forward slash commands as chat prompts.
 
 Renderer tests cover command discovery, keyboard handling, draft preservation,
 unsupported-command rejection, response streaming, and task switching. Main
-and preload tests cover the bounded clipboard-write method. The macOS Electron
+and preload tests cover clipboard writes and fixed task controls, scope binding,
+credential projection, invalid inputs, and concurrent operation admission. The macOS Electron
 smoke checks the actual command menu and help panel with the sandboxed preload.
 Real-daemon integration remains a separate tier described in
 [Testing and Validation](testing-and-validation.md).

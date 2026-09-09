@@ -13,6 +13,106 @@ afterEach(async () => {
 });
 
 describe("PyPI CLI client", () => {
+  it("routes scoped task operations to fixed CLI arguments and projects only public facts", async () => {
+    const run = vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        ok: true,
+        tasks: [
+          {
+            id: "work-1",
+            title: "Scheduled work",
+            lifecycle_state: "PAUSED",
+            valid_actions: ["resume", "cancel", "allow"],
+            credential: "never-return-this",
+          },
+        ],
+        pending_actions: [],
+      }),
+    });
+    const client = new CliClient(
+      () => ({ executable: "/managed/openminion", args: ["--config", "/private/config.json"] }),
+      run,
+    );
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    const inventory = await client.controlTasks({ sessionId, action: "list" });
+    expect(inventory).toMatchObject({
+      ok: true,
+      value: { tasks: [{ id: "work-1", status: "PAUSED", validActions: ["resume", "cancel"] }] },
+    });
+    expect(JSON.stringify(inventory)).not.toContain("never-return-this");
+    expect(run).toHaveBeenLastCalledWith(
+      "/managed/openminion",
+      [
+        "--config",
+        "/private/config.json",
+        "tasks",
+        "list",
+        "--session",
+        sessionId,
+        "--json",
+        "--agent-id",
+        "writer",
+      ],
+      30_000,
+    );
+    run.mockResolvedValue({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        ok: true,
+        task: { id: "work-1", status: "ACTIVE", valid_actions: ["pause", "cancel"] },
+      }),
+    });
+    expect(
+      await client.controlTasks({ sessionId, action: "resume", taskId: "work-1" }),
+    ).toMatchObject({ ok: true, value: { tasks: [{ status: "ACTIVE" }] } });
+    expect(run.mock.calls.at(-1)?.[1]).toContain("resume");
+    const calls = run.mock.calls.length;
+    for (const input of [
+      { sessionId, action: "delete", taskId: "work-1" },
+      { sessionId, action: "resume", taskId: "--help" },
+      { sessionId, action: "pause", taskId: "" },
+      { sessionId, action: "cancel", taskId: "a\nb" },
+      { sessionId, action: "list", args: ["--config", "/other"] },
+    ])
+      expect(await client.controlTasks(input)).toMatchObject({ ok: false });
+    expect(run).toHaveBeenCalledTimes(calls);
+  });
+
+  it("fences a pending task change from Settings and sending, then releases after failure", async () => {
+    let finish!: (value: { exitCode: number; stdout: string; stderr: string }) => void;
+    const run = vi.fn(
+      () =>
+        new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    const pending = client.controlTasks({ sessionId, action: "pause", taskId: "work-1" });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    expect(client.beginConfiguration()).toBe(false);
+    expect(await client.submit({ sessionId, message: "hello" }, vi.fn())).toMatchObject({
+      ok: false,
+      error: { code: "task_control_busy" },
+    });
+    expect(
+      await client.controlTasks({ sessionId, action: "cancel", taskId: "work-1" }),
+    ).toMatchObject({ ok: false });
+    finish({ exitCode: 1, stdout: "", stderr: "private diagnostic" });
+    const rejected = await pending;
+    expect(rejected).toMatchObject({ ok: false, error: { code: "cli_command_failed" } });
+    expect(JSON.stringify(rejected)).not.toContain("private diagnostic");
+    expect(client.beginConfiguration()).toBe(true);
+    client.endConfiguration();
+  });
+
   it.skipIf(!process.env.OPENMINION_PYPI_EXECUTABLE)(
     "uses the published CLI and API for a durable conversation across daemon restart",
     async () => {

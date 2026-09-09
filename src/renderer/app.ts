@@ -1,4 +1,6 @@
 import { mountProfiles } from "./profiles.js";
+import { renderTasks } from "./tasks.js";
+import type { TaskAction } from "../shared/tasks.js";
 import type {
   ApprovalDecision,
   ApprovalDecisionV1,
@@ -65,6 +67,7 @@ export const DESKTOP_COMMANDS = [
   { name: "/help", description: "Show commands currently connected in Desktop" },
   { name: "/new", description: "Start a new session" },
   { name: "/sessions", description: "Pick a session" },
+  { name: "/tasks", description: "Inspect and control OpenMinion work" },
   { name: "/status", description: "Show connection, task, agent, and model" },
   { name: "/model", description: "Show reported model (selection not connected yet)" },
   { name: "/copy", description: "Copy the latest reply" },
@@ -1265,12 +1268,55 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.commandMenu.children[commandIndex]?.scrollIntoView({ block: "nearest" });
   };
 
+  let commandResultGeneration = 0;
   const showCommandResult = (title: string, text: string) => {
+    commandResultGeneration += 1;
     elements.commandTitle.textContent = title;
     const paragraph = root.createElement("p");
     paragraph.textContent = text;
     elements.commandResult.replaceChildren(paragraph);
     elements.commandPanel.showPopover();
+  };
+
+  const runTasks = async (action: TaskAction, taskId?: string) => {
+    if (!selected || !daemonReady || !api.tasks) {
+      showCommandResult("OpenMinion work", "Connect OpenMinion and choose a conversation first.");
+      return;
+    }
+    if (chat.active && !["list", "show"].includes(action)) {
+      showCommandResult("Turn in progress", "Finish or stop this turn before changing work.");
+      return;
+    }
+    const sessionId = selected.sessionId;
+    showCommandResult(
+      "OpenMinion work",
+      action === "list" || action === "show" ? "Loading work…" : "Applying change…",
+    );
+    const request = commandResultGeneration;
+    const result = await api.tasks.control({ sessionId, action, taskId });
+    if (request !== commandResultGeneration || selected?.sessionId !== sessionId) return;
+    // A dismissed result stays dismissed; completion must not reopen it over the chat.
+    if (!elements.commandPanel.matches(":popover-open")) return;
+    if (!result.ok) {
+      showCommandResult("OpenMinion work", result.error.message);
+      return;
+    }
+    showCommandResult(
+      "OpenMinion work",
+      [
+        result.value.tasks.length
+          ? "Work reported by OpenMinion for the current agent."
+          : "No work found.",
+        result.value.pendingActions
+          ? `${result.value.pendingActions} pending decisions. Resolve them in Focus/CLI; approval controls are not connected here yet.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+    renderTasks(root, elements.commandResult, result.value.tasks, chat.active, (nextAction, id) => {
+      if (selected?.sessionId === sessionId) void runTasks(nextAction, id);
+    });
   };
 
   const runCommand = async (text: string): Promise<boolean> => {
@@ -1281,6 +1327,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       "/": "/help",
       "/session": "/sessions",
       "/cls": "/clear",
+      "/task": "/tasks",
     };
     const command = aliases[name] ?? name;
     if (!DESKTOP_COMMANDS.some((item) => item.name === command)) {
@@ -1291,7 +1338,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       );
       return true;
     }
-    if (args.length && !(command === "/new" && args.join(" ") === "session")) {
+    if (
+      args.length &&
+      command !== "/tasks" &&
+      !(command === "/new" && args.join(" ") === "session")
+    ) {
       hideCommandMenu();
       showCommandResult(
         "Command arguments",
@@ -1304,6 +1355,22 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     hideCommandMenu();
     elements.composer.focus();
     switch (command) {
+      case "/tasks": {
+        if (!args.length) await runTasks("list");
+        else if (["pause", "resume", "cancel"].includes(args[0].toLowerCase()) && args.length === 2)
+          await runTasks(args[0].toLowerCase() as TaskAction, args[1]);
+        else if (
+          args.length === 1 &&
+          !["pause", "resume", "cancel"].includes(args[0].toLowerCase())
+        )
+          await runTasks("show", args[0]);
+        else
+          showCommandResult(
+            "Task command",
+            "Use /tasks, /tasks <task-id>, or /tasks pause|resume|cancel <task-id>.",
+          );
+        break;
+      }
       case "/help":
         showCommandResult(
           "Focus commands — partial integration",
@@ -1544,6 +1611,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     preserveGuidance = false,
   ) => {
     const refreshing = selected?.sessionId === session.sessionId;
+    if (!refreshing) elements.commandPanel.hidePopover();
     const terminalGuidance =
       preserveGuidance &&
       terminalTraceId !== null &&

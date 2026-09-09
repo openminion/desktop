@@ -195,6 +195,17 @@ const profileSettings = {
   credentials: [],
 };
 const api: NativeApi = {
+  tasks: {
+    control: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Task controls require the connected application.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
+  },
   profiles: {
     read: async () => ok(profileSettings),
     save: async (input) => {

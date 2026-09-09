@@ -32,7 +32,9 @@ sessions, credentials, policy decisions, artifacts, and durable execution
 truth. Do not create a second copy of those owners in Desktop.
 
 Desktop main may install a pinned OpenMinion package and invoke its ordinary
-public lifecycle, session, transcript, and turn commands through `CliClient`.
+public lifecycle, session, transcript, task control, and turn operations through `CliClient`.
+`src/renderer/tasks.ts` presents runtime task facts and the actions core reports;
+`src/shared/tasks.ts` describes the bounded task-control bridge.
 The managed executable, roots, config path, and
 credentials remain main-only facts.
 

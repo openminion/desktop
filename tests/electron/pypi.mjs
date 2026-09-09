@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -114,6 +114,85 @@ async function check() {
     assert.equal(before.ok, true);
     assert.equal(before.value.sessions.length, 1);
     const sessionId = before.value.sessions[0].sessionId;
+    const scheduled = await runCommand(
+      executable,
+      [
+        ...args,
+        "tools",
+        "run",
+        "task.schedule",
+        "--runtime-source",
+        "inproc",
+        "--session",
+        sessionId,
+        "--confirm",
+        "--json",
+        JSON.stringify({
+          instruction: "Isolated Desktop task-control acceptance fixture.",
+          name: "Desktop work controls",
+          schedule: { kind: "at", at: "2099-01-01T00:00:00Z" },
+        }),
+      ],
+      30_000,
+    );
+    assert.equal(scheduled.exitCode, 0, scheduled.stdout || scheduled.stderr);
+    const work = await evaluate(
+      `window.openminion.tasks.control({sessionId:${JSON.stringify(sessionId)},action:'list'})`,
+    );
+    assert.equal(work.ok, true, JSON.stringify(work));
+    assert.ok(work.value.tasks.length > 0, scheduled.stdout);
+    const taskId = work.value.tasks.find((task) => task.title === "Desktop work controls").id;
+    const workCommand = async (text, state) => {
+      await fill(text);
+      await key("Return");
+      await waitFor(
+        `document.querySelector('.runtime-task')?.textContent.includes(${JSON.stringify(state)})`,
+      );
+    };
+    await command("/tasks pause", "Task command");
+    await workCommand("/tasks", taskId);
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+    ]) {
+      window.setContentSize(width, height);
+      await waitFor(`window.innerWidth === ${width}`);
+      assert.equal(
+        await evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
+        true,
+      );
+      const artifactRoot = process.env.OPENMINION_E2E_ARTIFACTS;
+      if (artifactRoot) {
+        await mkdir(artifactRoot, { recursive: true });
+        await writeFile(
+          join(artifactRoot, `work-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+    }
+
+    await evaluate(
+      "Array.from(document.querySelectorAll('.runtime-task button')).find(button => button.textContent === 'Pause').click()",
+    );
+    await waitFor("document.querySelector('.runtime-task')?.textContent.includes('paused')");
+    await workCommand(`/task resume ${taskId}`, "active");
+    await workCommand(`/tasks cancel ${taskId}`, "cancelled");
+    const canonicalWork = await runCommand(
+      executable,
+      [...args, "tasks", "show", taskId, "--session", sessionId, "--json"],
+      30_000,
+    );
+    assert.equal(canonicalWork.exitCode, 0);
+    assert.equal(JSON.parse(canonicalWork.stdout).task.lifecycle_state, "cancelled");
+    await evaluate("document.querySelector('#command-panel').hidePopover()");
+    assert.equal(
+      (await evaluate(`window.openminion.sessions.load({sessionId:${JSON.stringify(sessionId)}})`))
+        .value.messages.length,
+      2,
+    );
+    console.log(
+      "PASS: public CLI creates work; Desktop lists, pauses, resumes and cancels; CLI confirms durable state without extra model turns.",
+    );
     await waitFor("document.querySelector('.message-profile') !== null");
     const savedReply = (
       await evaluate(`window.openminion.sessions.load({sessionId:${JSON.stringify(sessionId)}})`)
@@ -438,6 +517,15 @@ async function check() {
       `window.openminion.profiles.save(${JSON.stringify({ revision: "PLACEHOLDER", agentId: "openminion", model: "e2e-fixture", baseUrl: `http://127.0.0.1:${port}/v1`, makeDefault: true, credentials: {} }).replace("PLACEHOLDER", runningSettings.revision)})`,
     );
     assert.equal(busySave.error.code, "settings_busy");
+    const busyTaskChange = await evaluate(
+      `window.openminion.tasks.control({sessionId:${JSON.stringify(cancellationSession)},action:'pause',taskId:${JSON.stringify(taskId)}})`,
+    );
+    assert.equal(busyTaskChange.error.code, "session_turn_active");
+    const busyTaskRead = await evaluate(
+      `window.openminion.tasks.control({sessionId:${JSON.stringify(cancellationSession)},action:'list'})`,
+    );
+    assert.equal(busyTaskRead.ok, true);
+
     assert.equal(await evaluate("document.querySelector('#cancel').textContent.trim()"), "Stop");
     assert.equal(await evaluate("document.querySelector('#send').hidden"), true);
     await waitFor(

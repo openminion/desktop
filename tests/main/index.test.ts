@@ -201,6 +201,9 @@ beforeAll(async () => {
 describe("desktop main boundary", () => {
   it("registers only the fixed desktop IPC handlers", async () => {
     const client = {
+      controlTasks: vi
+        .fn()
+        .mockResolvedValue({ ok: true, value: { tasks: [], pendingActions: 0 } }),
       list: vi.fn(),
       create: vi.fn(),
       load: vi.fn(),
@@ -307,6 +310,7 @@ describe("desktop main boundary", () => {
     );
     expect(observation.connectTurnOwner).toHaveBeenCalledOnce();
     expect([...mocks.ipcHandlers.keys()]).toEqual([
+      IPC_CHANNELS.tasksControl,
       IPC_CHANNELS.copyText,
       IPC_CHANNELS.profilesRead,
       IPC_CHANNELS.profilesSave,
@@ -355,7 +359,13 @@ describe("desktop main boundary", () => {
       mainFrame,
     };
     const event = { senderFrame: mainFrame, sender };
+    await mocks.ipcHandlers.get(IPC_CHANNELS.tasksControl)!(event, {
+      sessionId: "session-1",
+      action: "list",
+    });
+    expect(client.controlTasks).toHaveBeenCalledWith({ sessionId: "session-1", action: "list" });
     for (const channel of [
+      IPC_CHANNELS.tasksControl,
       IPC_CHANNELS.profilesRead,
       IPC_CHANNELS.profilesSave,
       IPC_CHANNELS.profilesImport,

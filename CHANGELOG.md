@@ -7,6 +7,10 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Connected `/tasks` and `/task` to OpenMinion task inventory, inspection, pause,
+  resume, and cancellation through the public CLI. Controls follow core-reported
+  actions and preserve canonical agent/session scope; Desktop owns no task state.
+
 - Added Settings for importing Focus/CLI profile JSON, editing agent model
   settings, selecting the default agent, and replacing or removing saved API
   keys. Applying changes preserves conversations and restarts the local daemon.

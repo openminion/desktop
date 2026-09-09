@@ -42,7 +42,7 @@ await build({
   format: "esm",
   target: "chrome150",
 });
-rmSync(join(rendererOutput, "profiles.js"));
+for (const name of ["profiles", "tasks"]) rmSync(join(rendererOutput, `${name}.js`));
 
 mkdirSync(rendererOutput, { recursive: true });
 for (const asset of ["capture-worker.html", "index.html", "styles.css"]) {

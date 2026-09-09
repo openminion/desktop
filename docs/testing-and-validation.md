@@ -82,6 +82,8 @@ The Electron test drives production main, preload, and renderer and covers:
 
 - first send from an empty workspace, whitespace rejection, and real keyboard input;
 - help and unsupported slash commands without creating a model turn;
+- canonical task creation through the public CLI, Desktop task inventory, pause,
+  resume and cancellation, and independent CLI verification of durable state;
 - two conversations, task-local unsent drafts, and visible clearing without deleting history;
 - populated layout at 760 × 560, 1180 × 800, and 1800 × 1000;
 - daemon outage detection through connection details, reconnect with the draft intact,

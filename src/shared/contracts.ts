@@ -1,4 +1,5 @@
 import type { ProfileSaveInput, ProfileSettings } from "./profiles.js";
+import type { TaskControlInput, TaskControlValue } from "./tasks.js";
 export type DesktopClientReady = {
   schema_version: 1;
   event: "desktop.client.ready";
@@ -603,6 +604,9 @@ export type CaptureEventV1 =
   | CaptureFrameV1;
 
 export type NativeApi = {
+  tasks: {
+    control(input: TaskControlInput): Promise<ClientResult<TaskControlValue>>;
+  };
   profiles: {
     read(): Promise<ClientResult<ProfileSettings>>;
     save(
@@ -695,6 +699,7 @@ export const DESKTOP_CAPABILITIES = [
   "tool_outputs.read.v1",
 ] as const;
 export const IPC_CHANNELS = {
+  tasksControl: "openminion:tasks:control",
   profilesRead: "openminion:profiles:read",
   profilesSave: "openminion:profiles:save",
   profilesImport: "openminion:profiles:import",

@@ -27,6 +27,7 @@ describe("preload surface", () => {
     const [name, api] = exposeInMainWorld.mock.calls[0];
     expect(name).toBe("openminion");
     expect(Object.keys(api)).toEqual([
+      "tasks",
       "profiles",
       "app",
       "daemon",
@@ -39,6 +40,13 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
+    expect(Object.keys(api.tasks)).toEqual(["control"]);
+    await api.tasks.control({ sessionId: "session-1", action: "list" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.tasksControl, {
+      sessionId: "session-1",
+      action: "list",
+    });
+    invoke.mockClear();
     expect(Object.keys(api.profiles)).toEqual(["read", "save", "import"]);
     expect(Object.keys(api.app)).toEqual(["copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["status", "retry"]);

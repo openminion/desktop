@@ -40,7 +40,7 @@ media, and artifacts still require Desktop integration.
 | Surface | Current Desktop gap | Required outcome |
 | --- | --- | --- |
 | Catalog and help | A small static renderer list | Discover canonical names, aliases, usage, availability, and descriptions through fixed public OpenMinion operations |
-| Arguments and busy state | Desktop rejects arguments and applies local button rules | Use the same parser and command admission as Focus, including bare queries during a turn |
+| Arguments and busy state | `/tasks` supports inspection and pause/resume/cancel arguments; other commands mostly reject arguments and use local button rules | Use the same parser and command admission as Focus, including bare queries during a turn |
 | `/new`, `/sessions` | Saved-task creation and selection exist; Focus directory scope is not established | Preserve working directory, selected agent, session scope, and canonical creation/binding defaults |
 | `/resume` | Not connected; the incorrect `/sessions` alias was removed | Present prior sessions with messages in the current directory, then bind and load history |
 | `/model` | Reports session metadata only | Present configured choices and perform canonical model selection; return effective settings |
@@ -86,6 +86,25 @@ All canonical command families need coverage:
 | `/init`, `/browser`, `/undo`, `/diff`, `/review` | Existing workspace/browser operations with policy and audit boundaries |
 | `/clear`, `/cls`, `/copy`, `/quiet`, `/normal`, `/verbose`, `/details`, `/expand` | Canonical transcript content and presentation semantics |
 | `/status`, `/theme`, `/statusline`, `/export`, `/editor`, `/exit`, `/quit` | Status, presentation preferences, supported guidance, and exit intent |
+
+## Connected Task Controls
+
+On pinned PyPI 0.0.18, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
+CLI calls. Main derives agent scope from the selected canonical session and passes
+its session ID. Focus's task report and these CLI commands share OpenMinion's task
+surface; Desktop does not copy lifecycle transitions, task ownership, or scheduler
+logic. The CLI retains its default inventory limit of 50. GUI buttons come from
+returned `valid_actions`; core validates them again on execution.
+
+The renderer receives only task presentation fields and a pending-decision count.
+Task changes are fenced against active Desktop turns and Settings updates. Reads
+remain available during a turn. Pending decisions, task creation forms, and richer
+run-history inspection still need integration. Tasks can already be created through
+ordinary OpenMinion chat or CLI operations and then controlled here.
+
+The current source tree includes `/close`, but the pinned PyPI Focus catalog does
+not. Desktop retains its existing GUI Close operation without adding that slash
+command prematurely. Broader catalog discovery remains a gap.
 
 ## Acceptance
 

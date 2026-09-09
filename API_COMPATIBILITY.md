@@ -51,6 +51,15 @@ restoring Desktop-only code in the OpenMinion package. The legacy typed HTTP
 client remains for its existing tests and shared validation; the live supervisor
 uses `CliClient` exclusively.
 
+## Task Controls
+
+Main invokes only `tasks list/show/pause/resume/cancel --json`, with the selected
+session and its canonical agent. The bridge accepts a fixed action and IDs, never
+an executable, path, flags, or arbitrary command text. Only task presentation
+fields and pending-decision counts cross back to the renderer. OpenMinion's task
+surface remains responsible for scope, valid actions, scheduler effects, and
+persistence. Desktop does not write task records or implement lifecycle rules.
+
 ## Profile Configuration
 
 Desktop main edits its existing OpenMinion JSON config through a bounded Settings

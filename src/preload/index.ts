@@ -13,6 +13,9 @@ let activeObservationListener: ((_event: unknown, payload: unknown) => void) | n
 const textEncoder = new TextEncoder();
 
 const api: NativeApi = {
+  tasks: {
+    control: (input) => ipcRenderer.invoke(IPC_CHANNELS.tasksControl, input),
+  },
   profiles: {
     read: () => ipcRenderer.invoke(IPC_CHANNELS.profilesRead),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesSave, input),
