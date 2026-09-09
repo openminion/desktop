@@ -131,6 +131,25 @@ describe("PyPI CLI client", () => {
     });
   });
 
+  it("fences new submissions while settings are being applied", async () => {
+    const run = vi.fn();
+    const client = new CliClient(() => ({ executable: "/managed/openminion", args: [] }), run);
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    expect(client.beginConfiguration()).toBe(true);
+    expect(client.beginConfiguration()).toBe(false);
+    expect(
+      await client.submit(
+        { sessionId: created.value.sessionId, message: "Wait for settings" },
+        vi.fn(),
+      ),
+    ).toMatchObject({ ok: false, error: { code: "settings_busy" } });
+    expect(run).not.toHaveBeenCalled();
+    client.endConfiguration();
+    expect(client.beginConfiguration()).toBe(true);
+    client.endConfiguration();
+  });
+
   it("maps canonical session history and events without exposing metadata secrets", async () => {
     const run = vi.fn(async (_executable: string, args: readonly string[]) => {
       const command = args.slice(2).join(" ");

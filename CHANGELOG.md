@@ -7,6 +7,11 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Added Settings for importing Focus/CLI profile JSON, editing agent model
+  settings, selecting the default agent, and replacing or removing saved API
+  keys. Applying changes preserves conversations and restarts the local daemon.
+  Stored keys remain private and running Desktop chats block changes.
+
 - Changed chat input to send with Enter and insert a new line with Shift+Enter.
 
 - Refreshed daemon status when opening connection details so a stopped runtime

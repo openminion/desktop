@@ -1,3 +1,4 @@
+import { mountProfiles } from "./profiles.js";
 import type {
   ApprovalDecision,
   ApprovalDecisionV1,
@@ -1690,6 +1691,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.connectionLabel.textContent = view.label;
     renderChat();
   };
+
+  mountProfiles(api, root, renderStatus);
 
   const refresh = async (): Promise<void> => {
     let status = await api.daemon.status();

@@ -27,6 +27,7 @@ describe("preload surface", () => {
     const [name, api] = exposeInMainWorld.mock.calls[0];
     expect(name).toBe("openminion");
     expect(Object.keys(api)).toEqual([
+      "profiles",
       "app",
       "daemon",
       "sessions",
@@ -38,6 +39,7 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
+    expect(Object.keys(api.profiles)).toEqual(["read", "save", "import"]);
     expect(Object.keys(api.app)).toEqual(["copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["status", "retry"]);
     expect(Object.keys(api.sessions)).toEqual(["list", "create", "load", "close", "events"]);
@@ -60,6 +62,13 @@ describe("preload surface", () => {
     expect(api).not.toHaveProperty("send");
     expect(api).not.toHaveProperty("invoke");
 
+    await api.profiles.read();
+    await api.profiles.save({ agentId: "writer" });
+    await api.profiles.import({ revision: "a".repeat(64) });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesRead);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSave, { agentId: "writer" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesImport, { revision: "a".repeat(64) });
+    invoke.mockClear();
     invoke.mockResolvedValue({ state: "ready" });
     await api.app.copyText("Local reply");
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.copyText, "Local reply");

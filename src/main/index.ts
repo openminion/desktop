@@ -1,8 +1,10 @@
+import { failure } from "./openminion-client.js";
 import {
   app,
   BrowserWindow,
   clipboard,
   desktopCapturer,
+  dialog,
   ipcMain,
   powerMonitor,
   screen,
@@ -203,6 +205,38 @@ export function registerIpcHandlers(
     }
     clipboard.writeText(text);
     return { ok: true, value: null };
+  });
+  ipcMain.handle(IPC_CHANNELS.profilesRead, (event) =>
+    isAppInvocation(event) ? supervisor.readProfiles() : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.profilesSave, (event, input: unknown) =>
+    isAppInvocation(event)
+      ? supervisor.applyProfiles((profiles, executable) => profiles.save(input, executable))
+      : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.profilesImport, async (event, input: unknown) => {
+    if (!isAppInvocation(event)) return forbiddenResult();
+    if (
+      !input ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      Object.keys(input).length !== 1 ||
+      !("revision" in input) ||
+      typeof input.revision !== "string" ||
+      !/^[a-f0-9]{64}$/.test(input.revision)
+    )
+      return failure("invalid_request", "Reopen Settings before importing profiles.");
+    const revision = input.revision;
+    const selected = await dialog.showOpenDialog({
+      title: "Import OpenMinion profiles and runtime keys",
+      buttonLabel: "Import profiles",
+      filters: [{ name: "OpenMinion JSON profiles", extensions: ["json"] }],
+      properties: ["openFile"],
+    });
+    if (selected.canceled) return { ok: true, value: null };
+    return supervisor.applyProfiles((profiles, executable) =>
+      profiles.importFile(selected.filePaths[0], revision, executable),
+    );
   });
   ipcMain.handle(IPC_CHANNELS.daemonStatus, () => supervisor.status());
   ipcMain.handle(IPC_CHANNELS.daemonRetry, () => supervisor.retry());

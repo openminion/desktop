@@ -308,6 +308,9 @@ describe("desktop main boundary", () => {
     expect(observation.connectTurnOwner).toHaveBeenCalledOnce();
     expect([...mocks.ipcHandlers.keys()]).toEqual([
       IPC_CHANNELS.copyText,
+      IPC_CHANNELS.profilesRead,
+      IPC_CHANNELS.profilesSave,
+      IPC_CHANNELS.profilesImport,
       IPC_CHANNELS.daemonStatus,
       IPC_CHANNELS.daemonRetry,
       IPC_CHANNELS.sessionsList,
@@ -352,6 +355,21 @@ describe("desktop main boundary", () => {
       mainFrame,
     };
     const event = { senderFrame: mainFrame, sender };
+    for (const channel of [
+      IPC_CHANNELS.profilesRead,
+      IPC_CHANNELS.profilesSave,
+      IPC_CHANNELS.profilesImport,
+    ]) {
+      expect(
+        await mocks.ipcHandlers.get(channel)!(
+          { senderFrame: { url: "https://example.com" }, sender },
+          {},
+        ),
+      ).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    }
+    expect(
+      await mocks.ipcHandlers.get(IPC_CHANNELS.profilesImport)!(event, { path: "/arbitrary" }),
+    ).toMatchObject({ ok: false, error: { code: "invalid_request" } });
     const copyText = mocks.ipcHandlers.get(IPC_CHANNELS.copyText)!;
     const { clipboard } = await import("electron");
     expect(copyText(event, { text: "Wrong shape" })).toMatchObject({ ok: false });

@@ -1,3 +1,7 @@
+import { Profiles } from "./profiles.js";
+import { failure, failureFrom } from "./openminion-client.js";
+import type { ClientResult } from "../shared/contracts.js";
+import type { ProfileSettings } from "../shared/profiles.js";
 import type { DaemonStatus } from "../shared/contracts.js";
 import { randomBytes } from "node:crypto";
 import { access, chmod, readFile, writeFile } from "node:fs/promises";
@@ -28,6 +32,7 @@ export type OpenMinionCommandContext = {
 };
 
 export class DaemonSupervisor {
+  readonly profiles: Profiles | null;
   readonly lifecycle = new LifecycleState();
   readonly client = new CliClient(() => this.getCommandContext());
   readonly #options: DaemonSupervisorOptions;
@@ -44,6 +49,47 @@ export class DaemonSupervisor {
     this.#options = options;
     this.#runCommand = options.runCommand ?? runCommand;
     this.#installation = new OpenMinionInstallation(options);
+    this.profiles =
+      options.configPath && options.homeRoot && options.dataRoot
+        ? new Profiles(options.configPath, options.homeRoot, options.dataRoot, this.#runCommand)
+        : null;
+  }
+
+  async readProfiles(): Promise<ClientResult<ProfileSettings>> {
+    if (!this.profiles) return failure("settings_unavailable", "Profile settings are unavailable.");
+    try {
+      return { ok: true, value: await this.profiles.read() };
+    } catch {
+      return failure(
+        "settings_unavailable",
+        "Could not load profiles. Connect to OpenMinion, then reopen Settings.",
+      );
+    }
+  }
+
+  async applyProfiles(
+    save: (profiles: Profiles, executable: string) => Promise<ProfileSettings>,
+  ): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus }>> {
+    if (!this.profiles || !this.#executable)
+      return failure("settings_unavailable", "Connect to OpenMinion before editing profiles.");
+    if (this.#startPromise || !this.client.beginConfiguration())
+      return failure("settings_busy", "Wait for running chats to finish before applying settings.");
+    try {
+      const settings = await save(this.profiles, this.#executable);
+      const needsStop = this.#daemonStarted;
+      const stopped = await this.stop();
+      if (needsStop && !stopped.stopped)
+        return failure(
+          "settings_restart_failed",
+          "Settings were saved, but OpenMinion could not stop. Restart Desktop to apply them.",
+        );
+      const daemon = await this.start();
+      return { ok: true, value: { settings, daemon } };
+    } catch (error) {
+      return failureFrom(error);
+    } finally {
+      this.client.endConfiguration();
+    }
   }
 
   get startAttempts(): number {
@@ -85,6 +131,11 @@ export class DaemonSupervisor {
     if (this.#daemonStarted && this.#executable) {
       const result = await this.#runOpenMinion(["daemon", "stop"]);
       stopped = result.exitCode === 0;
+      if (!stopped) {
+        this.#errorCode = "daemon_stop_failed";
+        this.lifecycle.move("degraded");
+        return { stopped: false };
+      }
     }
     this.#daemonStarted = false;
     this.#errorCode = null;
@@ -123,6 +174,7 @@ export class DaemonSupervisor {
 
       const current = await this.#daemonStatus();
       if (!current.reachable) {
+        this.#daemonStarted = true;
         const started = await this.#runOpenMinion(["daemon", "start"]);
         if (started.exitCode !== 0) throw new Error("daemon_start_failed");
       }

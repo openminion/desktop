@@ -13,6 +13,11 @@ let activeObservationListener: ((_event: unknown, payload: unknown) => void) | n
 const textEncoder = new TextEncoder();
 
 const api: NativeApi = {
+  profiles: {
+    read: () => ipcRenderer.invoke(IPC_CHANNELS.profilesRead),
+    save: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesSave, input),
+    import: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesImport, input),
+  },
   app: {
     copyText(text) {
       return ipcRenderer.invoke(IPC_CHANNELS.copyText, text);

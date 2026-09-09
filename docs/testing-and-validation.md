@@ -86,6 +86,8 @@ The Electron test drives production main, preload, and renderer and covers:
 - populated layout at 760 × 560, 1180 × 800, and 1800 × 1000;
 - daemon outage detection through connection details, reconnect with the draft intact,
   renderer reload, restored history, and closed-session send rejection;
+- profile JSON import, model-key editing, private credential readback, responsive
+  Settings, restart with preserved conversations, and rejection during active chat;
 - cancellation requests while the real daemon is waiting on a local controlled provider,
   provider rejection, and a successful subsequent request.
 

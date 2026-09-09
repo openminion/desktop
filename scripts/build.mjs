@@ -33,6 +33,17 @@ for (const name of ["index", "capture"]) {
   rmSync(join(outputRoot, `src/preload/${name}.js`));
 }
 
+await build({
+  entryPoints: ["src/renderer/app.ts"],
+  absWorkingDir: repositoryRoot,
+  outfile: join(rendererOutput, "app.js"),
+  bundle: true,
+  platform: "browser",
+  format: "esm",
+  target: "chrome150",
+});
+rmSync(join(rendererOutput, "profiles.js"));
+
 mkdirSync(rendererOutput, { recursive: true });
 for (const asset of ["capture-worker.html", "index.html", "styles.css"]) {
   copyFileSync(join(repositoryRoot, "src/renderer", asset), join(rendererOutput, asset));

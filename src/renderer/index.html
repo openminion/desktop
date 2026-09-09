@@ -11,6 +11,41 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <dialog id="profile-dialog" class="settings-dialog" aria-labelledby="settings-title">
+      <div class="settings-heading">
+        <div><p class="eyebrow">Settings</p><h2 id="settings-title">Agent profiles</h2></div>
+        <button id="close-settings" type="button" class="icon-only-button" aria-label="Close settings">×</button>
+      </div>
+      <p class="settings-note">Use the same profiles as Focus and CLI. Finish running chats before applying changes; OpenMinion will restart.</p>
+      <form id="profile-form">
+        <fieldset id="profile-fields" disabled>
+          <legend class="sr-only">Profile settings</legend>
+          <label for="profile-agent">Agent</label>
+          <select id="profile-agent"></select>
+          <p id="profile-provider" class="settings-note"></p>
+          <div class="settings-grid">
+            <div><label for="profile-model">Model</label><input id="profile-model" maxlength="2048" /></div>
+            <div><label for="profile-endpoint">Provider URL</label><input id="profile-endpoint" type="url" maxlength="2048" spellcheck="false" /></div>
+          </div>
+          <label for="profile-key">Model API key</label>
+          <input id="profile-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
+          <label class="settings-checkbox"><input id="profile-key-remove" type="checkbox" />Remove saved model key for this agent</label>
+          <label class="settings-checkbox"><input id="profile-default" type="checkbox" />Use this agent for new tasks</label>
+          <details class="settings-tools">
+            <summary>Search and web tool keys</summary>
+            <p class="settings-note">Shared across agents. A model key does not include search access. “Set” means saved, not verified with the provider.</p>
+            <div id="profile-tools" class="settings-grid"></div>
+          </details>
+        </fieldset>
+        <p id="profile-status" class="settings-note" role="status" aria-live="polite"></p>
+        <div class="settings-actions">
+          <button id="profile-import" class="quiet-button" type="button" disabled>Import profiles…</button>
+          <button id="profile-save" type="submit" disabled>Save and apply</button>
+        </div>
+      </form>
+      <p class="settings-note">Import adds profiles, replaces matching agent IDs, and merges runtime keys. Desktop’s connection and conversation storage stay in place. JSON files only.</p>
+      <p class="settings-note">Keys are saved in your private local OpenMinion configuration. Leave a key blank to keep it. Close discards unsaved edits.</p>
+    </dialog>
     <main class="shell">
       <section id="workspace" class="workspace" aria-label="OpenMinion workspace">
         <aside class="sessions-panel">
@@ -34,6 +69,7 @@
           <nav id="session-list" class="session-list" aria-label="Sessions">
             <p class="empty-note">Your tasks will appear here.</p>
           </nav>
+          <button id="show-settings" class="quiet-button settings-button" type="button">Settings</button>
           <details id="connection-details" class="runtime-summary">
             <summary>
               <span class="connection-pill" aria-live="polite">

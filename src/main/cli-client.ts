@@ -56,6 +56,18 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
     this.#run = run;
   }
 
+  #configuring = false;
+
+  beginConfiguration(): boolean {
+    if (this.#configuring || this.#active.size > 0) return false;
+    this.#configuring = true;
+    return true;
+  }
+
+  endConfiguration(): void {
+    this.#configuring = false;
+  }
+
   list(input: SessionListInput): Promise<ClientResult<SessionListValue>> {
     return this.#control(async () => {
       const value = validateListInput(input);
@@ -233,6 +245,11 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
       const value = validateSubmitInput(input);
       if (value.attachmentIds?.length || value.observation)
         return unsupported("Sending attachments and screenshots");
+      if (this.#configuring)
+        return failure(
+          "settings_busy",
+          "Settings are being applied. Try sending again in a moment.",
+        );
       if (this.#active.has(value.sessionId))
         return failure("session_turn_active", "A turn is already active for this session.");
       const loaded = await this.load({ sessionId: value.sessionId, messageLimit: 1 });
@@ -241,6 +258,11 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
         return failure("session_closed", "The selected session is closed.");
       // Reserve before endpoint discovery so a second send cannot race admission.
       this.#requireContext();
+      if (this.#configuring)
+        return failure(
+          "settings_busy",
+          "Settings are being applied. Try sending again in a moment.",
+        );
       if (this.#active.has(value.sessionId))
         return failure("session_turn_active", "A turn is already active for this session.");
       const pending: ActiveTurn = { identity: null };

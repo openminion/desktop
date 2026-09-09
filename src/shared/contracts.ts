@@ -1,3 +1,4 @@
+import type { ProfileSaveInput, ProfileSettings } from "./profiles.js";
 export type DesktopClientReady = {
   schema_version: 1;
   event: "desktop.client.ready";
@@ -602,6 +603,15 @@ export type CaptureEventV1 =
   | CaptureFrameV1;
 
 export type NativeApi = {
+  profiles: {
+    read(): Promise<ClientResult<ProfileSettings>>;
+    save(
+      input: ProfileSaveInput,
+    ): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus }>>;
+    import(input: {
+      revision: string;
+    }): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus } | null>>;
+  };
   app: {
     info(): Promise<AppInfo>;
     copyText(text: string): Promise<ClientResult<null>>;
@@ -685,6 +695,9 @@ export const DESKTOP_CAPABILITIES = [
   "tool_outputs.read.v1",
 ] as const;
 export const IPC_CHANNELS = {
+  profilesRead: "openminion:profiles:read",
+  profilesSave: "openminion:profiles:save",
+  profilesImport: "openminion:profiles:import",
   copyText: "openminion:copy-text",
   daemonStatus: "openminion:daemon-status",
   daemonRetry: "openminion:daemon-retry",

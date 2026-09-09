@@ -3,7 +3,7 @@ import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { app } from "electron";
+import { app, dialog } from "electron";
 import { runCommand } from "../../dist/src/main/installation.js";
 
 const executable = process.env.OPENMINION_PYPI_EXECUTABLE;
@@ -59,7 +59,7 @@ async function check() {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       throw new Error(
-        `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent")}`,
+        `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent + ' / ' + document.querySelector('#profile-status').textContent")}`,
       );
     };
     const fill = async (text) =>
@@ -270,6 +270,8 @@ async function check() {
     let providerMode = "hold";
     let providerCalls = 0;
     let rejectedRequests = 0;
+    const providerAuthorizations = [];
+    const providerModels = [];
     provider = createServer((req, res) => {
       let input = "";
       req.on("data", (chunk) => {
@@ -277,7 +279,9 @@ async function check() {
       });
       req.on("end", () => {
         providerCalls += 1;
+        providerAuthorizations.push(req.headers.authorization);
         const body = JSON.parse(input);
+        providerModels.push(body.model);
         const reply = () => {
           if (providerMode === "error") {
             rejectedRequests += 1;
@@ -323,22 +327,89 @@ async function check() {
     });
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
     const port = provider.address().port;
-    assert.equal((await runCommand(executable, [...args, "daemon", "stop"], 30_000)).exitCode, 0);
     const configPath = join(root, "agents.json");
-    const config = JSON.parse(await readFile(configPath, "utf8"));
-    config.agents.openminion.provider = "openai";
-    for (const settings of [config.providers, config.system.providers]) {
-      settings.openai = {
-        ...settings.openai,
-        base_url: `http://127.0.0.1:${port}/v1`,
-        model: "e2e-fixture",
-        api_key: "e2e-key",
-        api_key_env: "OPENMINION_E2E_PROVIDER_KEY",
-        timeout_seconds: 30,
-      };
+    const configBeforeProfiles = JSON.parse(await readFile(configPath, "utf8"));
+    const importPath = join(root, "test-profile.json");
+    await writeFile(
+      importPath,
+      JSON.stringify({
+        agents: { openminion: { name: "openminion", provider: "openai" } },
+        default_agent: "openminion",
+        providers: {
+          openai: {
+            base_url: `http://127.0.0.1:${port}/v1`,
+            model: "e2e-fixture",
+            api_key: "",
+            api_key_env: "E2E_API_KEY",
+            timeout_seconds: 30,
+          },
+        },
+        runtime: {
+          env: { E2E_API_KEY: "e2e-import-key", TAVILY_API_KEY: "e2e-search-key" },
+        },
+      }),
+      { mode: 0o600 },
+    );
+    await evaluate("document.querySelector('#show-settings').click()");
+    await waitFor("!document.querySelector('#profile-import').disabled");
+    const nativePicker = dialog.showOpenDialog;
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [importPath] });
+    await evaluate("document.querySelector('#profile-import').click()");
+    await waitFor(
+      "document.querySelector('#profile-status').textContent.startsWith('Saved and applied')",
+    );
+    dialog.showOpenDialog = nativePicker;
+    assert.equal(await evaluate("document.querySelector('#profile-key').value"), "");
+    assert.match(await evaluate("document.querySelector('#profile-key').placeholder"), /^Set/);
+    assert.equal(await evaluate("document.querySelector('#profile-model').value"), "e2e-fixture");
+    const safeProfiles = await evaluate("window.openminion.profiles.read()");
+    assert.equal(safeProfiles.ok, true);
+    assert.ok(!JSON.stringify(safeProfiles).includes("e2e-import-key"));
+    assert.ok(!JSON.stringify(safeProfiles).includes("e2e-search-key"));
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+      [1800, 1000],
+    ]) {
+      window.setContentSize(width, height);
+      await evaluate("new Promise(resolve => requestAnimationFrame(resolve))");
+      const bounds = await evaluate(`(() => {
+        document.querySelector('.settings-tools').open = true;
+        const dialog = document.querySelector('#profile-dialog');
+        const save = document.querySelector('#profile-save');
+        save.scrollIntoView({block:'nearest'});
+        const rect = dialog.getBoundingClientRect();
+        return { fits: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
+          overflow: dialog.scrollWidth > dialog.clientWidth, reachable: save.getBoundingClientRect().bottom <= innerHeight };
+      })()`);
+      assert.deepEqual(bounds, { fits: true, overflow: false, reachable: true });
     }
-    await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
-    assert.equal((await runCommand(executable, [...args, "daemon", "start"], 30_000)).exitCode, 0);
+    window.setContentSize(1180, 800);
+    await evaluate(`document.querySelector('#profile-model').value = 'e2e-edited';
+      document.querySelector('#profile-key').value = 'e2e-edited-key';
+      document.querySelector('#profile-save').click()`);
+    await waitFor(
+      "document.querySelector('#profile-status').textContent.startsWith('Saved and applied') && !document.querySelector('#profile-save').disabled",
+    );
+    assert.equal(await evaluate("document.querySelector('#profile-key').value"), "");
+    const configAfterProfiles = JSON.parse(await readFile(configPath, "utf8"));
+    assert.equal(configAfterProfiles.runtime.ipc_token, configBeforeProfiles.runtime.ipc_token);
+    assert.equal(configAfterProfiles.runtime.ipc_port, configBeforeProfiles.runtime.ipc_port);
+    assert.deepEqual(configAfterProfiles.storage, configBeforeProfiles.storage);
+    assert.equal(configAfterProfiles.runtime.env.TAVILY_API_KEY, "e2e-search-key");
+    assert.equal(
+      configAfterProfiles.agents.openminion.provider_config_overrides.api_key,
+      "e2e-edited-key",
+    );
+    await evaluate("document.querySelector('#close-settings').click()");
+    assert.ok(
+      (await evaluate("window.openminion.sessions.list({})")).value.sessions.some(
+        (item) => item.sessionId === sessionId,
+      ),
+    );
+    console.log(
+      "PASS: profile import, edit, key privacy, restart, preserved conversations, and responsive Settings.",
+    );
     await evaluate("document.querySelector('#new-session').click()");
     await waitFor(
       "document.querySelector('#chat-status').textContent.includes('Send a message to start')",
@@ -360,6 +431,13 @@ async function check() {
       providerCalls > 0,
       "The real daemon must reach the local provider before cancellation",
     );
+    assert.equal(providerAuthorizations[0], "Bearer e2e-edited-key");
+    assert.equal(providerModels[0], "e2e-edited");
+    const runningSettings = (await evaluate("window.openminion.profiles.read()")).value;
+    const busySave = await evaluate(
+      `window.openminion.profiles.save(${JSON.stringify({ revision: "PLACEHOLDER", agentId: "openminion", model: "e2e-fixture", baseUrl: `http://127.0.0.1:${port}/v1`, makeDefault: true, credentials: {} }).replace("PLACEHOLDER", runningSettings.revision)})`,
+    );
+    assert.equal(busySave.error.code, "settings_busy");
     assert.equal(await evaluate("document.querySelector('#cancel').textContent.trim()"), "Stop");
     assert.equal(await evaluate("document.querySelector('#send').hidden"), true);
     await waitFor(

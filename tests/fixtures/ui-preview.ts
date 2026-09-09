@@ -179,7 +179,34 @@ function finish(body: string, outcome: "complete" | "cancelled" = "complete") {
   }
   turnListener({ schemaVersion: 1, kind: "done", sessionId: input.sessionId, traceId, outcome });
 }
+const profileSettings = {
+  revision: "a".repeat(64),
+  defaultAgent: "sample",
+  agents: [
+    {
+      id: "sample",
+      name: "Sample agent",
+      provider: "openai",
+      model: "Sample model",
+      baseUrl: "https://example.com/v1",
+      keyConfigured: true,
+    },
+  ],
+  credentials: [],
+};
 const api: NativeApi = {
+  profiles: {
+    read: async () => ok(profileSettings),
+    save: async (input) => {
+      Object.assign(profileSettings.agents[0], {
+        model: input.model,
+        baseUrl: input.baseUrl,
+        keyConfigured: input.apiKey !== null,
+      });
+      return ok({ settings: profileSettings, daemon: await api.daemon.status() });
+    },
+    import: async () => ok(null),
+  },
   app: {
     copyText: async () => ({
       ok: false,

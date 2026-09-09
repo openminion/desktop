@@ -106,6 +106,30 @@ describe("DaemonSupervisor", () => {
     await supervisor.stop();
   });
 
+  it("can stop an unhealthy startup and keeps a failed stop visible", async () => {
+    const root = await temporaryRoot();
+    const executable = await fakeExecutable(root);
+    let stopFailed = true;
+    const runCommand = vi.fn<RunCommand>(async (_command, args) => {
+      if (args.length === 1) return result(0, "0.0.18");
+      if (args.at(-1) === "--json") return result(1, JSON.stringify({ reachable: false }));
+      if (args.at(-1) === "stop") return result(stopFailed ? 1 : 0);
+      return result(1);
+    });
+    const supervisor = new DaemonSupervisor({ openminionExecutable: executable, runCommand });
+    expect(await supervisor.start()).toMatchObject({
+      state: "degraded",
+      errorCode: "daemon_start_failed",
+    });
+    expect(await supervisor.stop()).toEqual({ stopped: false });
+    expect(supervisor.snapshot()).toMatchObject({
+      state: "degraded",
+      errorCode: "daemon_stop_failed",
+    });
+    stopFailed = false;
+    expect(await supervisor.stop()).toEqual({ stopped: true });
+  });
+
   it("reports bounded installation and daemon status failures", async () => {
     const root = await temporaryRoot();
     const missing = new DaemonSupervisor({

@@ -66,9 +66,50 @@ start/status/stop` commands. No Desktop-specific OpenMinion command is required.
 The real app supports text messages, saved history, task closing, and turn
 cancellation through the ordinary CLI/API. New installations use the **echo demo
 provider**, which repeats input without calling a model. Configure a real provider
-through OpenMinion's existing configuration workflow; Desktop does not add a
-provider or credential owner. Use `npm run preview` for sample approval, file,
+in **Settings → Agent profiles**, using your existing OpenMinion profile JSON. Use `npm run preview` for sample approval, file,
 artifact, and screen-context interactions that are not connected to PyPI yet.
+
+## Agent Profiles and Keys
+
+Click **Settings** above the connection indicator in the sidebar.
+
+1. Use **Import profiles…** to choose an existing Focus/CLI profile JSON file.
+   Import adds agents and replaces matching agent IDs. It keeps Desktop's
+   connection, storage, and other profiles in place.
+2. Choose an agent to edit its model, provider URL, or model API
+   key. The provider adapter comes from the imported profile; MiniMax uses the
+   OpenAI-compatible adapter with the MiniMax endpoint.
+3. Choose **Use this agent for new tasks** to change the default. Existing
+   conversations retain their agent.
+4. Expand **Search and web tool keys** to set Brave, SerpAPI, Serper, Tavily,
+   Firecrawl, or TinyFish credentials. These keys are shared across agents and
+   are separate from the model credential.
+5. Finish running Desktop chats, then click **Save and apply**. Desktop checks
+   the config using the installed OpenMinion CLI and restarts the daemon. If
+   reconnection fails, the app reports that settings were saved but not applied.
+
+Stored keys are never returned to the form. **Set** means a key is present,
+not that the provider has accepted it or has available quota. Leave a key blank
+to keep it, enter a replacement, or select **Remove saved key**. Changes to the
+model key apply to the selected agent. Keys supplied externally by the launch
+environment must be removed there.
+
+Import uses the existing OpenMinion JSON shape. It imports agent definitions,
+their provider configuration, environment entries ending in `_API_KEY`, the
+profile's brain limits for elapsed time, ticks, LLM tokens and tool calls, and
+`OPENMINION_WEB_SEARCH_PROVIDER`. It does not import daemon addresses, access
+tokens, storage paths, or arbitrary process environment settings. YAML imports,
+creating profiles from templates, and editing prompts or policy are not yet in
+this form; use the existing Focus/CLI configuration workflow for those fields.
+The pinned PyPI runtime uses agent names as identities, so imported `name` values
+must match their agent IDs. Settings preserves those names when editing a model
+or key.
+
+Settings are written to the private local OpenMinion config, with a private
+`.backup` copy of the previous config. They are not a separate Desktop profile
+format. Close discards unsaved edits, and changing the selected agent discards
+unsaved fields for that agent. Your conversations remain saved when settings
+are applied.
 
 ## Workspace Basics
 

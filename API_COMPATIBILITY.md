@@ -51,6 +51,23 @@ restoring Desktop-only code in the OpenMinion package. The legacy typed HTTP
 client remains for its existing tests and shared validation; the live supervisor
 uses `CliClient` exclusively.
 
+## Profile Configuration
+
+Desktop main edits its existing OpenMinion JSON config through a bounded Settings
+form and a native JSON import picker. Only editable profile metadata and key
+presence flags cross to the renderer. Replacement credentials travel to main as
+write-only inputs; stored credentials, daemon tokens, paths, and full configs
+remain main-only. Imports update the shared provider bindings required by PyPI readiness while
+preserving existing agents' effective provider settings in per-agent overrides.
+
+Before replacing the config, main invokes `config show` with the candidate file
+using the installed CLI. It preserves a private backup, replaces the file
+atomically, and restarts through the ordinary daemon lifecycle commands. Active
+Desktop turns block changes; new submissions are fenced while applying them.
+Validation failures do not replace the original file. This checks configuration
+loading, not provider authentication or quota. See [Getting Started](docs/getting-started.md)
+for the supported fields and import boundaries.
+
 ## Internal application surfaces
 
 The preload API and the TypeScript modules under `src/` are internal application
