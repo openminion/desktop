@@ -5,6 +5,7 @@ import type {
   SetupPreset,
 } from "./profiles.js";
 import type { TaskControlInput, TaskControlValue } from "./tasks.js";
+import type { ReportInput, ReportValue } from "./reports.js";
 export type DesktopClientReady = {
   schema_version: 1;
   event: "desktop.client.ready";
@@ -609,6 +610,9 @@ export type CaptureEventV1 =
   | CaptureFrameV1;
 
 export type NativeApi = {
+  reports: {
+    read(input: ReportInput): Promise<ClientResult<ReportValue>>;
+  };
   tasks: {
     control(input: TaskControlInput): Promise<ClientResult<TaskControlValue>>;
   };
@@ -634,6 +638,7 @@ export type NativeApi = {
     retry(): Promise<DaemonStatus>;
   };
   sessions: {
+    export(input: { sessionId: string }): Promise<ClientResult<{ cancelled: boolean }>>;
     list(input: SessionListInput): Promise<ClientResult<SessionListValue>>;
     create(input: SessionCreateInput): Promise<ClientResult<SessionSummaryV1>>;
     load(input: SessionLoadInput): Promise<ClientResult<SessionLoadValue>>;
@@ -708,6 +713,8 @@ export const DESKTOP_CAPABILITIES = [
   "tool_outputs.read.v1",
 ] as const;
 export const IPC_CHANNELS = {
+  reportsRead: "openminion:reports:read",
+  sessionsExport: "openminion:sessions:export",
   tasksControl: "openminion:tasks:control",
   profilesRead: "openminion:profiles:read",
   profilesPresets: "openminion:profiles:presets",

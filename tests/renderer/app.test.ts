@@ -201,7 +201,11 @@ describe("renderer status view", () => {
     const session = sessionSummary();
     const create = vi.fn().mockResolvedValue({ ok: true, value: session });
     const submit = vi.fn();
+    const read = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { kind: "tokens", text: "Canonical token report" } });
     const api = {
+      reports: { read },
       app: {
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
         info: async () => ({ shellVersion: "test" }),
@@ -253,6 +257,50 @@ describe("renderer status view", () => {
       expect(create).toHaveBeenCalledTimes(1);
       expect(page.element("composer").value).toBe("Keep this local draft");
       await vi.waitFor(() => expect(page.findText()).toContain("User input only"));
+      page.element("composer").value = "/tokens";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "Canonical token report",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "tokens", sessionId: session.sessionId });
+      read.mockResolvedValue({
+        ok: true,
+        value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
+      });
+      page.element("composer").value = "/agent Writer";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain("Writer"),
+      );
+      expect(read).toHaveBeenLastCalledWith({
+        kind: "agents",
+        agentFilter: "Writer",
+        sessionId: session.sessionId,
+      });
+      let finishReport!: (value: unknown) => void;
+      read.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishReport = resolve;
+          }),
+      );
+      page.element("composer").value = "/tool";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      page.element("composer").value = "/status";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      finishReport({
+        ok: true,
+        value: { kind: "tools", tools: [{ name: "old result", enabled: true }] },
+      });
+      await Promise.resolve();
+      expect(page.element("command-title").textContent).toBe("Task status");
+      expect(page.element("command-result").children[0]?.textContent).not.toContain("old result");
+      page.element("composer").value = "/tools enable search";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-title").textContent).toBe("Command arguments");
+      expect(read).toHaveBeenCalledTimes(3);
       page.element("composer").value = "/copy";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(api.app.copyText).not.toHaveBeenCalled();
@@ -773,10 +821,12 @@ describe("renderer status view", () => {
       traceId: "trace-1",
       statusKey: "working",
       label: "Thinking",
-      detailText: null,
+      detailText: "Checking available context",
       createdAt: "2026-08-19T00:00:01Z",
     });
     expect(progress.label).toBe("Thinking");
+    expect(progress.detail).toBe("Checking available context");
+    expect(progress.lastUpdateAt).toEqual(expect.any(Number));
     const stopping = { ...started, stopRequested: true, label: "Stop requested…" };
     expect(
       applyTurnEvent(stopping, {
@@ -819,6 +869,8 @@ describe("renderer status view", () => {
       traceId: null,
       terminalTraceId: "trace-1",
       label: "",
+      detail: "",
+      lastUpdateAt: null,
     });
     expect(
       applyTurnEvent(
@@ -1280,12 +1332,31 @@ describe("renderer status view", () => {
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "progress",
+        progressKind: "status",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        statusKey: "context",
+        label: "Reading context",
+        detailText: "Loading the selected conversation",
+        createdAt: "2026-09-08T00:00:00Z",
+      });
+      expect(page.element("chat-detail").textContent).toBe("Loading the selected conversation");
+      expect(page.element("chat-detail").hidden).toBe(false);
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 16_000);
+      page.element("composer").dispatch("input");
+      expect(page.element("chat-update").textContent).toBe("Last update 16s ago");
+      clock.mockRestore();
+      turnSubscription.listener?.({
+        schemaVersion: 1,
+        kind: "progress",
         progressKind: "text",
         sessionId: "session-1",
         traceId: "trace-1",
         text: "First ",
         createdAt: "2026-09-08T00:00:00Z",
       });
+      expect(page.element("chat-detail").hidden).toBe(true);
+      expect(page.element("chat-update").hidden).toBe(true);
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "progress",
@@ -2478,8 +2549,15 @@ class FixtureElement {
   focus = vi.fn();
   scrollIntoView = vi.fn();
   removeAttribute = vi.fn();
-  showPopover = vi.fn();
-  hidePopover = vi.fn();
+  showPopover = vi.fn(() => {
+    this.open = true;
+  });
+  hidePopover = vi.fn(() => {
+    this.open = false;
+  });
+  matches(selector: string): boolean {
+    return selector === ":popover-open" && this.open;
+  }
   textContent = "";
   className = "";
   hidden = false;
@@ -2554,6 +2632,8 @@ class FixtureDocument {
     "current-title",
     "timeline",
     "chat-status",
+    "chat-detail",
+    "chat-update",
     "chat-elapsed",
     "composer-hint",
     "composer-form",

@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -119,6 +119,35 @@ ordinary OpenMinion chat or CLI operations and then controlled here.
 The current source tree includes `/close`, but the pinned PyPI Focus catalog does
 not. Desktop retains its existing GUI Close operation without adding that slash
 command prematurely. Broader catalog discovery remains a gap.
+
+## Connected Reports And Export
+
+On pinned PyPI 0.0.18, `/agents` (`/agent`) reads `GET /v1/agents`, backed by
+Focus's agent-discovery owner. An exact ID or display name filters the returned
+list; Desktop does not interpret it as agent selection. `/tools` (`/tool`)
+reads `GET /v1/tools`, the daemon's live inventory. These narrow bridges return
+only public IDs, labels, names, and enabled flags. Tool exposure arguments remain
+unconnected. Filtering an agent waits for an active turn to finish; bare queries
+remain available.
+
+`/tokens` invokes `status tokens --session-id` and displays the canonical report
+without recalculating usage. Live acceptance found that pinned PyPI returns
+"Session was not found" for a daemon-created session which `sessions show` and
+transcript export can read. Desktop reports token usage unavailable in this case;
+resolving this runtime reporting failure remains a core limitation. `/export` turns Focus's export-command guidance into
+a native save dialog backed by `export transcript --format md`. Both read saved
+session state, including during a running turn. Export destinations stay in main.
+
+Detailed status events now reach the renderer. The UI displays the runtime label,
+detail, elapsed turn time, and time since the last event after a quiet interval.
+It does not infer tool execution, model thinking, or progress percentages.
+
+Focus model/effort selection, permissions, rooms, prompt queues, and live context
+operate on interactive-runtime state. The pinned public CLI/daemon surface does
+not provide a general Focus command dispatcher. Separate CLI reports or config
+changes cannot stand in for those session operations. Full parity needs public
+runtime transport support; Desktop must not import private Python runtime code,
+start another interactive session, or duplicate those owners.
 
 ## Acceptance
 

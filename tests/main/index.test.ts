@@ -311,6 +311,8 @@ describe("desktop main boundary", () => {
     expect(observation.connectTurnOwner).toHaveBeenCalledOnce();
     expect([...mocks.ipcHandlers.keys()]).toEqual([
       IPC_CHANNELS.tasksControl,
+      IPC_CHANNELS.reportsRead,
+      IPC_CHANNELS.sessionsExport,
       IPC_CHANNELS.copyText,
       IPC_CHANNELS.profilesRead,
       IPC_CHANNELS.profilesPresets,
@@ -368,6 +370,8 @@ describe("desktop main boundary", () => {
     expect(client.controlTasks).toHaveBeenCalledWith({ sessionId: "session-1", action: "list" });
     for (const channel of [
       IPC_CHANNELS.tasksControl,
+      IPC_CHANNELS.reportsRead,
+      IPC_CHANNELS.sessionsExport,
       IPC_CHANNELS.profilesRead,
       IPC_CHANNELS.profilesPresets,
       IPC_CHANNELS.profilesSetup,
@@ -3703,6 +3707,8 @@ class CaptureFixtureDocument {
     "current-title",
     "timeline",
     "chat-status",
+    "chat-detail",
+    "chat-update",
     "chat-elapsed",
     "composer-hint",
     "composer-form",

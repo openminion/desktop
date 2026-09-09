@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ReportValue } from "../shared/reports.js";
 import type { RuntimeTask, TaskControlValue } from "../shared/tasks.js";
 import { request, type IncomingMessage } from "node:http";
 import type {
@@ -86,6 +87,94 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
 
   endConfiguration(): void {
     this.#configuring = false;
+  }
+
+  readReport(input: unknown): Promise<ClientResult<ReportValue>> {
+    return this.#control(async () => {
+      const value = requireRecord(input);
+      if (Object.keys(value).some((key) => !["kind", "sessionId", "agentFilter"].includes(key)))
+        throw protocolError("invalid_request", "Choose a supported report.");
+      if (this.#configuring)
+        throw protocolError("settings_busy", "Wait for Settings to finish applying.");
+      if (
+        value.agentFilter !== undefined &&
+        (value.kind !== "agents" ||
+          typeof value.agentFilter !== "string" ||
+          value.agentFilter.length > 512)
+      )
+        throw protocolError("invalid_request", "Choose an exact agent ID or name.");
+      if (value.kind === "agents") {
+        const payload = await this.#request("/v1/agents");
+        if (payload.ok !== true)
+          throw protocolError("report_unavailable", "Agent discovery is unavailable.");
+        const agents = requireArray(payload.agents).map((item) => {
+          const row = requireRecord(item);
+          const id = requireString(row.agent_id);
+          return { id, label: optionalString(row.display_name ?? null) || id };
+        });
+        return {
+          kind: "agents",
+          agents: agents.filter(
+            (agent) =>
+              !value.agentFilter ||
+              agent.id === value.agentFilter ||
+              agent.label === value.agentFilter,
+          ),
+        };
+      }
+      if (value.kind === "tools") {
+        const payload = await this.#request("/v1/tools");
+        if (payload.ok !== true)
+          throw protocolError("report_unavailable", "Tool inventory is unavailable.");
+        return {
+          kind: "tools",
+          tools: requireArray(payload.tools)
+            .map((item) => {
+              const row = requireRecord(item);
+              if (typeof row.enabled !== "boolean")
+                throw protocolError(
+                  "invalid_daemon_response",
+                  "OpenMinion did not report tool availability.",
+                );
+              return { name: requireString(row.name), enabled: row.enabled };
+            })
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        };
+      }
+      if (value.kind === "tokens") {
+        const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
+        if (sessionId.startsWith("-") || sessionId.includes("\0"))
+          throw protocolError("invalid_request", "Choose a saved conversation.");
+        if (this.#drafts.has(sessionId)) return { kind: "tokens", text: "No active session." };
+        const context = this.#requireContext();
+        const result = await this.#run(
+          context.executable,
+          [...context.args, "status", "tokens", "--session-id", sessionId],
+          30_000,
+        );
+        if (result.exitCode !== 0)
+          throw protocolError(
+            "token_report_unavailable",
+            "OpenMinion could not read saved token usage for this conversation.",
+          );
+        return { kind: "tokens", text: result.stdout };
+      }
+      throw protocolError("invalid_request", "Choose agents, tools, or tokens.");
+    });
+  }
+
+  exportTranscript(input: unknown): Promise<ClientResult<string>> {
+    return this.#control(async () => {
+      const value = requireRecord(input);
+      if (Object.keys(value).some((key) => key !== "sessionId"))
+        throw protocolError("invalid_request", "Choose a conversation to export.");
+      const { sessionId } = validateLoadInput(value as SessionLoadInput);
+      if (sessionId.startsWith("-") || sessionId.includes("\0"))
+        throw protocolError("invalid_request", "Choose a saved conversation.");
+      if (this.#drafts.has(sessionId))
+        throw protocolError("session_not_found", "Send a message before exporting this task.");
+      return this.#command(["export", "transcript", "--session-id", sessionId, "--format", "md"]);
+    });
   }
 
   controlTasks(input: unknown): Promise<ClientResult<TaskControlValue>> {
@@ -536,16 +625,16 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
     };
   }
 
-  async #request(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async #request(path: string, body?: Record<string, unknown>): Promise<Record<string, unknown>> {
     const endpoint = await this.#endpoint();
     return new Promise((resolve, reject) => {
-      const encoded = JSON.stringify(body);
+      const encoded = body === undefined ? "" : JSON.stringify(body);
       const req = request(
         {
           hostname: endpoint.host,
           port: endpoint.port,
           path,
-          method: "POST",
+          method: body === undefined ? "GET" : "POST",
           headers: {
             "Content-Type": "application/json",
             "Content-Length": Buffer.byteLength(encoded),
@@ -557,7 +646,7 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
           response.setEncoding("utf8");
           response.on("data", (chunk: string) => {
             text += chunk;
-            if (Buffer.byteLength(text) > 64 * 1024)
+            if (Buffer.byteLength(text) > 1024 * 1024)
               response.destroy(
                 protocolError("response_too_large", "The daemon response exceeded its limit."),
               );

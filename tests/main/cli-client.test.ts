@@ -13,6 +13,103 @@ afterEach(async () => {
 });
 
 describe("PyPI CLI client", () => {
+  it("reads authenticated inventories and excludes private discovery fields", async () => {
+    const fixture = await executableFixture();
+    const client = new CliClient(() => ({ executable: fixture.executable, args: [] }));
+    expect(await client.readReport({ kind: "agents" })).toEqual({
+      ok: true,
+      value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
+    });
+    expect(await client.readReport({ kind: "agents", agentFilter: "Writer" })).toMatchObject({
+      ok: true,
+      value: { agents: [{ id: "writer" }] },
+    });
+    expect(await client.readReport({ kind: "agents", agentFilter: "other" })).toMatchObject({
+      ok: true,
+      value: { agents: [] },
+    });
+    expect(await client.readReport({ kind: "tools" })).toEqual({
+      ok: true,
+      value: {
+        kind: "tools",
+        tools: [
+          { name: "disabled", enabled: false },
+          { name: "search", enabled: true },
+        ],
+      },
+    });
+    expect(await client.readReport({ kind: "tools", agentFilter: "writer" })).toMatchObject({
+      ok: false,
+    });
+    expect(await client.readReport({ kind: "agents", path: "/v1/private" })).toMatchObject({
+      ok: false,
+    });
+    expect(await client.readReport({ kind: "arbitrary" })).toMatchObject({ ok: false });
+    expect(fixture.requests).toHaveLength(4);
+    expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
+  });
+
+  it("uses canonical token formatting and transcript export without renderer paths", async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValue({ exitCode: 0, stdout: "Canonical report\n", stderr: "" });
+    const client = new CliClient(
+      () => ({ executable: "openminion", args: ["--config", "/private/config"] }),
+      run,
+    );
+    expect(await client.readReport({ kind: "tokens", sessionId: "session-1" })).toEqual({
+      ok: true,
+      value: { kind: "tokens", text: "Canonical report\n" },
+    });
+    expect(run.mock.calls.at(-1)?.[1]).toEqual([
+      "--config",
+      "/private/config",
+      "status",
+      "tokens",
+      "--session-id",
+      "session-1",
+    ]);
+    expect(await client.exportTranscript({ sessionId: "session-1" })).toEqual({
+      ok: true,
+      value: "Canonical report\n",
+    });
+    expect(run.mock.calls.at(-1)?.[1]).toEqual([
+      "--config",
+      "/private/config",
+      "export",
+      "transcript",
+      "--session-id",
+      "session-1",
+      "--format",
+      "md",
+    ]);
+    expect(
+      await client.exportTranscript({ sessionId: "session-1", path: "/private/file" }),
+    ).toMatchObject({ ok: false });
+    expect(await client.readReport({ kind: "tokens" })).toMatchObject({ ok: false });
+    expect(await client.readReport({ kind: "tokens", sessionId: "--help" })).toMatchObject({
+      ok: false,
+    });
+    expect(await client.exportTranscript({ sessionId: "--help" })).toMatchObject({ ok: false });
+    expect(run).toHaveBeenCalledTimes(2);
+    const draft = await client.create({});
+    if (!draft.ok) throw new Error("Draft not created");
+    expect(await client.exportTranscript({ sessionId: draft.value.sessionId })).toMatchObject({
+      ok: false,
+    });
+    expect(
+      await client.readReport({ kind: "tokens", sessionId: draft.value.sessionId }),
+    ).toMatchObject({ ok: true, value: { text: "No active session." } });
+    run.mockResolvedValue({ exitCode: 2, stdout: "", stderr: "private diagnostic" });
+    expect(await client.readReport({ kind: "tokens", sessionId: "session-1" })).toMatchObject({
+      ok: false,
+      error: { code: "token_report_unavailable" },
+    });
+    expect(await new CliClient(() => null).readReport({ kind: "tools" })).toMatchObject({
+      ok: false,
+    });
+  });
+
   it("routes scoped task operations to fixed CLI arguments and projects only public facts", async () => {
     const run = vi.fn().mockResolvedValue({
       exitCode: 0,
@@ -453,6 +550,27 @@ async function executableFixture(mode = "normal") {
   let complete: ((cancelled: boolean) => void) | null = null;
   let traceId = "";
   const server = createServer((req, res) => {
+    if (req.method === "GET") {
+      requests.push({ body: {}, token: req.headers["x-ipc-token"] });
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify(
+          req.url === "/v1/agents"
+            ? {
+                ok: true,
+                agents: [{ agent_id: "writer", display_name: "Writer", secret: "private" }],
+              }
+            : {
+                ok: true,
+                tools: [
+                  { name: "search", enabled: true, private: "private" },
+                  { name: "disabled", enabled: false },
+                ],
+              },
+        ),
+      );
+      return;
+    }
     let data = "";
     req.on("data", (chunk) => {
       data += chunk;

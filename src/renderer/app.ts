@@ -53,6 +53,8 @@ export type ChatState = {
   stopRequested: boolean;
   label: string;
   error: ErrorV1 | null;
+  detail: string;
+  lastUpdateAt: number | null;
 };
 
 export type RecoveredSession = {
@@ -68,6 +70,10 @@ export const DESKTOP_COMMANDS = [
   { name: "/new", description: "Start a new session" },
   { name: "/sessions", description: "Pick a session" },
   { name: "/tasks", description: "Inspect and control OpenMinion work" },
+  { name: "/agents", description: "List agents or find one by ID or name" },
+  { name: "/tools", description: "Show available tools" },
+  { name: "/tokens", description: "Show durable token usage details" },
+  { name: "/export", description: "Export the saved conversation" },
   { name: "/status", description: "Show connection, task, agent, and model" },
   { name: "/model", description: "Show reported model (selection not connected yet)" },
   { name: "/copy", description: "Copy the latest reply" },
@@ -75,6 +81,15 @@ export const DESKTOP_COMMANDS = [
   { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
   { name: "/normal", description: "Show tool activity" },
 ] as const;
+
+export const DESKTOP_ALIASES: Record<string, string> = {
+  "/": "/help",
+  "/session": "/sessions",
+  "/cls": "/clear",
+  "/task": "/tasks",
+  "/agent": "/agents",
+  "/tool": "/tools",
+};
 
 export function commandMatches(text: string) {
   return DESKTOP_COMMANDS.filter((command) => command.name.startsWith(text.trim()));
@@ -250,6 +265,8 @@ export function initialChatState(): ChatState {
     stopRequested: false,
     label: "Choose or create a task to begin.",
     error: null,
+    detail: "",
+    lastUpdateAt: null,
   };
 }
 
@@ -271,6 +288,8 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
       startedAt: state.startedAt ?? Date.now(),
       label: "Working…",
       error: null,
+      detail: "",
+      lastUpdateAt: Date.now(),
     };
   }
   if (event.sessionId !== state.sessionId || event.traceId !== state.traceId) {
@@ -281,6 +300,8 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
     return {
       ...state,
       label: event.progressKind === "status" ? event.label?.trim() || "Working…" : "Writing…",
+      detail: event.progressKind === "status" ? event.detailText?.trim() || "" : "",
+      lastUpdateAt: Date.now(),
     };
   }
   if (event.kind === "response") {
@@ -288,10 +309,18 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
       ...state,
       label: event.errors[0]?.message ?? (state.stopRequested ? state.label : "Finishing…"),
       error: event.errors[0] ?? null,
+      detail: "",
+      lastUpdateAt: Date.now(),
     };
   }
   if (event.kind === "error") {
-    return { ...state, label: event.error.message, error: event.error };
+    return {
+      ...state,
+      label: event.error.message,
+      error: event.error,
+      detail: "",
+      lastUpdateAt: Date.now(),
+    };
   }
   if (event.kind === "tool" || event.kind === "approval") {
     return state;
@@ -302,6 +331,8 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
     terminalTraceId: event.traceId,
     active: false,
     stopRequested: false,
+    detail: "",
+    lastUpdateAt: null,
     label:
       event.outcome === "complete"
         ? ""
@@ -1323,13 +1354,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const value = text.trim();
     if (!value.startsWith("/") || value.startsWith("//")) return false;
     const [name, ...args] = value.split(/\s+/);
-    const aliases: Record<string, string> = {
-      "/": "/help",
-      "/session": "/sessions",
-      "/cls": "/clear",
-      "/task": "/tasks",
-    };
-    const command = aliases[name] ?? name;
+    const command = DESKTOP_ALIASES[name] ?? name;
     if (!DESKTOP_COMMANDS.some((item) => item.name === command)) {
       hideCommandMenu();
       showCommandResult(
@@ -1341,6 +1366,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (
       args.length &&
       command !== "/tasks" &&
+      command !== "/agents" &&
       !(command === "/new" && args.join(" ") === "session")
     ) {
       hideCommandMenu();
@@ -1355,6 +1381,71 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     hideCommandMenu();
     elements.composer.focus();
     switch (command) {
+      case "/agents":
+      case "/tools":
+      case "/tokens": {
+        if (command === "/agents" && args.length && chat.active) {
+          showCommandResult("Agents", "Finish or stop this turn before inspecting an agent.");
+          break;
+        }
+        const kind = command.slice(1) as "agents" | "tools" | "tokens";
+        const titles = { agents: "Agents", tools: "Tools", tokens: "Token usage" };
+        if (kind === "tokens" && !selected) {
+          showCommandResult(titles[kind], "No active session.");
+          break;
+        }
+        const sessionId = selected?.sessionId;
+        showCommandResult(titles[kind], "Loading from OpenMinion…");
+        const request = commandResultGeneration;
+        const result = await api.reports.read({
+          kind,
+          ...(sessionId ? { sessionId } : {}),
+          ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
+        });
+        if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
+        if (!elements.commandPanel.matches(":popover-open")) break;
+        if (!result.ok) showCommandResult(titles[kind], result.error.message);
+        else {
+          const report = result.value;
+          let text: string;
+          if (report.kind === "agents")
+            text =
+              report.agents
+                .map(
+                  (agent) =>
+                    `${agent.id === selected?.activeAgentId ? "● " : ""}${agent.id}${agent.label !== agent.id ? ` — ${agent.label}` : ""}`,
+                )
+                .join("\n") || "No matching agents.";
+          else if (report.kind === "tools")
+            text =
+              report.tools
+                .map((tool) => `${tool.name}${tool.enabled ? "" : " · disabled"}`)
+                .join("\n") || "No tools.";
+          else text = report.text;
+          showCommandResult(titles[kind], text);
+        }
+        break;
+      }
+      case "/export": {
+        if (!selected) {
+          showCommandResult("Export conversation", "Choose a saved conversation first.");
+          break;
+        }
+        const sessionId = selected.sessionId;
+        showCommandResult("Export conversation", "Preparing the saved conversation…");
+        const request = commandResultGeneration;
+        const result = await api.sessions.export({ sessionId });
+        if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
+        showCommandResult(
+          "Export conversation",
+          result.ok
+            ? result.value.cancelled
+              ? "Export cancelled."
+              : "Conversation saved."
+            : result.error.message,
+        );
+        break;
+      }
       case "/tasks": {
         if (!args.length) await runTasks("list");
         else if (["pause", "resume", "cancel"].includes(args[0].toLowerCase()) && args.length === 2)
@@ -1476,6 +1567,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const renderWaitTime = () => {
     elements.chatElapsed.textContent =
       chat.active && chat.startedAt !== null ? waitingTime(chat.startedAt, Date.now()) : "";
+    const sinceUpdate = chat.lastUpdateAt === null ? 0 : Date.now() - chat.lastUpdateAt;
+    elements.chatUpdate.textContent =
+      chat.active && sinceUpdate >= 15_000
+        ? `Last update ${waitingTime(chat.lastUpdateAt!, Date.now())} ago`
+        : "";
+    elements.chatUpdate.hidden = !elements.chatUpdate.textContent;
   };
 
   const renderChat = () => {
@@ -1483,6 +1580,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const attachmentsValid = turnAttachmentsAreValid();
     elements.chatStatus.textContent =
       conversationLoading && !chat.active && !chat.label ? "Finishing…" : chat.label;
+    elements.chatDetail.textContent = chat.detail;
+    elements.chatDetail.hidden = !chat.detail;
     elements.timeline.setAttribute("aria-busy", String(conversationLoading));
     elements.chatStatus.className = `chat-status${(chat.active || conversationLoading) && !chat.error ? " working" : ""}${chat.error ? " error" : ""}`;
     renderWaitTime();
@@ -2017,6 +2116,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       stopRequested: false,
       label: "Sending…",
       error: null,
+      detail: "",
+      lastUpdateAt: Date.now(),
     };
     submittedText = message;
     responseText = "";
@@ -2375,6 +2476,8 @@ function rendererElements(root: Document) {
     currentTitle: required(root, "current-title"),
     timeline: required(root, "timeline"),
     chatStatus: required(root, "chat-status"),
+    chatDetail: required(root, "chat-detail"),
+    chatUpdate: required(root, "chat-update"),
     chatElapsed: required(root, "chat-elapsed"),
     composerHint: required(root, "composer-hint"),
     composerForm: required(root, "composer-form") as HTMLFormElement,

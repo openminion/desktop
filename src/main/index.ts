@@ -19,6 +19,7 @@ import {
   type WebFrameMain,
 } from "electron";
 import { join } from "node:path";
+import { writeFile } from "node:fs/promises";
 import {
   CAPTURE_WORKER_CONFIG_CHANNEL,
   CAPTURE_WORKER_EVENT_CHANNEL,
@@ -193,6 +194,29 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.tasksControl, (event, input: unknown) =>
     isAppInvocation(event) ? supervisor.client.controlTasks(input) : forbiddenResult(),
   );
+  ipcMain.handle(IPC_CHANNELS.reportsRead, (event, input: unknown) =>
+    isAppInvocation(event) ? supervisor.client.readReport(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.sessionsExport, async (event, input: unknown) => {
+    if (!isAppInvocation(event)) return forbiddenResult();
+    const transcript = await supervisor.client.exportTranscript(input);
+    if (!transcript.ok) return transcript;
+    const selected = await dialog.showSaveDialog({
+      title: "Export conversation",
+      defaultPath: "conversation.md",
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (selected.canceled || !selected.filePath) return { ok: true, value: { cancelled: true } };
+    try {
+      await writeFile(selected.filePath, transcript.value, { mode: 0o600 });
+      return { ok: true, value: { cancelled: false } };
+    } catch {
+      return failure(
+        "export_failed",
+        "Could not save the conversation. Choose a writable location.",
+      );
+    }
+  });
   ipcMain.handle(IPC_CHANNELS.copyText, (event, text: unknown): ClientResult<null> => {
     if (!isAppInvocation(event)) return forbiddenResult();
     if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 1024 * 1024) {

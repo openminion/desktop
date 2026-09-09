@@ -13,6 +13,7 @@ let activeObservationListener: ((_event: unknown, payload: unknown) => void) | n
 const textEncoder = new TextEncoder();
 
 const api: NativeApi = {
+  reports: { read: (input) => ipcRenderer.invoke(IPC_CHANNELS.reportsRead, input) },
   tasks: {
     control: (input) => ipcRenderer.invoke(IPC_CHANNELS.tasksControl, input),
   },
@@ -43,6 +44,7 @@ const api: NativeApi = {
     },
   },
   sessions: {
+    export: (input) => ipcRenderer.invoke(IPC_CHANNELS.sessionsExport, input),
     list(input) {
       return ipcRenderer.invoke(IPC_CHANNELS.sessionsList, input);
     },

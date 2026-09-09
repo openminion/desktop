@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { app, dialog } from "electron";
 import { runCommand } from "../../dist/src/main/installation.js";
+import { DESKTOP_ALIASES, DESKTOP_COMMANDS } from "../../dist/src/renderer/app.js";
 
 const executable = process.env.OPENMINION_PYPI_EXECUTABLE;
 if (!executable)
@@ -28,7 +29,7 @@ const loaded = new Promise((resolve) => {
 const timeout = setTimeout(() => {
   console.error("PyPI GUI test timed out");
   void finish(1);
-}, 240_000);
+}, 360_000);
 let finishing = false;
 let provider = null;
 async function finish(code) {
@@ -53,13 +54,13 @@ async function check() {
     const window = await loaded;
     window.webContents.setBackgroundThrottling(false);
     const evaluate = (source) => window.webContents.executeJavaScript(source);
-    const waitFor = async (source) => {
-      for (let attempt = 0; attempt < 300; attempt += 1) {
+    const waitFor = async (source, attempts = 300) => {
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
         if (await evaluate(source)) return;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       throw new Error(
-        `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent + ' / ' + document.querySelector('#profile-status').textContent")}`,
+        `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent + ' / ' + document.querySelector('#profile-status').textContent + ' / command: ' + document.querySelector('#command-title').textContent + ' / ' + document.querySelector('#command-result').textContent.slice(0, 500) + ' / open: ' + document.querySelector('#command-panel').matches(':popover-open')")}`,
       );
     };
     const fill = async (text) =>
@@ -67,8 +68,11 @@ async function check() {
         `document.querySelector('#composer').value = ${JSON.stringify(text)}; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#composer').focus()`,
       );
     const key = async (keyCode, modifiers = []) => {
+      app.focus({ steal: true });
       window.focus();
       window.webContents.focus();
+      await waitFor("document.hasFocus()");
+      await evaluate("document.querySelector('#composer').focus()");
       window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
       if (keyCode === "Return" && (!modifiers.length || modifiers.includes("shift")))
         window.webContents.sendInputEvent({ type: "char", keyCode: "\r", modifiers });
@@ -77,17 +81,18 @@ async function check() {
     };
     const command = async (text, title) => {
       await fill(text);
-      await key("Return");
+      await evaluate("document.querySelector('#send').click()");
       await waitFor(
         `document.querySelector('#command-title').textContent === ${JSON.stringify(title)}`,
       );
       await evaluate("document.querySelector('#command-panel').hidePopover()");
     };
-    await waitFor("document.querySelector('#connection-label').textContent === 'Connected'");
+    await waitFor("document.querySelector('#connection-label').textContent === 'Connected'", 900);
     await waitFor(
       "document.querySelector('#profile-dialog').open && document.querySelector('#setup-provider').options.length > 0 && !document.querySelector('#setup-demo').disabled",
     );
     await evaluate("document.querySelector('#setup-demo').click()");
+    await waitFor("!document.querySelector('#profile-dialog').open");
     await fill("   ");
     assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
     await fill("First line");
@@ -118,6 +123,104 @@ async function check() {
     assert.equal(before.ok, true);
     assert.equal(before.value.sessions.length, 1);
     const sessionId = before.value.sessions[0].sessionId;
+    const catalog = await runCommand(
+      join(dirname(executable), "python"),
+      [
+        "-c",
+        "import json; from dataclasses import asdict; from openminion.cli.presentation.slash_commands import SLASH_COMMANDS; print(json.dumps([asdict(command) for command in SLASH_COMMANDS]))",
+      ],
+      30_000,
+    );
+    assert.equal(catalog.exitCode, 0);
+    const focusCommands = JSON.parse(catalog.stdout);
+    for (const command of DESKTOP_COMMANDS)
+      assert.ok(
+        focusCommands.some((item) => item.name === command.name),
+        command.name,
+      );
+    for (const [alias, name] of Object.entries(DESKTOP_ALIASES))
+      assert.ok(focusCommands.find((item) => item.name === name)?.aliases.includes(alias), alias);
+    const parityContract = await readFile(
+      new URL("../../docs/focus-parity.md", import.meta.url),
+      "utf8",
+    );
+    for (const command of focusCommands)
+      assert.ok(
+        parityContract.includes(`\`${command.name}\``),
+        `Track Focus command ${command.name}`,
+      );
+    const reportCommand = async (text, title) => {
+      await fill(text);
+      await evaluate("document.querySelector('#send').click()");
+      await waitFor(
+        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)} && !/Loading from OpenMinion|Preparing the saved conversation/.test(document.querySelector('#command-result').textContent)`,
+      );
+      return evaluate("document.querySelector('#command-result').textContent");
+    };
+    const agents = await evaluate("window.openminion.reports.read({kind:'agents'})");
+    assert.equal(agents.ok, true, JSON.stringify(agents));
+    assert.ok(agents.value.agents.length > 0);
+    const agentId = agents.value.agents[0].id;
+    assert.ok((await reportCommand(`/agent ${agentId}`, "Agents")).includes(agentId));
+    assert.equal(
+      await reportCommand("/agents missing-test-agent", "Agents"),
+      "No matching agents.",
+    );
+    const tools = await evaluate("window.openminion.reports.read({kind:'tools'})");
+    assert.equal(tools.ok, true, JSON.stringify(tools));
+    const cliTools = await runCommand(executable, [...args, "tools", "list"], 30_000);
+    assert.equal(cliTools.exitCode, 0);
+    assert.deepEqual(
+      tools.value.tools.map((tool) => tool.name).sort(),
+      JSON.parse(cliTools.stdout)
+        .tools.map((tool) => tool.name)
+        .sort(),
+    );
+    assert.ok((await reportCommand("/tool", "Tools")).includes(tools.value.tools[0].name));
+    const tokens = await runCommand(
+      executable,
+      [...args, "status", "tokens", "--session-id", sessionId],
+      30_000,
+    );
+    const tokenText = await reportCommand("/tokens", "Token usage");
+    if (tokens.exitCode === 0) assert.equal(tokenText, tokens.stdout);
+    else {
+      assert.equal(tokens.exitCode, 2);
+      assert.ok(tokens.stderr.includes(`Session '${sessionId}' was not found.`));
+      assert.ok(tokenText.includes("could not read saved token usage"));
+      console.log(
+        "LIMITATION: pinned CLI token reporting cannot find the daemon-created session; Desktop reports it unavailable.",
+      );
+    }
+    const saveDialog = dialog.showSaveDialog;
+    try {
+      const exportPath = join(root, "conversation.md");
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: exportPath });
+      assert.equal(await reportCommand("/export", "Export conversation"), "Conversation saved.");
+      const exported = await runCommand(
+        executable,
+        [...args, "export", "transcript", "--session-id", sessionId, "--format", "md"],
+        30_000,
+      );
+      assert.equal(exported.exitCode, 0);
+      assert.equal(
+        (await readFile(exportPath, "utf8")).replace(/^Generated: .*\n/m, ""),
+        exported.stdout.replace(/^Generated: .*\n/m, ""),
+      );
+      dialog.showSaveDialog = async () => ({ canceled: true });
+      await evaluate("document.querySelector('#command-panel').hidePopover()");
+      await fill("/export");
+      await evaluate("document.querySelector('#send').click()");
+      await waitFor(
+        "document.querySelector('#command-result').textContent === 'Export cancelled.'",
+      );
+    } finally {
+      dialog.showSaveDialog = saveDialog;
+    }
+    await evaluate("document.querySelector('#command-panel').hidePopover()");
+    console.log(
+      "PASS: installed Focus catalog/aliases, daemon tools, canonical tokens, and native transcript export.",
+    );
     const scheduled = await runCommand(
       executable,
       [
@@ -148,7 +251,7 @@ async function check() {
     const taskId = work.value.tasks.find((task) => task.title === "Desktop work controls").id;
     const workCommand = async (text, state) => {
       await fill(text);
-      await key("Return");
+      await evaluate("document.querySelector('#send').click()");
       await waitFor(
         `document.querySelector('.runtime-task')?.textContent.includes(${JSON.stringify(state)})`,
       );

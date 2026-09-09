@@ -196,6 +196,17 @@ const profileSettings = {
   credentials: [],
 };
 const api: NativeApi = {
+  reports: {
+    read: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Reports require the connected application.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
+  },
   tasks: {
     control: async () => ({
       ok: false,
@@ -254,6 +265,15 @@ const api: NativeApi = {
     retry: async () => api.daemon.status(),
   },
   sessions: {
+    export: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Export requires the connected application.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
     list: async () => ok({ sessions: [...sessions], nextCursor: null, hasMore: false }),
     create: async ({ title }) => {
       const session = createSession(title ?? "New task");

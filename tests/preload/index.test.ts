@@ -27,6 +27,7 @@ describe("preload surface", () => {
     const [name, api] = exposeInMainWorld.mock.calls[0];
     expect(name).toBe("openminion");
     expect(Object.keys(api)).toEqual([
+      "reports",
       "tasks",
       "profiles",
       "app",
@@ -40,6 +41,12 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
+    expect(Object.keys(api.reports)).toEqual(["read"]);
+    await api.reports.read({ kind: "tools" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reportsRead, { kind: "tools" });
+    await api.sessions.export({ sessionId: "session-1" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.sessionsExport, { sessionId: "session-1" });
+    invoke.mockClear();
     expect(Object.keys(api.tasks)).toEqual(["control"]);
     await api.tasks.control({ sessionId: "session-1", action: "list" });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.tasksControl, {
@@ -50,7 +57,14 @@ describe("preload surface", () => {
     expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);
     expect(Object.keys(api.app)).toEqual(["copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["status", "retry"]);
-    expect(Object.keys(api.sessions)).toEqual(["list", "create", "load", "close", "events"]);
+    expect(Object.keys(api.sessions)).toEqual([
+      "export",
+      "list",
+      "create",
+      "load",
+      "close",
+      "events",
+    ]);
     expect(Object.keys(api.turns)).toEqual(["submit", "cancel", "subscribe"]);
     expect(Object.keys(api.approvals)).toEqual(["decide"]);
     expect(Object.keys(api.artifacts)).toEqual(["list", "read", "detach", "restore"]);

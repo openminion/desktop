@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -83,6 +83,8 @@ The Electron test drives production main, preload, and renderer and covers:
 
 - first send from an empty workspace, whitespace rejection, and real keyboard input;
 - help and unsupported slash commands without creating a model turn;
+- command names and aliases checked against the installed Focus catalog, with every canonical command tracked in the parity contract;
+- agent/tool reports, canonical CLI token output, and native Markdown export/cancel without model turns;
 - canonical task creation through the public CLI, Desktop task inventory, pause,
   resume and cancellation, and independent CLI verification of durable state;
 - two conversations, task-local unsent drafts, and visible clearing without deleting history;

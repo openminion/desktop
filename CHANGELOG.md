@@ -1,11 +1,15 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Connected Focus agent/tool inventories, durable token reports, and Markdown
+  conversation export through existing public OpenMinion operations.
+- Show daemon progress details and time since the last update during quiet waits.
 
 - Added first-launch agent setup using OpenMinion's provider catalog and setup
   command, with profile import and an explicit echo demo option. Configured

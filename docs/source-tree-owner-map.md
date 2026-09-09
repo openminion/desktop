@@ -1,7 +1,7 @@
 # OpenMinion Desktop Source Tree Owner Map
 
 Status: active
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 Purpose: give contributors a package-local owner map without turning internal
 TypeScript modules into supported third-party APIs.
@@ -32,9 +32,11 @@ sessions, credentials, policy decisions, artifacts, and durable execution
 truth. Do not create a second copy of those owners in Desktop.
 
 Desktop main may install a pinned OpenMinion package and invoke its ordinary
-public lifecycle, session, transcript, task control, and turn operations through `CliClient`.
+public lifecycle, session, transcript, task control, report, and turn operations through `CliClient`.
 `src/renderer/tasks.ts` presents runtime task facts and the actions core reports;
 `src/shared/tasks.ts` describes the bounded task-control bridge.
+`src/shared/reports.ts` describes agent/tool inventories and canonical token output;
+export destinations remain in the native save dialog and main process.
 The managed executable, roots, config path, and
 credentials remain main-only facts.
 

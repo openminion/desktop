@@ -1142,6 +1142,14 @@ details[open] > summary .summary-chevron {
   color: #f0b37f;
 }
 
+.chat-detail {
+  padding: 0 var(--conversation-gutter) 8px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .chat-elapsed {
   flex-shrink: 0;
   margin-left: auto;

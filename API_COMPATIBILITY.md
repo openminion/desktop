@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -50,6 +50,14 @@ reattachment remain incomplete. They must use existing public interfaces without
 restoring Desktop-only code in the OpenMinion package. The legacy typed HTTP
 client remains for its existing tests and shared validation; the live supervisor
 uses `CliClient` exclusively.
+
+## Reports And Transcript Export
+
+Main reads authenticated `GET /v1/agents` and `GET /v1/tools`, projecting only
+public display fields. Token reports use fixed `status tokens --session-id`
+arguments. Transcript export uses fixed `export transcript --format md` arguments
+and a native save dialog; neither the file path nor raw exported transcript
+crosses into the renderer. No generic CLI or HTTP request method is exposed.
 
 ## Task Controls
 
