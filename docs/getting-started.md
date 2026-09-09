@@ -196,3 +196,16 @@ not grant partial capture authority.
 
 Native input execution, remote daemon operation, and signed distribution remain
 outside the current product profile.
+
+## Name a chat
+
+Select a conversation and click **Rename** next to its title. Enter a name and
+choose **Save**. **Cancel** leaves it unchanged; **Reset name** restores the name
+reported by OpenMinion. The dialog also shows the original session ID.
+
+Names appear in the sidebar, chat heading, and Desktop session picker, and survive
+restarting Desktop. They are saved only in this Desktop installation. Renaming
+does not change the session ID, history, agent, or the CLI's saved session data;
+continue using the original ID when resuming through the CLI. Names can also be
+changed while a reply is running. Clearing Desktop's local application data removes
+these local names.

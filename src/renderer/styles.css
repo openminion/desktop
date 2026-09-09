@@ -1737,3 +1737,71 @@ code {
     grid-template-columns: 1fr;
   }
 }
+
+.rename-dialog {
+  width: min(440px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  padding: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: #202020;
+  color: var(--text);
+}
+
+.rename-dialog::backdrop {
+  background: rgb(0 0 0 / 50%);
+}
+
+.rename-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+.rename-dialog label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.rename-dialog input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #282828;
+  color: var(--text);
+}
+.rename-dialog p {
+  margin: 0 0 20px;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.rename-dialog .rename-identity {
+  margin: 10px 0 20px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.rename-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.rename-actions button {
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: 9px;
+}
+.rename-actions button[type="button"] {
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  color: var(--text-soft);
+}
+.rename-dialog #rename-error {
+  color: #efb16f;
+}
+.rename-dialog #rename-error:empty {
+  display: none;
+}

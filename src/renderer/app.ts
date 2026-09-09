@@ -585,6 +585,18 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.shellVersion.textContent = info.shellVersion;
   let sessions: SessionSummaryV1[] = [];
   let selected: SessionSummaryV1 | null = null;
+  let renamingSession: SessionSummaryV1 | null = null;
+  const taskName = (session: SessionSummaryV1): string => {
+    try {
+      return (
+        root.defaultView!.localStorage.getItem(`openminion.task-name:${session.sessionId}`) ||
+        session.title ||
+        "Untitled task"
+      );
+    } catch {
+      return session.title || "Untitled task";
+    }
+  };
   let daemonReady = false;
   let richContextReady = false;
   let creatingTask = false;
@@ -1500,7 +1512,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           const button = root.createElement("button");
           button.type = "button";
           button.className = "command-option";
-          button.textContent = `${session.title ?? "Untitled task"} · ${session.status}`;
+          button.textContent = `${taskName(session)} · ${session.status}`;
           button.addEventListener("click", () => {
             elements.commandPanel.hidePopover();
             void selectSession(session);
@@ -1514,7 +1526,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           command === "/model" ? "Configured model" : "Task status",
           [
             elements.connectionLabel.textContent,
-            `Task: ${selected?.title ?? "No task selected"}`,
+            `Task: ${selected ? taskName(selected) : "No task selected"}`,
+            `Session: ${selected?.sessionId ?? "None"}`,
             `Agent: ${selected?.activeAgentId ?? "Not reported"}`,
             `Provider: ${selected?.model.provider ?? "Not reported"}`,
             `Model: ${selected?.model.modelId ?? "Not reported"}`,
@@ -1626,7 +1639,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.attachImage.disabled =
       !richContextReady || !writable || chat.active || attachmentPending || attachments.length >= 4;
     elements.attachFile.disabled = elements.attachImage.disabled;
-    elements.currentTitle.textContent = selected?.title ?? "New task";
+    elements.renameSession.disabled = !selected;
+    elements.currentTitle.textContent = selected ? taskName(selected) : "New task";
     elements.currentTitle.title = elements.currentTitle.textContent;
     renderAttachments(root, elements.attachments, attachments, (mediaId) => {
       const attachment = attachments.find((item) => item.mediaId === mediaId);
@@ -1704,6 +1718,19 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderChat();
   };
 
+  const renderSessionList = () =>
+    renderSessions(
+      root,
+      elements.sessionList,
+      sessions,
+      selected?.sessionId ?? null,
+      taskName,
+      (id) => {
+        const next = sessions.find((item) => item.sessionId === id);
+        if (next) void selectSession(next);
+      },
+    );
+
   const selectSession = async (
     session: SessionSummaryV1,
     terminalTraceId: string | null = null,
@@ -1761,12 +1788,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         label: "Loading conversation…",
       };
     }
-    renderSessions(root, elements.sessionList, sessions, session.sessionId, (id) => {
-      const next = sessions.find((item) => item.sessionId === id);
-      if (next) {
-        void selectSession(next);
-      }
-    });
+    renderSessionList();
     renderChat();
     renderArtifacts();
     renderFiles();
@@ -1822,12 +1844,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       return;
     }
     sessions = result;
-    renderSessions(root, elements.sessionList, sessions, selected?.sessionId ?? null, (id) => {
-      const next = sessions.find((item) => item.sessionId === id);
-      if (next) {
-        void selectSession(next);
-      }
-    });
+    renderSessionList();
     if (!selected && sessions[0]) {
       await selectSession(sessions[0]);
     } else if (!sessions.length) {
@@ -2021,6 +2038,46 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.composer.focus();
     return true;
   };
+  elements.renameSession.addEventListener("click", () => {
+    if (!selected) return;
+    renamingSession = selected;
+    elements.taskName.value = taskName(selected);
+    elements.renameSessionId.textContent = selected.sessionId;
+    elements.renameError.textContent = "";
+    elements.renameDialog.showModal();
+    elements.taskName.focus();
+    elements.taskName.select();
+  });
+  elements.renameCancel.addEventListener("click", () => elements.renameDialog.close());
+  elements.renameDialog.addEventListener("close", () => {
+    if (elements.renameDialog.open) return;
+    renamingSession = null;
+    elements.renameSession.focus();
+  });
+  const saveTaskName = (name: string | null) => {
+    if (!renamingSession) return;
+    try {
+      const key = `openminion.task-name:${renamingSession.sessionId}`;
+      if (name === null) root.defaultView!.localStorage.removeItem(key);
+      else root.defaultView!.localStorage.setItem(key, name);
+    } catch {
+      elements.renameError.textContent = "Could not save the name on this device. Try again.";
+      return;
+    }
+    elements.renameDialog.close();
+    renderSessionList();
+    renderChat();
+  };
+  elements.renameForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = elements.taskName.value.trim();
+    if (!name || name.length > 120) {
+      elements.renameError.textContent = "Enter a name between 1 and 120 characters.";
+      return;
+    }
+    saveTaskName(name);
+  });
+  elements.renameReset.addEventListener("click", () => saveTaskName(null));
   elements.newSession.addEventListener("click", () => void createTask());
   elements.closeSession.addEventListener("click", async () => {
     if (!selected || conversationLoading || chat.active) {
@@ -2062,12 +2119,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     artifactView = null;
     artifactLabel = "This session is closed.";
     fileLabel = "This session is closed.";
-    renderSessions(root, elements.sessionList, sessions, selected.sessionId, (id) => {
-      const next = sessions.find((item) => item.sessionId === id);
-      if (next) {
-        void selectSession(next);
-      }
-    });
+    renderSessionList();
     chat = { ...chat, label: "Task closed. Start a new task to continue." };
     renderChat();
     renderArtifacts();
@@ -2474,6 +2526,14 @@ function rendererElements(root: Document) {
     newSession: required(root, "new-session") as HTMLButtonElement,
     closeSession: required(root, "close-session") as HTMLButtonElement,
     currentTitle: required(root, "current-title"),
+    renameSession: required(root, "rename-session") as HTMLButtonElement,
+    renameDialog: required(root, "rename-dialog") as HTMLDialogElement,
+    renameForm: required(root, "rename-form") as HTMLFormElement,
+    taskName: required(root, "task-name") as HTMLInputElement,
+    renameSessionId: required(root, "rename-session-id"),
+    renameError: required(root, "rename-error"),
+    renameCancel: required(root, "rename-cancel"),
+    renameReset: required(root, "rename-reset"),
     timeline: required(root, "timeline"),
     chatStatus: required(root, "chat-status"),
     chatDetail: required(root, "chat-detail"),
@@ -2856,13 +2916,14 @@ function renderSessions(
   list: HTMLElement,
   sessions: SessionSummaryV1[],
   selectedId: string | null,
+  taskName: (session: SessionSummaryV1) => string,
   select: (sessionId: string) => void,
 ): void {
   const items: HTMLElement[] = sessions.map((session) => {
     const button = root.createElement("button");
     button.type = "button";
     button.className = `session-item${session.sessionId === selectedId ? " selected" : ""}`;
-    button.textContent = `${session.title ?? "Untitled task"}${session.status === "closed" ? " · Closed" : ""}`;
+    button.textContent = `${taskName(session)}${session.status === "closed" ? " · Closed" : ""}`;
     button.title = button.textContent;
     button.setAttribute("aria-current", session.sessionId === selectedId ? "true" : "false");
     button.addEventListener("click", () => select(session.sessionId));

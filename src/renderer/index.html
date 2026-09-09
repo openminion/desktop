@@ -11,6 +11,21 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <dialog id="rename-dialog" class="rename-dialog" aria-labelledby="rename-title" aria-describedby="rename-description">
+      <form id="rename-form">
+        <h2 id="rename-title">Rename chat</h2>
+        <p id="rename-description">Give this conversation a name. Saved in Desktop on this device.</p>
+        <label for="task-name">Chat name</label>
+        <input id="task-name" type="text" maxlength="120" required autocomplete="off" />
+        <p class="rename-identity">Session ID: <span id="rename-session-id"></span></p>
+        <p id="rename-error" role="alert"></p>
+        <div class="rename-actions">
+          <button id="rename-reset" type="button">Reset name</button>
+          <button id="rename-cancel" type="button">Cancel</button>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="profile-dialog" class="settings-dialog" aria-labelledby="settings-title">
       <div class="settings-heading">
         <div><p id="settings-eyebrow" class="eyebrow">Settings</p><h2 id="settings-title">Agent profiles</h2></div>
@@ -115,6 +130,7 @@
               <h2 id="current-title">New task</h2>
             </div>
             <div class="chat-heading-actions">
+              <button id="rename-session" class="context-link" type="button" disabled>Rename</button>
               <button class="context-link" type="button" popovertarget="context-panel">
                 Context
               </button>

@@ -124,6 +124,84 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it("keeps local chat names across reloads without changing canonical sessions", async () => {
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Other" },
+    ];
+    const load = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      ok: true,
+      value: {
+        session: sessions.find((item) => item.sessionId === sessionId),
+        messages: [message("reply", "Saved reply")],
+        nextMessageCursor: null,
+        messagesHasMore: false,
+      },
+    }));
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list: async () => ({ ok: true, value: { sessions, nextCursor: null, hasMore: false } }),
+        load,
+        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+      },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("rename-session").click();
+      expect(page.element("rename-session-id").textContent).toBe("session-1");
+      page.element("task-name").value = "Discard this";
+      page.element("rename-cancel").click();
+      expect(page.names.size).toBe(0);
+      page.element("rename-session").click();
+      page.element("task-name").value = "   ";
+      page.element("rename-form").dispatch("submit");
+      expect(page.element("rename-error").textContent).toContain("Enter a name");
+      page.element("task-name").value = "  Release planning  ";
+      page.element("rename-form").dispatch("submit");
+      expect(page.element("current-title").textContent).toBe("Release planning");
+      expect(page.sessionButtons()[0]?.textContent).toBe("Release planning");
+      expect(page.findText()).toContain("Saved reply");
+      expect(sessions[0]?.title).toBe("Recovered chat");
+      page.sessionButtons()[1]!.click();
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Other"));
+      expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "session-2" }));
+      page.sessionButtons()[0]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("current-title").textContent).toBe("Release planning"),
+      );
+      const reloaded = new FixtureDocument();
+      for (const [key, value] of page.names) reloaded.names.set(key, value);
+      await mount(api, reloaded.asDocument());
+      expect(reloaded.element("current-title").textContent).toBe("Release planning");
+      reloaded.element("rename-session").click();
+      reloaded.element("task-name").value = "Unsaved name";
+      const write = vi
+        .spyOn(reloaded.defaultView.localStorage, "setItem")
+        .mockImplementation(() => {
+          throw new Error("quota");
+        });
+      reloaded.element("rename-form").dispatch("submit");
+      expect(reloaded.element("rename-error").textContent).toContain("Could not save");
+      expect(reloaded.element("rename-dialog").open).toBe(true);
+      expect(reloaded.element("current-title").textContent).toBe("Release planning");
+      write.mockRestore();
+      reloaded.element("rename-reset").click();
+      expect(reloaded.element("current-title").textContent).toBe("Recovered chat");
+      expect(reloaded.names.size).toBe(0);
+      expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "session-1" }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("creates the first task on send, preserves failed drafts, and admits one submission", async () => {
     const session = { ...sessionSummary(), isDraft: true };
     let resolveCreation!: (value: { ok: true; value: SessionSummaryV1 }) => void;
@@ -2547,6 +2625,14 @@ describe("renderer status view", () => {
 
 class FixtureElement {
   focus = vi.fn();
+  select = vi.fn();
+  showModal = vi.fn(() => {
+    this.open = true;
+  });
+  close = vi.fn(() => {
+    this.open = false;
+    this.dispatch("close");
+  });
   scrollIntoView = vi.fn();
   removeAttribute = vi.fn();
   showPopover = vi.fn(() => {
@@ -2615,6 +2701,18 @@ interface FixtureEvent {
 }
 
 class FixtureDocument {
+  readonly names = new Map<string, string>();
+  readonly defaultView = {
+    localStorage: {
+      getItem: (key: string) => this.names.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        this.names.set(key, value);
+      },
+      removeItem: (key: string) => {
+        this.names.delete(key);
+      },
+    },
+  };
   private static readonly requiredIds = [
     "status-dot",
     "status-summary",
@@ -2630,6 +2728,14 @@ class FixtureDocument {
     "new-session",
     "close-session",
     "current-title",
+    "rename-session",
+    "rename-dialog",
+    "rename-form",
+    "task-name",
+    "rename-session-id",
+    "rename-error",
+    "rename-cancel",
+    "rename-reset",
     "timeline",
     "chat-status",
     "chat-detail",

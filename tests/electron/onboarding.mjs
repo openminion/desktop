@@ -194,6 +194,35 @@ async function check() {
       "PASS: first launch, discard without writes, independent CLI MiniMax defaults, missing-key validation, matching CLI-created model profiles, private key persistence and first configured chat.",
     );
 
+    const originalSession = (await evaluate("window.openminion.sessions.list({})")).value
+      .sessions[0];
+    const requestsBeforeRename = requests.length;
+    await evaluate("document.querySelector('#rename-session').click()");
+    assert.equal(await evaluate("document.querySelector('#rename-dialog').open"), true);
+    assert.equal(
+      await evaluate("document.querySelector('#rename-session-id').textContent"),
+      originalSession.sessionId,
+    );
+    await evaluate(
+      "document.querySelector('#task-name').value='Discarded name'; document.querySelector('#rename-cancel').click()",
+    );
+    await waitFor("!document.querySelector('#rename-dialog').open");
+    await evaluate(
+      "document.querySelector('#rename-session').click(); document.querySelector('#task-name').value='Release planning'",
+    );
+    await capture("06-rename-chat.png");
+    await evaluate("document.querySelector('#rename-form').requestSubmit()");
+    await waitFor("document.querySelector('#current-title').textContent === 'Release planning'");
+    assert.ok(
+      await evaluate(
+        "document.querySelector('#session-list').textContent.includes('Release planning')",
+      ),
+    );
+    assert.equal(requests.length, requestsBeforeRename);
+    const canonical = (await evaluate("window.openminion.sessions.list({})")).value.sessions[0];
+    assert.equal(canonical.sessionId, originalSession.sessionId);
+    assert.equal(canonical.title, originalSession.title);
+
     const seed = await runCommand(
       executable,
       [
@@ -220,6 +249,11 @@ async function check() {
     await new Promise((resolve) => window.webContents.once("did-finish-load", resolve));
     await waitFor("document.querySelectorAll('#session-list button').length >= 2");
     assert.equal(await evaluate("document.querySelector('#profile-dialog').open"), false);
+    assert.ok(
+      await evaluate(
+        "document.querySelector('#session-list').textContent.includes('Release planning')",
+      ),
+    );
     // The CLI-created session is newest and is selected by Desktop on load.
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Seed the CLI conversation')",
@@ -246,6 +280,31 @@ async function check() {
     assert.equal(JSON.parse(after.stdout).target, "cli-tools");
     console.log(
       "PASS: Desktop resumes a CLI-owned target without changing session identity; onboarding stays dismissed after configuration and reload.",
+    );
+    await evaluate(
+      "Array.from(document.querySelectorAll('#session-list button')).find(button => button.textContent === 'Release planning').click()",
+    );
+    await waitFor(
+      "document.querySelector('#timeline').textContent.includes('First configured chat') && !document.querySelector('#close-session').disabled",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#current-title').textContent"),
+      "Release planning",
+    );
+    await evaluate(
+      "document.querySelector('#rename-session').click(); document.querySelector('#rename-reset').click()",
+    );
+    await waitFor("!document.querySelector('#rename-dialog').open");
+    assert.equal(
+      await evaluate("document.querySelector('#current-title').textContent"),
+      originalSession.title || "Untitled task",
+    );
+    await evaluate("document.querySelector('#session-list button').click()");
+    await waitFor(
+      "document.querySelector('#timeline').textContent.includes('Continue the CLI conversation')",
+    );
+    console.log(
+      "PASS: local chat rename, cancel, reset and reload preserve canonical session IDs, names and conversation history without provider calls.",
     );
     // A profile created by core setup must remain editable in Desktop Settings.
     const current = (await evaluate("window.openminion.profiles.read()")).value;

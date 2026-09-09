@@ -51,6 +51,14 @@ restoring Desktop-only code in the OpenMinion package. The legacy typed HTTP
 client remains for its existing tests and shared validation; the live supervisor
 uses `CliClient` exclusively.
 
+## Local Chat Names
+
+Desktop stores user-chosen chat names in its persistent renderer storage, keyed
+by the canonical session ID. These are presentation labels only: they override
+visible titles without mutating OpenMinion session metadata or changing IDs used
+for turn submission, history, exports, or CLI resume. Reset removes the local label.
+No rename endpoint, new CLI command, or additional privileged bridge is introduced.
+
 ## Reports And Transcript Export
 
 Main reads authenticated `GET /v1/agents` and `GET /v1/tools`, projecting only
