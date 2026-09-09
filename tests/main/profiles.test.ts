@@ -61,6 +61,97 @@ async function setup() {
 }
 
 describe("profile settings", () => {
+  it("offers setup for empty profiles and uses the CLI catalog and setup owner with private credentials", async () => {
+    const { profiles, path, run, config } = await setup();
+    await writeFile(path, JSON.stringify({ ...config, default_agent: "", agents: {} }));
+    const initial = await profiles.read();
+    expect(initial).toMatchObject({ setupRequired: true, agents: [] });
+    run.mockImplementation(async (_exe, args, _timeout, environment) => {
+      if (args.includes("--list-providers"))
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout:
+            "Supported setup providers:\n\nminimax: MiniMax\n  Credential: MINIMAX_API_KEY\n  Endpoint: https://api.minimax.io/v1\n  Recommended models: MiniMax-M2.7\n\n",
+        };
+      const candidate = args[args.indexOf("--config") + 1];
+      const value = JSON.parse(await readFile(candidate, "utf8"));
+      if (args.includes("setup")) {
+        expect(args).toContain("--no-chat");
+        expect(args).not.toContain("--check-provider");
+        expect(args.join(" ")).not.toContain("new-secret");
+        expect(environment).toEqual({ MINIMAX_API_KEY: "new-secret" });
+        value.default_agent = "openminion";
+        value.agents = { openminion: { name: "openminion", provider: "openai" } };
+        value.providers.openai.api_key_env = "MINIMAX_API_KEY";
+        await writeFile(candidate, JSON.stringify(value));
+      }
+      return { exitCode: 0, stderr: "", stdout: JSON.stringify(value) };
+    });
+    expect(await profiles.presets("openminion")).toEqual([
+      {
+        id: "minimax",
+        label: "MiniMax",
+        requiresKey: true,
+        model: "MiniMax-M2.7",
+        baseUrl: "https://api.minimax.io/v1",
+      },
+    ]);
+    const saved = await profiles.setup(
+      {
+        revision: initial.revision,
+        presetId: "minimax",
+        model: "MiniMax-M2.7",
+        baseUrl: "https://api.minimax.io/v1",
+        apiKey: "new-secret",
+      },
+      "openminion",
+    );
+    expect(saved).toMatchObject({ setupRequired: false, agents: [{ keyConfigured: true }] });
+    expect(JSON.stringify(saved)).not.toContain("new-secret");
+    const written = JSON.parse(await readFile(path, "utf8"));
+    expect(written.storage).toEqual(config.storage);
+    expect(written.runtime.ipc_token).toBe(config.runtime.ipc_token);
+    expect(written.runtime.env.MINIMAX_API_KEY).toBe("new-secret");
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  it("keeps the original config when CLI setup fails and removes its private candidate", async () => {
+    const { profiles, path, run, root, config } = await setup();
+    const original = JSON.stringify({
+      ...config,
+      default_agent: "openminion",
+      agents: { openminion: { provider: "echo" } },
+    });
+    await writeFile(path, original);
+    run.mockImplementation(async (_exe, args) =>
+      args.includes("--list-providers")
+        ? {
+            exitCode: 0,
+            stderr: "",
+            stdout:
+              "minimax: MiniMax\n  Credential: MINIMAX_API_KEY\n  Endpoint: https://api.minimax.io/v1\n  Recommended models: MiniMax-M2.7\n",
+          }
+        : { exitCode: 2, stderr: "private-error", stdout: "" },
+    );
+    const input = {
+      revision: (await profiles.read()).revision,
+      presetId: "minimax",
+      model: "m",
+      baseUrl: "https://api.minimax.io/v1",
+      apiKey: "new-secret",
+    };
+    await expect(profiles.setup(input, "openminion")).rejects.toThrow("setup_failed");
+    expect(await readFile(path, "utf8")).toBe(original);
+    expect((await readdir(root)).filter((name) => name.includes(".setup-"))).toEqual([]);
+    await expect(profiles.setup({ ...input, apiKey: "" }, "openminion")).rejects.toThrow(
+      "invalid_request",
+    );
+    await expect(profiles.setup({ ...input, presetId: "--help" }, "openminion")).rejects.toThrow(
+      "invalid_request",
+    );
+  });
+
   it("loads and saves a first-run echo profile without an explicit default", async () => {
     const { profiles, path, input } = await setup();
     await writeFile(

@@ -87,6 +87,20 @@ All canonical command families need coverage:
 | `/clear`, `/cls`, `/copy`, `/quiet`, `/normal`, `/verbose`, `/details`, `/expand` | Canonical transcript content and presentation semantics |
 | `/status`, `/theme`, `/statusline`, `/export`, `/editor`, `/exit`, `/quit` | Status, presentation preferences, supported guidance, and exit intent |
 
+## Connected Setup And Session Identity
+
+First-launch onboarding reads the installed CLI's `setup --list-providers`
+catalog and invokes fixed `setup --no-chat` arguments against a private candidate
+config. Core owns provider defaults and profile construction. Desktop validates
+and applies that config through its existing Settings lifecycle. Existing
+configured agents use Settings or profile import; onboarding does not implement
+the full CLI multi-model setup surface.
+
+Saved-session sends read `sessions show --json` and retain its agent, channel,
+and target. Desktop continues CLI-created conversations without rebinding them
+to the identity used for new GUI sessions. Working-directory scope and the
+broader `/resume` picker remain separate gaps.
+
 ## Connected Task Controls
 
 On pinned PyPI 0.0.18, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`

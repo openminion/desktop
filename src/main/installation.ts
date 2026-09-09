@@ -14,6 +14,7 @@ export type RunCommand = (
   executable: string,
   args: readonly string[],
   timeoutMs: number,
+  environment?: Record<string, string>,
 ) => Promise<CommandResult>;
 
 export type OpenMinionInstallationOptions = {
@@ -104,12 +105,17 @@ export function runCommand(
   executable: string,
   args: readonly string[],
   timeoutMs: number,
+  environment?: Record<string, string>,
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
     execFile(
       executable,
       [...args],
-      { timeout: timeoutMs, maxBuffer: 1024 * 1024 },
+      {
+        timeout: timeoutMs,
+        maxBuffer: 1024 * 1024,
+        ...(environment ? { env: { ...process.env, ...environment } } : {}),
+      },
       (error, stdout, stderr) => {
         resolve({
           exitCode: typeof error?.code === "number" ? error.code : error ? null : 0,

@@ -313,6 +313,8 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.tasksControl,
       IPC_CHANNELS.copyText,
       IPC_CHANNELS.profilesRead,
+      IPC_CHANNELS.profilesPresets,
+      IPC_CHANNELS.profilesSetup,
       IPC_CHANNELS.profilesSave,
       IPC_CHANNELS.profilesImport,
       IPC_CHANNELS.daemonStatus,
@@ -367,6 +369,8 @@ describe("desktop main boundary", () => {
     for (const channel of [
       IPC_CHANNELS.tasksControl,
       IPC_CHANNELS.profilesRead,
+      IPC_CHANNELS.profilesPresets,
+      IPC_CHANNELS.profilesSetup,
       IPC_CHANNELS.profilesSave,
       IPC_CHANNELS.profilesImport,
     ]) {

@@ -13,11 +13,23 @@
   <body>
     <dialog id="profile-dialog" class="settings-dialog" aria-labelledby="settings-title">
       <div class="settings-heading">
-        <div><p class="eyebrow">Settings</p><h2 id="settings-title">Agent profiles</h2></div>
+        <div><p id="settings-eyebrow" class="eyebrow">Settings</p><h2 id="settings-title">Agent profiles</h2></div>
         <button id="close-settings" type="button" class="icon-only-button" aria-label="Close settings">×</button>
       </div>
-      <p class="settings-note">Use the same profiles as Focus and CLI. Finish running chats before applying changes; OpenMinion will restart.</p>
+      <p id="profile-intro" class="settings-note">Use the same profiles as Focus and CLI. Finish running chats before applying changes; OpenMinion will restart.</p>
       <form id="profile-form">
+        <fieldset id="setup-fields" hidden>
+          <legend>Set up your first agent</legend>
+          <label for="setup-provider">Provider</label>
+          <select id="setup-provider"></select>
+          <div class="settings-grid">
+            <div><label for="setup-model">Model</label><input id="setup-model" maxlength="2048" required /></div>
+            <div><label for="setup-endpoint">Provider URL</label><input id="setup-endpoint" type="url" maxlength="2048" spellcheck="false" required /></div>
+          </div>
+          <label for="setup-key">API key</label>
+          <input id="setup-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
+          <p class="settings-note">Your first message tests the connection. Setup does not make a paid model request.</p>
+        </fieldset>
         <fieldset id="profile-fields" disabled>
           <legend class="sr-only">Profile settings</legend>
           <label for="profile-agent">Agent</label>
@@ -39,11 +51,12 @@
         </fieldset>
         <p id="profile-status" class="settings-note" role="status" aria-live="polite"></p>
         <div class="settings-actions">
+          <button id="setup-demo" class="quiet-button" type="button" hidden>Try echo demo</button>
           <button id="profile-import" class="quiet-button" type="button" disabled>Import profiles…</button>
           <button id="profile-save" type="submit" disabled>Save and apply</button>
         </div>
       </form>
-      <p class="settings-note">Import adds profiles, replaces matching agent IDs, and merges runtime keys. Desktop’s connection and conversation storage stay in place. JSON files only.</p>
+      <p id="profile-import-note" class="settings-note">Import adds profiles, replaces matching agent IDs, and merges runtime keys. Desktop’s connection and conversation storage stay in place. JSON files only.</p>
       <p class="settings-note">Keys are saved in your private local OpenMinion configuration. Leave a key blank to keep it. Close discards unsaved edits.</p>
     </dialog>
     <main class="shell">

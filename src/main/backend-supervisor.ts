@@ -67,6 +67,19 @@ export class DaemonSupervisor {
     }
   }
 
+  async setupPresets() {
+    if (!this.profiles || !this.#executable)
+      return failure(
+        "setup_unavailable",
+        "Wait for OpenMinion to finish starting, then reopen Settings.",
+      );
+    try {
+      return { ok: true as const, value: await this.profiles.presets(this.#executable) };
+    } catch (error) {
+      return failureFrom(error);
+    }
+  }
+
   async applyProfiles(
     save: (profiles: Profiles, executable: string) => Promise<ProfileSettings>,
   ): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus }>> {

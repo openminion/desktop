@@ -7,6 +7,8 @@ import {
   TOOL_CREDENTIALS,
   type ProfileSaveInput,
   type ProfileSettings,
+  type SetupPreset,
+  type ProfileSetupInput,
 } from "../shared/profiles.js";
 
 type Config = Record<string, unknown>;
@@ -30,6 +32,121 @@ export class Profiles {
   async read(): Promise<ProfileSettings> {
     const text = await readFile(this.configPath, "utf8");
     return settings(requireRecord(JSON.parse(text)), revision(text));
+  }
+
+  async presets(executable: string): Promise<SetupPreset[]> {
+    return (await this.#presets(executable)).map(({ credentialEnv: _, ...preset }) => preset);
+  }
+
+  async #presets(executable: string) {
+    const result = await this.run(executable, ["setup", "--list-providers"], 30_000);
+    if (result.exitCode !== 0)
+      throw protocolError("setup_unavailable", "OpenMinion could not list setup providers.");
+    // This is the pinned CLI's public text listing; provider defaults stay owned by core.
+    const presets = [
+      ...result.stdout.matchAll(/^([a-z0-9-]+): ([^\n]+)\n((?:[ \t]+[^\n]*\n|\n)*)/gm),
+    ].map((match) => {
+      const credential = match[3].match(/^ {2}Credential: (.+)$/m)?.[1] ?? "";
+      const credentialEnv = credential === "not required" ? "" : credential;
+      if (!credential || (credentialEnv && !/^[A-Z][A-Z0-9_]*_API_KEY$/.test(credentialEnv)))
+        throw protocolError(
+          "setup_unavailable",
+          "OpenMinion returned an unsupported credential binding.",
+        );
+      const endpoint = match[3].match(/^ {2}Endpoint: (.+)$/m)?.[1] ?? "";
+      return {
+        id: match[1],
+        label: match[2],
+        credentialEnv,
+        requiresKey: Boolean(credentialEnv),
+        baseUrl: /^https?:\/\//.test(endpoint) ? endpoint : "",
+        model: match[3].match(/^ {2}Recommended models: ([^,\n]+)/m)?.[1] ?? "",
+      };
+    });
+    if (!presets.length)
+      throw protocolError(
+        "setup_unavailable",
+        "This OpenMinion version does not provide setup choices.",
+      );
+    return presets;
+  }
+
+  async setup(input: unknown, executable: string): Promise<ProfileSettings> {
+    const value = requireRecord(input);
+    if (
+      Object.keys(value).some(
+        (key) => !["revision", "presetId", "model", "baseUrl", "apiKey"].includes(key),
+      )
+    )
+      throw protocolError("invalid_request", "Unknown setup field.");
+    for (const name of ["revision", "presetId", "model", "baseUrl", "apiKey"])
+      if (
+        typeof value[name] !== "string" ||
+        String(value[name]).length > (name === "apiKey" ? 16_384 : 2048)
+      )
+        throw protocolError("invalid_request", "Enter valid setup fields.");
+    const request = value as ProfileSetupInput;
+    validateEndpoint(request.baseUrl);
+    if (!request.model.trim() || request.model.startsWith("-"))
+      throw protocolError("invalid_request", "Enter a model name.");
+    const text = await readFile(this.configPath, "utf8");
+    if (revision(text) !== request.revision)
+      throw protocolError(
+        "settings_changed",
+        "Settings changed elsewhere. Reopen Settings before setup.",
+      );
+    const config = requireRecord(JSON.parse(text));
+    const view = settings(config, revision(text));
+    if (!view.setupRequired)
+      throw protocolError(
+        "invalid_request",
+        "An agent is already configured. Use its settings or import another profile.",
+      );
+    const preset = (await this.#presets(executable)).find((item) => item.id === request.presetId);
+    if (!preset)
+      throw protocolError("invalid_request", "Choose a provider from OpenMinion's setup list.");
+    if (preset.requiresKey && !request.apiKey.trim())
+      throw protocolError("invalid_request", "Enter the provider API key.");
+    const candidate = `${this.configPath}.setup-${randomUUID()}.json`;
+    try {
+      await writeFile(candidate, text, { mode: 0o600, flag: "wx" });
+      const environment = preset.credentialEnv
+        ? { [preset.credentialEnv]: request.apiKey.trim() }
+        : {};
+      const result = await this.run(
+        executable,
+        [
+          "--home-root",
+          this.homeRoot,
+          "--data-root",
+          this.dataRoot,
+          "--config",
+          candidate,
+          "setup",
+          "--no-chat",
+          "--provider",
+          preset.id,
+          "--agent",
+          view.defaultAgent || "openminion",
+          "--model",
+          request.model.trim(),
+          "--base-url",
+          request.baseUrl,
+        ],
+        30_000,
+        environment,
+      );
+      if (result.exitCode !== 0)
+        throw protocolError(
+          "setup_failed",
+          "OpenMinion could not validate setup. Check the provider, model, URL, and key.",
+        );
+      const configured = requireRecord(JSON.parse(await readFile(candidate, "utf8")));
+      this.#setRuntime(configured, { ...runtimeEnv(configured), ...environment });
+      return this.#write(configured, text, executable);
+    } finally {
+      await rm(candidate, { force: true });
+    }
   }
 
   async save(input: unknown, executable: string): Promise<ProfileSettings> {
@@ -241,7 +358,8 @@ function providerConfig(config: Config, agent: Config): Config {
 }
 
 function defaultAgent(config: Config): string {
-  const ids = Object.keys(requireRecord(config.agents));
+  const ids = Object.keys(record(config.agents));
+  if (!ids.length) return "";
   if (ids.length === 1) return ids[0];
   if (typeof config.default_agent !== "string" || !ids.includes(config.default_agent))
     throw protocolError(
@@ -253,10 +371,12 @@ function defaultAgent(config: Config): string {
 
 function settings(config: Config, hash: string): ProfileSettings {
   const env = runtimeEnv(config);
+  const selected = defaultAgent(config);
   return {
+    setupRequired: !selected || record(record(config.agents)[selected]).provider === "echo",
     revision: hash,
     defaultAgent: defaultAgent(config),
-    agents: Object.entries(requireRecord(config.agents)).map(([id, entry]) => {
+    agents: Object.entries(record(config.agents)).map(([id, entry]) => {
       const agent = requireRecord(entry);
       const provider = providerConfig(config, agent);
       if (typeof provider.base_url === "string" && provider.base_url)

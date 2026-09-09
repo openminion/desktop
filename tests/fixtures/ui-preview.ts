@@ -180,6 +180,7 @@ function finish(body: string, outcome: "complete" | "cancelled" = "complete") {
   turnListener({ schemaVersion: 1, kind: "done", sessionId: input.sessionId, traceId, outcome });
 }
 const profileSettings = {
+  setupRequired: false,
   revision: "a".repeat(64),
   defaultAgent: "sample",
   agents: [
@@ -207,6 +208,16 @@ const api: NativeApi = {
     }),
   },
   profiles: {
+    presets: async () => ok([]),
+    setup: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Setup requires OpenMinion.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
     read: async () => ok(profileSettings),
     save: async (input) => {
       Object.assign(profileSettings.agents[0], {

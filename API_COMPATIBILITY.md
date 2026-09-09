@@ -62,6 +62,13 @@ persistence. Desktop does not write task records or implement lifecycle rules.
 
 ## Profile Configuration
 
+First-launch setup discovers choices through `setup --list-providers` and invokes
+the installed CLI's `setup --no-chat` against a private candidate configuration.
+The selected preset, model, URL, and write-only key are bounded inputs; credentials
+reach setup in its child environment, never shell text or command arguments.
+The existing Settings apply path validates and installs the result. This uses
+core's profile builder without copying its provider catalog into Desktop.
+
 Desktop main edits its existing OpenMinion JSON config through a bounded Settings
 form and a native JSON import picker. Only editable profile metadata and key
 presence flags cross to the renderer. Replacement credentials travel to main as

@@ -84,6 +84,10 @@ async function check() {
       await evaluate("document.querySelector('#command-panel').hidePopover()");
     };
     await waitFor("document.querySelector('#connection-label').textContent === 'Connected'");
+    await waitFor(
+      "document.querySelector('#profile-dialog').open && document.querySelector('#setup-provider').options.length > 0 && !document.querySelector('#setup-demo').disabled",
+    );
+    await evaluate("document.querySelector('#setup-demo').click()");
     await fill("   ");
     assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
     await fill("First line");

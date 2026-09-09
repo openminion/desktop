@@ -328,9 +328,14 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
         );
       if (this.#active.has(value.sessionId))
         return failure("session_turn_active", "A turn is already active for this session.");
-      const loaded = await this.load({ sessionId: value.sessionId, messageLimit: 1 });
-      if (!loaded.ok) return loaded;
-      if (loaded.value.session.status === "closed")
+      const draft = this.#drafts.get(value.sessionId);
+      const details = draft
+        ? null
+        : requireRecord(await this.#json(["sessions", "show", value.sessionId, "--json"]));
+      const session = draft ?? summary(details!, true);
+      if (session.sessionId !== value.sessionId)
+        throw protocolError("invalid_daemon_response", "The returned session does not match.");
+      if (session.status === "closed")
         return failure("session_closed", "The selected session is closed.");
       // Reserve before endpoint discovery so a second send cannot race admission.
       this.#requireContext();
@@ -354,10 +359,10 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
       const body = JSON.stringify({
         trace_id: traceId,
         session_id: value.sessionId,
-        agent_id: loaded.value.session.activeAgentId ?? endpoint.defaultAgent,
+        agent_id: session.activeAgentId ?? endpoint.defaultAgent,
         input_text: value.message,
-        channel: "console",
-        user: "api-user",
+        channel: details ? requireString(details.channel) : "console",
+        user: details ? requireString(details.target) : "api-user",
         stream: true,
         deliver: false,
         idempotency_key: randomUUID(),

@@ -127,8 +127,12 @@ npm start
 ```
 
 The first launch installs `openminion==0.0.18` into Desktop's application data,
-creates a credential-free echo config, and starts an isolated daemon. Later
-launches reuse the environment when its installed version matches the pin.
+creates a private initial config, and starts an isolated daemon. A setup screen
+offers OpenMinion's provider choices, including MiniMax, model and API-key fields,
+profile import, or an explicit echo demo. Setup uses the ordinary CLI setup
+command and restarts the daemon with the saved profile. The first message tests
+the model connection; saving setup does not make a paid provider request.
+Later launches reuse the environment when its installed version matches the pin.
 
 For source development, bypass the managed PyPI installation with an explicit
 executable:

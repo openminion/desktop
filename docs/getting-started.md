@@ -64,14 +64,20 @@ The executable must provide the ordinary `config init` and `daemon
 start/status/stop` commands. No Desktop-specific OpenMinion command is required.
 
 The real app supports text messages, saved history, task closing, and turn
-cancellation through the ordinary CLI/API. New installations use the **echo demo
-provider**, which repeats input without calling a model. Configure a real provider
-in **Settings → Agent profiles**, using your existing OpenMinion profile JSON. Use `npm run preview` for sample approval, file,
+cancellation through the ordinary CLI/API. New installations open **Welcome to
+OpenMinion**. Choose a provider, enter its model and API key, and click **Set up
+and start**, or import an existing profile. Provider choices and defaults come
+from the installed CLI's setup command. **Try echo demo** repeats input without
+calling a model; setup appears again on the next launch until a real profile is
+configured. Saving setup does not contact the model provider; the first message
+tests access. Use `npm run preview` for sample approval, file,
 artifact, and screen-context interactions that are not connected to PyPI yet.
 
 ## Agent Profiles and Keys
 
 Click **Settings** above the connection indicator in the sidebar.
+When the default profile is missing a key required by its provider, Desktop also
+opens Settings on startup so you can complete it before chatting.
 
 1. Use **Import profiles…** to choose an existing Focus/CLI profile JSON file.
    Import adds agents and replaces matching agent IDs. It keeps Desktop's
@@ -99,7 +105,7 @@ their provider configuration, environment entries ending in `_API_KEY`, the
 profile's brain limits for elapsed time, ticks, LLM tokens and tool calls, and
 `OPENMINION_WEB_SEARCH_PROVIDER`. It does not import daemon addresses, access
 tokens, storage paths, or arbitrary process environment settings. YAML imports,
-creating profiles from templates, and editing prompts or policy are not yet in
+adding multiple model connections, and editing prompts or policy are not yet in
 this form; use the existing Focus/CLI configuration workflow for those fields.
 The pinned PyPI runtime uses agent names as identities, so imported `name` values
 must match their agent IDs. Settings preserves those names when editing a model

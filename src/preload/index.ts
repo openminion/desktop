@@ -17,6 +17,8 @@ const api: NativeApi = {
     control: (input) => ipcRenderer.invoke(IPC_CHANNELS.tasksControl, input),
   },
   profiles: {
+    presets: () => ipcRenderer.invoke(IPC_CHANNELS.profilesPresets),
+    setup: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesSetup, input),
     read: () => ipcRenderer.invoke(IPC_CHANNELS.profilesRead),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesSave, input),
     import: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesImport, input),

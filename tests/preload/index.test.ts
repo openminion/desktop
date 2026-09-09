@@ -47,7 +47,7 @@ describe("preload surface", () => {
       action: "list",
     });
     invoke.mockClear();
-    expect(Object.keys(api.profiles)).toEqual(["read", "save", "import"]);
+    expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);
     expect(Object.keys(api.app)).toEqual(["copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["status", "retry"]);
     expect(Object.keys(api.sessions)).toEqual(["list", "create", "load", "close", "events"]);
@@ -71,6 +71,10 @@ describe("preload surface", () => {
     expect(api).not.toHaveProperty("invoke");
 
     await api.profiles.read();
+    await api.profiles.presets();
+    await api.profiles.setup({ presetId: "minimax" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesPresets);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSetup, { presetId: "minimax" });
     await api.profiles.save({ agentId: "writer" });
     await api.profiles.import({ revision: "a".repeat(64) });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesRead);

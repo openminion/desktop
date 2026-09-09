@@ -386,6 +386,9 @@ describe("PyPI CLI client", () => {
       }),
     );
     expect(fixture.requests[0]?.body.agent_id).toBe("writer");
+    expect(fixture.requests[0]?.body.user).toBe("cli-tools");
+    expect(fixture.requests[0]?.body.channel).toBe("console");
+    expect(fixture.requests[0]?.body.deliver).toBe(false);
   });
 
   it("rejects cross-session stream identity and never exposes child stderr", async () => {
@@ -534,7 +537,7 @@ const output = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
 process.stderr.write('private-stderr');
 if (args[0] === 'config') output({default_agent:'writer',runtime:{ipc_token:'test-private-token'}});
 else if (args[0] === 'daemon') output({reachable:true,host:'127.0.0.1',port:${address.port}});
-else if (args[0] === 'sessions') output({id:args[2],status:'active',agent:'writer',metadata:{},created_at:now,updated_at:now});
+else if (args[0] === 'sessions') output({id:args[2],status:'active',channel:'console',target:'cli-tools',agent:'writer',metadata:{},created_at:now,updated_at:now});
 else if (args[0] === 'export') output({type:'message',id:'reply',role:'outbound',body:'Reply',created_at:now});
 else process.exit(1);
 `,

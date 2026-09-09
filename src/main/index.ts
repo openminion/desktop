@@ -212,6 +212,14 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.profilesRead, (event) =>
     isAppInvocation(event) ? supervisor.readProfiles() : forbiddenResult(),
   );
+  ipcMain.handle(IPC_CHANNELS.profilesPresets, (event) =>
+    isAppInvocation(event) ? supervisor.setupPresets() : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.profilesSetup, (event, input: unknown) =>
+    isAppInvocation(event)
+      ? supervisor.applyProfiles((profiles, executable) => profiles.setup(input, executable))
+      : forbiddenResult(),
+  );
   ipcMain.handle(IPC_CHANNELS.profilesSave, (event, input: unknown) =>
     isAppInvocation(event)
       ? supervisor.applyProfiles((profiles, executable) => profiles.save(input, executable))

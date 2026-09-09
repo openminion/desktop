@@ -18,10 +18,27 @@ export type AgentProfile = {
 };
 
 export type ProfileSettings = {
+  setupRequired: boolean;
   revision: string;
   defaultAgent: string;
   agents: AgentProfile[];
   credentials: { name: string; configured: boolean }[];
+};
+
+export type SetupPreset = {
+  id: string;
+  label: string;
+  baseUrl: string;
+  model: string;
+  requiresKey: boolean;
+};
+
+export type ProfileSetupInput = {
+  revision: string;
+  presetId: string;
+  model: string;
+  baseUrl: string;
+  apiKey: string;
 };
 
 export type ProfileSaveInput = {

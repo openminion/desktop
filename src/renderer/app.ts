@@ -1760,7 +1760,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderChat();
   };
 
-  mountProfiles(api, root, renderStatus);
+  const profiles = mountProfiles(api, root, (status) => {
+    renderStatus(status);
+    if (daemonReady) void loadSessions();
+  });
 
   const refresh = async (): Promise<void> => {
     let status = await api.daemon.status();
@@ -1772,6 +1775,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (daemonReady) {
       await loadSessions();
     }
+    await profiles?.checkSetup();
   };
 
   const acceptGuidanceTurnEvent = (event: TurnEventV1) => {

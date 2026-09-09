@@ -7,6 +7,12 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Added first-launch agent setup using OpenMinion's provider catalog and setup
+  command, with profile import and an explicit echo demo option. Configured
+  profiles missing a required model key open Settings for completion.
+- Fixed sending to CLI-created conversations by preserving their saved channel
+  and target instead of assigning Desktop's new-session identity.
+
 - Connected `/tasks` and `/task` to OpenMinion task inventory, inspection, pause,
   resume, and cancellation through the public CLI. Controls follow core-reported
   actions and preserve canonical agent/session scope; Desktop owns no task state.
