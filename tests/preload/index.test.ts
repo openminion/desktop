@@ -27,6 +27,7 @@ describe("preload surface", () => {
     const [name, api] = exposeInMainWorld.mock.calls[0];
     expect(name).toBe("openminion");
     expect(Object.keys(api)).toEqual([
+      "chatNames",
       "reports",
       "tasks",
       "profiles",
@@ -41,6 +42,14 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
+    expect(Object.keys(api.chatNames)).toEqual(["load", "save"]);
+    await api.chatNames.load([]);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.chatNamesLoad, []);
+    await api.chatNames.save({ sessionId: "session-1", title: "Planning" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.chatNamesSave, {
+      sessionId: "session-1",
+      title: "Planning",
+    });
     expect(Object.keys(api.reports)).toEqual(["read"]);
     await api.reports.read({ kind: "tools" });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reportsRead, { kind: "tools" });

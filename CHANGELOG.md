@@ -7,6 +7,11 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Save Desktop chat names in SQLite under `~/.openminion/desktop`, with one-time
+  migration from browser storage. Source and packaged launches share a stable
+  root; existing Python environments and profiles remain at their recorded
+  locations. Schema version checks preserve data across compatible upgrades.
+
 - Connected Focus agent/tool inventories, durable token reports, and Markdown
   conversation export through existing public OpenMinion operations.
 - Show daemon progress details and time since the last update during quiet waits.

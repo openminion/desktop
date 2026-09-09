@@ -40,6 +40,11 @@ export destinations remain in the native save dialog and main process.
 The managed executable, roots, config path, and
 credentials remain main-only facts.
 
+`src/main/bootstrap.ts` chooses stable packaged-app paths before Electron is ready
+and admits one app instance per Desktop root. `src/main/desktop-store.ts` owns
+SQLite schema versioning, legacy chat-name import and Desktop presentation data.
+It records existing runtime locations without moving core-owned files.
+
 Cross-process changes must preserve the main/preload/renderer authority split
 and update focused tests plus [API_COMPATIBILITY.md](../API_COMPATIBILITY.md)
 when the daemon boundary changes.

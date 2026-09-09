@@ -44,6 +44,20 @@ notarization, installation, updating, rollback, or release readiness.
 The command rejects an application archive containing repository-only files,
 development dependencies, local `.openminion` state, source, or tests.
 
+## Desktop Storage
+
+After building, run the native migration and restart check:
+
+```bash
+node tests/electron/storage.mjs
+```
+
+It seeds legacy Electron browser storage in an isolated home, launches the real
+bootstrap, and checks SQLite import, saved names after an app restart, reset
+without stale-name resurrection, and reuse of existing runtime paths. It needs
+no provider credentials. The normal Vitest gate covers atomic rollback, invalid
+bridge input, future schemas and corrupt-file preservation.
+
 ## Native Capture
 
 Run from a macOS session with Screen Recording permission:

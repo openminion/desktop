@@ -11,7 +11,7 @@ import {
   waitingTime,
   listArtifacts,
   listSessions,
-  mount,
+  mount as mountRenderer,
   observationStatusCopy,
   readArtifact,
   recoverSession,
@@ -30,6 +30,27 @@ import type {
   SessionSummaryV1,
   TurnEventV1,
 } from "../../src/shared/contracts.js";
+
+function mount(api: NativeApi, root: Document): Promise<void> {
+  api.chatNames ??= namesApi();
+  return mountRenderer(api, root);
+}
+
+function namesApi(): NativeApi["chatNames"] {
+  const names = new Map<string, string>();
+  return {
+    load: async (legacyNames) => {
+      for (const { sessionId, title } of legacyNames)
+        if (!names.has(sessionId)) names.set(sessionId, title);
+      return { ok: true, value: [...names].map(([sessionId, title]) => ({ sessionId, title })) };
+    },
+    save: async ({ sessionId, title }) => {
+      if (title === null) names.delete(sessionId);
+      else names.set(sessionId, title);
+      return { ok: true, value: null };
+    },
+  };
+}
 
 describe("renderer computer observation", () => {
   it("validates percentage regions and uses safe lifecycle copy", () => {
@@ -154,7 +175,10 @@ describe("renderer status view", () => {
     vi.stubGlobal("window", { addEventListener: vi.fn() });
     try {
       const page = new FixtureDocument();
+      page.names.set("openminion.task-name:session-1", "Imported name");
       await mount(api, page.asDocument());
+      expect(page.element("current-title").textContent).toBe("Imported name");
+      expect(page.names.size).toBe(0);
       page.element("rename-session").click();
       expect(page.element("rename-session-id").textContent).toBe("session-1");
       page.element("task-name").value = "Discard this";
@@ -166,7 +190,9 @@ describe("renderer status view", () => {
       expect(page.element("rename-error").textContent).toContain("Enter a name");
       page.element("task-name").value = "  Release planning  ";
       page.element("rename-form").dispatch("submit");
-      expect(page.element("current-title").textContent).toBe("Release planning");
+      await vi.waitFor(() =>
+        expect(page.element("current-title").textContent).toBe("Release planning"),
+      );
       expect(page.sessionButtons()[0]?.textContent).toBe("Release planning");
       expect(page.findText()).toContain("Saved reply");
       expect(sessions[0]?.title).toBe("Recovered chat");
@@ -183,18 +209,47 @@ describe("renderer status view", () => {
       expect(reloaded.element("current-title").textContent).toBe("Release planning");
       reloaded.element("rename-session").click();
       reloaded.element("task-name").value = "Unsaved name";
-      const write = vi
-        .spyOn(reloaded.defaultView.localStorage, "setItem")
-        .mockImplementation(() => {
-          throw new Error("quota");
-        });
+      const write = vi.spyOn(api.chatNames, "save").mockResolvedValue({
+        ok: false,
+        error: {
+          code: "storage_unavailable",
+          message: "Could not save the name on this device. Try again.",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
       reloaded.element("rename-form").dispatch("submit");
-      expect(reloaded.element("rename-error").textContent).toContain("Could not save");
+      await vi.waitFor(() =>
+        expect(reloaded.element("rename-error").textContent).toContain("Could not save"),
+      );
       expect(reloaded.element("rename-dialog").open).toBe(true);
       expect(reloaded.element("current-title").textContent).toBe("Release planning");
       write.mockRestore();
+      const persist = api.chatNames.save;
+      let finish!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const delayed = vi.spyOn(api.chatNames, "save").mockImplementation(async (input) => {
+        await pending;
+        return persist(input);
+      });
+      reloaded.element("task-name").value = "Saved late";
+      reloaded.element("rename-form").dispatch("submit");
+      reloaded.element("rename-cancel").click();
+      reloaded.element("rename-session").click();
+      reloaded.element("task-name").value = "New draft";
+      finish();
+      await vi.waitFor(() =>
+        expect(reloaded.element("current-title").textContent).toBe("Saved late"),
+      );
+      expect(reloaded.element("rename-dialog").open).toBe(true);
+      expect(reloaded.element("task-name").value).toBe("New draft");
+      delayed.mockRestore();
       reloaded.element("rename-reset").click();
-      expect(reloaded.element("current-title").textContent).toBe("Recovered chat");
+      await vi.waitFor(() =>
+        expect(reloaded.element("current-title").textContent).toBe("Recovered chat"),
+      );
       expect(reloaded.names.size).toBe(0);
       expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "session-1" }));
     } finally {
@@ -2726,6 +2781,7 @@ class FixtureDocument {
   readonly names = new Map<string, string>();
   readonly defaultView = {
     localStorage: {
+      key: (index: number) => [...this.names.keys()][index] ?? null,
       getItem: (key: string) => this.names.get(key) ?? null,
       setItem: (key: string, value: string) => {
         this.names.set(key, value);
@@ -2846,6 +2902,7 @@ class FixtureDocument {
   );
 
   constructor() {
+    Object.defineProperty(this.defaultView.localStorage, "length", { get: () => this.names.size });
     this.element("capture-source-kind").value = "display";
     this.element("capture-region-width").value = "100";
     this.element("capture-region-height").value = "100";

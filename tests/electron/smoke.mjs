@@ -7,6 +7,7 @@ import { app, BrowserWindow } from "electron";
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "openminion-electron-check-"));
 app.setPath("userData", temporaryRoot);
+process.env.OPENMINION_DESKTOP_HOME = temporaryRoot;
 process.env.OPENMINION_EXECUTABLE = join(temporaryRoot, "missing-openminion");
 const preloadErrors = [];
 const loaded = new Promise((resolve) => {
@@ -22,7 +23,7 @@ const timeout = setTimeout(() => {
   app.exit(1);
 }, 20000);
 
-await import("../../dist/src/main/index.js");
+await import("../../dist/src/main/bootstrap.js");
 void check();
 
 async function check() {

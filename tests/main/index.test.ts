@@ -310,6 +310,8 @@ describe("desktop main boundary", () => {
     );
     expect(observation.connectTurnOwner).toHaveBeenCalledOnce();
     expect([...mocks.ipcHandlers.keys()]).toEqual([
+      IPC_CHANNELS.chatNamesLoad,
+      IPC_CHANNELS.chatNamesSave,
       IPC_CHANNELS.tasksControl,
       IPC_CHANNELS.reportsRead,
       IPC_CHANNELS.sessionsExport,
@@ -369,6 +371,8 @@ describe("desktop main boundary", () => {
     });
     expect(client.controlTasks).toHaveBeenCalledWith({ sessionId: "session-1", action: "list" });
     for (const channel of [
+      IPC_CHANNELS.chatNamesLoad,
+      IPC_CHANNELS.chatNamesSave,
       IPC_CHANNELS.tasksControl,
       IPC_CHANNELS.reportsRead,
       IPC_CHANNELS.sessionsExport,

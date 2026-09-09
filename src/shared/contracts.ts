@@ -609,7 +609,13 @@ export type CaptureEventV1 =
   | { schemaVersion: 1; kind: "state"; value: CaptureStateV1 }
   | CaptureFrameV1;
 
+export type ChatName = { sessionId: string; title: string };
+
 export type NativeApi = {
+  chatNames: {
+    load(legacyNames: ChatName[]): Promise<ClientResult<ChatName[]>>;
+    save(input: { sessionId: string; title: string | null }): Promise<ClientResult<null>>;
+  };
   reports: {
     read(input: ReportInput): Promise<ClientResult<ReportValue>>;
   };
@@ -713,6 +719,8 @@ export const DESKTOP_CAPABILITIES = [
   "tool_outputs.read.v1",
 ] as const;
 export const IPC_CHANNELS = {
+  chatNamesLoad: "desktop:chat-names:load",
+  chatNamesSave: "desktop:chat-names:save",
   reportsRead: "openminion:reports:read",
   sessionsExport: "openminion:sessions:export",
   tasksControl: "openminion:tasks:control",

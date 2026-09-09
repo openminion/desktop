@@ -12,6 +12,7 @@ if (!executable)
   throw new Error("Set OPENMINION_PYPI_EXECUTABLE to an isolated PyPI installation.");
 const root = await mkdtemp(join(tmpdir(), "openminion-pypi-electron-"));
 app.setPath("userData", root);
+process.env.OPENMINION_DESKTOP_HOME = root;
 process.env.OPENMINION_EXECUTABLE = executable;
 const args = [
   "--home-root",
@@ -47,7 +48,7 @@ async function finish(code) {
     app.exit(code);
   }
 }
-await import("../../dist/src/main/index.js");
+await import("../../dist/src/main/bootstrap.js");
 void check();
 async function check() {
   try {

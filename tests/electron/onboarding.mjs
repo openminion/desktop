@@ -10,6 +10,7 @@ const executable = process.env.OPENMINION_PYPI_EXECUTABLE;
 if (!executable) throw new Error("Set OPENMINION_PYPI_EXECUTABLE to the isolated PyPI executable.");
 const root = await mkdtemp(join(tmpdir(), "desktop-onboarding-"));
 app.setPath("userData", root);
+process.env.OPENMINION_DESKTOP_HOME = root;
 process.env.OPENMINION_EXECUTABLE = executable;
 const args = [
   "--home-root",
@@ -68,7 +69,7 @@ async function finish(code) {
   await rm(root, { recursive: true, force: true });
   app.exit(code);
 }
-await import("../../dist/src/main/index.js");
+await import("../../dist/src/main/bootstrap.js");
 void check();
 async function check() {
   try {

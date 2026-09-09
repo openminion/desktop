@@ -195,7 +195,19 @@ const profileSettings = {
   ],
   credentials: [],
 };
+const previewNames = new Map<string, string>();
 const api: NativeApi = {
+  chatNames: {
+    load: async () => ({
+      ok: true,
+      value: [...previewNames].map(([sessionId, title]) => ({ sessionId, title })),
+    }),
+    save: async ({ sessionId, title }) => {
+      if (title === null) previewNames.delete(sessionId);
+      else previewNames.set(sessionId, title);
+      return { ok: true, value: null };
+    },
+  },
   reports: {
     read: async () => ({
       ok: false,

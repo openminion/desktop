@@ -126,13 +126,16 @@ Start the development app:
 npm start
 ```
 
-The first launch installs `openminion==0.0.18` into Desktop's application data,
+The first launch installs `openminion==0.0.18` under `~/.openminion/desktop`,
 creates a private initial config, and starts an isolated daemon. A setup screen
 offers OpenMinion's provider choices, including MiniMax, model and API-key fields,
 profile import, or an explicit echo demo. Setup uses the ordinary CLI setup
 command and restarts the daemon with the saved profile. The first message tests
 the model connection; saving setup does not make a paid provider request.
 Later launches reuse the environment when its installed version matches the pin.
+Desktop chat names live in SQLite; existing installations retain their recorded
+runtime locations. See [Desktop data](docs/getting-started.md#desktop-data) for
+storage, migration, and backup behavior.
 
 For source development, bypass the managed PyPI installation with an explicit
 executable:
@@ -153,7 +156,7 @@ that permission keeps chat available and observation unavailable.
 | Component | Responsibility |
 | --- | --- |
 | OpenMinion | Agent execution, sessions, messages, tools, policy, credentials, artifacts, and durable state |
-| Desktop main process | Daemon lifecycle, authenticated local communication, file grants, capture, and operating-system access |
+| Desktop main process | Desktop metadata, daemon lifecycle, authenticated local communication, file grants, capture, and operating-system access |
 | Desktop preload | Small typed bridge exposing fixed application operations |
 | Desktop renderer | Chat, session navigation, approvals, artifacts, and visible capture controls |
 

@@ -48,8 +48,7 @@ Start Desktop with:
 npm start
 ```
 
-On first launch, Desktop creates a Python environment under its application data
-directory, installs the pinned `openminion==0.0.18` PyPI package, initializes a
+On first launch, Desktop creates a Python environment under `~/.openminion/desktop/runtime`, installs the pinned `openminion==0.0.18` PyPI package, initializes a
 credential-free echo config, assigns an authenticated loopback daemon endpoint,
 and starts the daemon. Later launches reuse the environment while its version
 matches the pin.
@@ -72,6 +71,47 @@ calling a model; setup appears again on the next launch until a real profile is
 configured. Saving setup does not contact the model provider; the first message
 tests access. Use `npm run preview` for sample approval, file,
 artifact, and screen-context interactions that are not connected to PyPI yet.
+
+## Desktop Data
+
+New installations use the same location from source and from a packaged app:
+
+```text
+~/.openminion/desktop/
+  desktop.sqlite    Desktop chat names and recorded installation paths
+  browser/          Electron browser state and cache
+  logs/             Application logs
+  runtime/          Managed Python environment
+  agents.json       Core-managed agent profiles and credentials
+  data/             Core-managed conversations and runtime state
+```
+
+The database contains presentation metadata, not copies of conversations or API
+keys. Its schema version supports ordered future migrations. An app that finds
+a newer schema refuses to open it and asks for a compatible version; it never
+resets existing data. Replacing the application bundle preserves this directory.
+Signing, automatic updates, and cross-platform distribution are still pending.
+
+Existing installations keep their runtime and browser files in their previous
+Electron application-data directory (on macOS, normally
+`~/Library/Application Support/OpenMinion`). Desktop records and reuses those
+paths in the new database. It does not relocate Python environments or rewrite
+profiles. Browser-stored chat names import into SQLite on first use and are
+removed from browser storage only after success. The recorded import prevents
+leftover browser keys from restoring names that were subsequently reset.
+
+Quit Desktop completely before backing up its data. Copy the Desktop directory
+and, for an adopted installation, its previous application-data directory as
+well. Restore them to their original locations on the same machine. Removing
+just the application leaves user data intact; deleting these data directories
+also removes saved profiles and conversations. Database-only backups contain
+chat labels, not the canonical conversations.
+
+For an isolated development or test installation, set `OPENMINION_DESKTOP_HOME`
+to an absolute directory. This overrides the root and skips automatic adoption
+of the normal installation. `OPENMINION_EXECUTABLE` selects the executable only;
+it does not select the data directory. A second launch using the same Desktop
+root focuses the existing app instead of starting another managed daemon.
 
 ## Agent Profiles and Keys
 

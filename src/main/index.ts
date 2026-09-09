@@ -1,3 +1,4 @@
+import type { DesktopStore } from "./desktop-store.js";
 import { failure } from "./openminion-client.js";
 import {
   app,
@@ -56,7 +57,22 @@ export function registerIpcHandlers(
   files = new FileGrantService(supervisor.client, media),
   capture = new CaptureService(),
   observation = new ObservationService(capture, media),
+  store?: DesktopStore,
 ): void {
+  ipcMain.handle(IPC_CHANNELS.chatNamesLoad, (event, input: unknown) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.load(input)
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
+  ipcMain.handle(IPC_CHANNELS.chatNamesSave, (event, input: unknown) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.save(input)
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
   const dispatchDesktopTurn = async (
     input: TurnSubmitInput,
     sourceFrame: WebFrameMain | null,
@@ -785,6 +801,7 @@ export async function createWindow(
 
 export async function launchDesktop(
   supervisor = createDesktopSupervisor(app.getPath("userData")),
+  store?: DesktopStore,
 ): Promise<BrowserWindow> {
   const appSession = session.fromPartition("persist:openminion");
   const capturePlatform = new ElectronCapturePlatform(appSession);
@@ -796,7 +813,7 @@ export async function launchDesktop(
   activeFileGrants = files;
   activeCapture = capture;
   activeObservation = observation;
-  registerIpcHandlers(supervisor, media, files, capture, observation);
+  registerIpcHandlers(supervisor, media, files, capture, observation, store);
   registerAppProtocol(appSession, undefined, capture);
   let rendererCleanupStarted = false;
   const rendererLost = () => {
@@ -897,12 +914,3 @@ export function createDesktopSupervisor(userDataRoot: string): DaemonSupervisor 
     openminionExecutable: process.env.OPENMINION_EXECUTABLE,
   });
 }
-
-app.whenReady().then(() => {
-  const supervisor = createDesktopSupervisor(app.getPath("userData"));
-  registerQuitLifecycle(app, supervisor);
-  return launchDesktop(supervisor);
-});
-app.on("window-all-closed", () => {
-  app.quit();
-});

@@ -53,11 +53,16 @@ uses `CliClient` exclusively.
 
 ## Local Chat Names
 
-Desktop stores user-chosen chat names in its persistent renderer storage, keyed
-by the canonical session ID. These are presentation labels only: they override
-visible titles without mutating OpenMinion session metadata or changing IDs used
-for turn submission, history, exports, or CLI resume. Reset removes the local label.
-No rename endpoint, new CLI command, or additional privileged bridge is introduced.
+Desktop main stores user-chosen chat names in `desktop.sqlite`, keyed by the
+canonical session ID. The fixed `chatNames.load` and `chatNames.save` preload
+methods accept names only; the renderer cannot choose database paths or run SQL.
+These presentation labels override visible titles without mutating OpenMinion
+sessions or changing IDs used for turns, history, exports, or CLI resume. Reset
+removes the local label. Existing browser-stored labels migrate once, atomically.
+
+The database also records the installation's runtime and browser paths. Core
+still owns profiles, credentials, transcripts and execution state. See
+[Desktop Data](docs/getting-started.md#desktop-data) for locations and upgrade behavior.
 
 ## Reports And Transcript Export
 

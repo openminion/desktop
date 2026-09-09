@@ -32,6 +32,8 @@ if (unexpected.length > 0) {
 }
 
 const required = [
+  "/dist/src/main/bootstrap.js",
+  "/dist/src/main/desktop-store.js",
   "/dist/src/main/index.js",
   "/dist/src/preload/index.cjs",
   "/dist/src/preload/capture.cjs",

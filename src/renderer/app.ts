@@ -586,17 +586,51 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let sessions: SessionSummaryV1[] = [];
   let selected: SessionSummaryV1 | null = null;
   let renamingSession: SessionSummaryV1 | null = null;
-  const taskName = (session: SessionSummaryV1): string => {
-    try {
-      return (
-        root.defaultView!.localStorage.getItem(`openminion.task-name:${session.sessionId}`) ||
-        session.title ||
-        "Untitled task"
-      );
-    } catch {
-      return session.title || "Untitled task";
+  const legacyNames: { sessionId: string; title: string }[] = [];
+  const legacyKeys: string[] = [];
+  let legacyStorage: Storage | null = null;
+  let legacyReadFailed = false;
+  try {
+    legacyStorage = root.defaultView?.localStorage ?? null;
+    if (legacyStorage) {
+      for (let index = 0; index < legacyStorage.length; index += 1) {
+        const key = legacyStorage.key(index)!;
+        if (!key.startsWith("openminion.task-name:")) continue;
+        legacyKeys.push(key);
+        legacyNames.push({
+          sessionId: key.slice("openminion.task-name:".length),
+          title: legacyStorage.getItem(key)!,
+        });
+      }
     }
-  };
+  } catch {
+    // Retain legacy names when browser storage cannot be read; retry on next launch.
+    legacyStorage = null;
+    legacyReadFailed = true;
+  }
+  const savedNames = legacyReadFailed
+    ? {
+        ok: false as const,
+        error: { message: "Could not read existing chat names. Restart the app to try again." },
+      }
+    : await api.chatNames.load(legacyNames);
+  const names = new Map(
+    (savedNames.ok ? savedNames.value : legacyNames).map(({ sessionId, title }) => [
+      sessionId,
+      title,
+    ]),
+  );
+  if (savedNames.ok && legacyStorage) {
+    try {
+      for (const key of legacyKeys) legacyStorage.removeItem(key);
+    } catch {
+      // SQLite records the completed import, so a leftover key cannot restore a reset name.
+    }
+  }
+  const taskName = (session: SessionSummaryV1): string =>
+    names.get(session.sessionId) || session.title || "Untitled task";
+  let savingName = false;
+  let renameGeneration = 0;
   let daemonReady = false;
   let richContextReady = false;
   let creatingTask = false;
@@ -2055,10 +2089,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
   elements.renameSession.addEventListener("click", () => {
     if (!selected) return;
+    renameGeneration += 1;
     renamingSession = selected;
     elements.taskName.value = taskName(selected);
     elements.renameSessionId.textContent = selected.sessionId;
-    elements.renameError.textContent = "";
+    elements.renameError.textContent = savedNames.ok ? "" : savedNames.error.message;
     elements.renameDialog.showModal();
     elements.taskName.focus();
     elements.taskName.select();
@@ -2066,22 +2101,30 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.renameCancel.addEventListener("click", () => elements.renameDialog.close());
   elements.renameDialog.addEventListener("close", () => {
     if (elements.renameDialog.open) return;
+    renameGeneration += 1;
     renamingSession = null;
     elements.renameSession.focus();
   });
-  const saveTaskName = (name: string | null) => {
-    if (!renamingSession) return;
-    try {
-      const key = `openminion.task-name:${renamingSession.sessionId}`;
-      if (name === null) root.defaultView!.localStorage.removeItem(key);
-      else root.defaultView!.localStorage.setItem(key, name);
-    } catch {
-      elements.renameError.textContent = "Could not save the name on this device. Try again.";
+  const saveTaskName = async (name: string | null) => {
+    if (!renamingSession || savingName || !savedNames.ok) return;
+    const session = renamingSession;
+    const generation = renameGeneration;
+    savingName = true;
+    elements.renameError.textContent = "Saving…";
+    const result = await api.chatNames.save({ sessionId: session.sessionId, title: name });
+    savingName = false;
+    if (result.ok) {
+      if (name === null) names.delete(session.sessionId);
+      else names.set(session.sessionId, name);
+      renderSessionList();
+      renderChat();
+    }
+    if (generation !== renameGeneration) return;
+    if (!result.ok) {
+      elements.renameError.textContent = result.error.message;
       return;
     }
     elements.renameDialog.close();
-    renderSessionList();
-    renderChat();
   };
   elements.renameForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -2090,9 +2133,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       elements.renameError.textContent = "Enter a name between 1 and 120 characters.";
       return;
     }
-    saveTaskName(name);
+    void saveTaskName(name);
   });
-  elements.renameReset.addEventListener("click", () => saveTaskName(null));
+  elements.renameReset.addEventListener("click", () => void saveTaskName(null));
   elements.newSession.addEventListener("click", () => void createTask());
   elements.closeSession.addEventListener("click", async () => {
     if (!selected || conversationLoading || chat.active) {

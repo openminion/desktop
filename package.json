@@ -20,7 +20,7 @@
     "node": ">=24 <25",
     "npm": ">=11 <12"
   },
-  "main": "dist/src/main/index.js",
+  "main": "dist/src/main/bootstrap.js",
   "scripts": {
     "build": "node scripts/build.mjs",
     "format": "biome format --write .",
