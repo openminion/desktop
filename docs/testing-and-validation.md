@@ -131,7 +131,7 @@ Test the built renderer in Electron at the minimum 760 × 560 window, the normal
   close controls while scrolling;
 - approval decisions, active turns, cancellation, denied capture permission,
 daemon-running-without-chat-transport, connection failure, and recovery;
-- Command/Ctrl+Enter, visible keyboard focus, and reduced motion;
+- Enter to send, Shift+Enter for a new line, visible keyboard focus, and reduced motion;
 - composer width growth as the window widens, and editable disconnected drafts.
 
 Use synthetic data for layout screenshots. A fixture bridge verifies renderer

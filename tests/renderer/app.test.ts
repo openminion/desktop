@@ -176,7 +176,7 @@ describe("renderer status view", () => {
       );
       expect(page.element("composer").value).toBe("hi");
       expect(submit).not.toHaveBeenCalled();
-      page.element("composer").dispatch("keydown", { key: "Enter", metaKey: true });
+      page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(2));
       expect(page.element("send").disabled).toBe(true);
       page.element("composer-form").dispatch("submit");
@@ -1151,14 +1151,14 @@ describe("renderer status view", () => {
         mediaId: file.mediaId,
       });
       expect(page.element("send").disabled).toBe(false);
-      page.element("composer").dispatch("keydown", { key: "Enter" });
+      page.element("composer").dispatch("keydown", { key: "Enter", shiftKey: true });
       page.element("composer").dispatch("keydown", {
         key: "Enter",
         metaKey: true,
         isComposing: true,
       });
       expect(submit).not.toHaveBeenCalled();
-      page.element("composer").dispatch("keydown", { key: "Enter", metaKey: true });
+      page.element("composer").dispatch("keydown", { key: "Enter" });
       page.element("composer").dispatch("keydown", { key: "Enter", ctrlKey: true });
       await vi.waitFor(() =>
         expect(submit).toHaveBeenCalledWith({

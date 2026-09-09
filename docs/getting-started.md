@@ -95,8 +95,7 @@ history. Rejected submissions keep the text in the composer for correction.
 
 Write your first message and send it to create a task automatically. Use
 **New task** in the sidebar to start another conversation. Use the send
-button or **Command+Enter** on macOS (**Ctrl+Enter** elsewhere). Enter alone
-adds a new line.
+button or **Enter** to send. **Shift+Enter** adds a new line.
 
 Type `/` or press **Command/Ctrl+K** to open the command menu. Arrow keys select,
 Tab completes, and Enter runs a command. Start with `/help`, `/new`, `/sessions`,

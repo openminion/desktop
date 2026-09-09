@@ -1420,7 +1420,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         ? "Connect OpenMinion to send this draft"
         : selected?.status === "closed"
           ? "Create or choose an open task to send"
-          : "Send message (⌘ / Ctrl + Enter)";
+          : "Send message (Enter)";
     elements.composer.disabled = false;
     elements.closeSession.disabled = !writable || chat.active || attachmentPending;
     elements.attachImage.disabled =
@@ -2005,7 +2005,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       void runCommand(elements.composer.value);
       return;
     }
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (!elements.send.disabled) void submitTurn(false);
     }

@@ -7,6 +7,8 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Changed chat input to send with Enter and insert a new line with Shift+Enter.
+
 - Refreshed daemon status when opening connection details so a stopped runtime
   exposes Reconnect while preserving the unsent draft.
 - Prevented late cancellation replies from reopening a completed turn or

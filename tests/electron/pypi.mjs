@@ -70,8 +70,8 @@ async function check() {
       window.focus();
       window.webContents.focus();
       window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
-      if (!modifiers.length && keyCode === "Return")
-        window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+      if (keyCode === "Return" && (!modifiers.length || modifiers.includes("shift")))
+        window.webContents.sendInputEvent({ type: "char", keyCode: "\r", modifiers });
       window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
       await new Promise((resolve) => setTimeout(resolve, 50));
     };
@@ -87,7 +87,7 @@ async function check() {
     await fill("   ");
     assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
     await fill("First line");
-    await key("Return");
+    await key("Return", ["shift"]);
     assert.equal(await evaluate("document.querySelectorAll('#session-list button').length"), 0);
     assert.equal(await evaluate("document.querySelector('#composer').value"), "First line\n");
     await command("/help", "Focus commands — partial integration");
@@ -122,7 +122,7 @@ async function check() {
     await waitFor("document.querySelector('#chat-status').textContent.includes('Local draft')");
     assert.equal(await evaluate("document.querySelector('#composer').value"), "");
     await fill("Second task via keyboard");
-    await key("Return", ["meta"]);
+    await key("Return");
     await waitFor(
       "document.querySelectorAll('.message').length === 2 && document.querySelector('#cancel').hidden",
     );
