@@ -1312,13 +1312,28 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   let commandResultGeneration = 0;
+  const hideCommandResult = () => {
+    commandResultGeneration += 1;
+    elements.commandPanel.hidden = true;
+  };
+  elements.closeCommand.addEventListener("click", () => {
+    hideCommandResult();
+    elements.composer.focus();
+  });
+  elements.commandPanel.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      hideCommandResult();
+      elements.composer.focus();
+    }
+  });
   const showCommandResult = (title: string, text: string) => {
     commandResultGeneration += 1;
     elements.commandTitle.textContent = title;
     const paragraph = root.createElement("p");
     paragraph.textContent = text;
     elements.commandResult.replaceChildren(paragraph);
-    elements.commandPanel.showPopover();
+    elements.commandPanel.hidden = false;
   };
 
   const runTasks = async (action: TaskAction, taskId?: string) => {
@@ -1339,7 +1354,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const result = await api.tasks.control({ sessionId, action, taskId });
     if (request !== commandResultGeneration || selected?.sessionId !== sessionId) return;
     // A dismissed result stays dismissed; completion must not reopen it over the chat.
-    if (!elements.commandPanel.matches(":popover-open")) return;
+    if (elements.commandPanel.hidden) return;
     if (!result.ok) {
       showCommandResult("OpenMinion work", result.error.message);
       return;
@@ -1415,7 +1430,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
         });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
-        if (!elements.commandPanel.matches(":popover-open")) break;
+        if (elements.commandPanel.hidden) break;
         if (!result.ok) showCommandResult(titles[kind], result.error.message);
         else {
           const report = result.value;
@@ -1485,7 +1500,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           button.className = "command-option";
           button.textContent = `${item.name}  ${item.description}`;
           button.addEventListener("click", () => {
-            elements.commandPanel.hidePopover();
+            hideCommandResult();
             void runCommand(item.name);
           });
           elements.commandResult.append(button);
@@ -1514,7 +1529,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           button.className = "command-option";
           button.textContent = `${taskName(session)} · ${session.status}`;
           button.addEventListener("click", () => {
-            elements.commandPanel.hidePopover();
+            hideCommandResult();
             void selectSession(session);
           });
           elements.commandResult.append(button);
@@ -1737,7 +1752,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     preserveGuidance = false,
   ) => {
     const refreshing = selected?.sessionId === session.sessionId;
-    if (!refreshing) elements.commandPanel.hidePopover();
+    if (!refreshing) hideCommandResult();
     const terminalGuidance =
       preserveGuidance &&
       terminalTraceId !== null &&
@@ -2262,6 +2277,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.composer.addEventListener("keydown", (event) => {
     if (event.isComposing) return;
     const matches = commandMatches(elements.composer.value);
+    if (event.key === "Escape" && elements.commandMenu.hidden && !elements.commandPanel.hidden) {
+      event.preventDefault();
+      hideCommandResult();
+      return;
+    }
     if (!elements.commandMenu.hidden) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -2545,6 +2565,7 @@ function rendererElements(root: Document) {
     showCommands: required(root, "show-commands"),
     commandMenu: required(root, "command-menu"),
     commandPanel: required(root, "command-panel"),
+    closeCommand: required(root, "close-command"),
     commandTitle: required(root, "command-title"),
     commandResult: required(root, "command-result"),
     contextPanel: required(root, "context-panel"),

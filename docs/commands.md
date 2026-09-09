@@ -18,6 +18,11 @@ elsewhere). Use the arrow keys to select a command. Enter runs it; Tab completes
 its name. Escape dismisses the menu. Opening the menu with the button or shortcut
 preserves an existing draft and restores it when you dismiss or run a command.
 
+Command results appear inline below the conversation and above the composer.
+You can keep drafting while reading a result. Close it with its × button or press
+Escape from the composer or result. Long results scroll within the panel. Picking
+a different conversation dismisses the previous result.
+
 Commands operate through Desktop presentation or fixed public OpenMinion operations. Unknown or unsupported slash commands produce
 an explanation and are never submitted to the model. Prefix a message with `//`
 to send a literal leading slash: `//path/to/file` sends `/path/to/file`.

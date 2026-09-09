@@ -3724,6 +3724,7 @@ class CaptureFixtureDocument {
     "show-commands",
     "command-menu",
     "command-panel",
+    "close-command",
     "command-title",
     "command-result",
     "context-panel",

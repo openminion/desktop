@@ -379,10 +379,32 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Command arguments");
       expect(read).toHaveBeenCalledTimes(3);
+      read.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishReport = resolve;
+          }),
+      );
+      page.element("composer").value = "/tools";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-panel").hidden).toBe(false);
+      page.element("close-command").click();
+      finishReport({
+        ok: true,
+        value: { kind: "tools", tools: [{ name: "dismissed", enabled: true }] },
+      });
+      await Promise.resolve();
+      expect(page.element("command-panel").hidden).toBe(true);
       page.element("composer").value = "/copy";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(api.app.copyText).not.toHaveBeenCalled();
       expect(page.element("command-title").textContent).toBe("Copy reply");
+      page.element("composer").value = "Keep drafting beside the result";
+      page.element("composer").dispatch("input");
+      expect(page.element("command-panel").hidden).toBe(false);
+      page.element("composer").dispatch("keydown", { key: "Escape" });
+      expect(page.element("command-panel").hidden).toBe(true);
+      expect(page.element("composer").value).toBe("Keep drafting beside the result");
       page.element("composer").value = "Keep this local draft";
       page.element("show-commands").click();
       expect(page.element("command-menu").hidden).toBe(false);
@@ -2747,6 +2769,7 @@ class FixtureDocument {
     "show-commands",
     "command-menu",
     "command-panel",
+    "close-command",
     "command-title",
     "command-result",
     "context-panel",

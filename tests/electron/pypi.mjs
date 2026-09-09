@@ -60,7 +60,7 @@ async function check() {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       throw new Error(
-        `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent + ' / ' + document.querySelector('#profile-status').textContent + ' / command: ' + document.querySelector('#command-title').textContent + ' / ' + document.querySelector('#command-result').textContent.slice(0, 500) + ' / open: ' + document.querySelector('#command-panel').matches(':popover-open')")}`,
+        `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent + ' / ' + document.querySelector('#profile-status').textContent + ' / command: ' + document.querySelector('#command-title').textContent + ' / ' + document.querySelector('#command-result').textContent.slice(0, 500) + ' / open: ' + !document.querySelector('#command-panel').hidden")}`,
       );
     };
     const fill = async (text) =>
@@ -85,7 +85,7 @@ async function check() {
       await waitFor(
         `document.querySelector('#command-title').textContent === ${JSON.stringify(title)}`,
       );
-      await evaluate("document.querySelector('#command-panel').hidePopover()");
+      await evaluate("document.querySelector('#close-command').click()");
     };
     await waitFor("document.querySelector('#connection-label').textContent === 'Connected'", 900);
     await waitFor(
@@ -162,6 +162,36 @@ async function check() {
     assert.ok(agents.value.agents.length > 0);
     const agentId = agents.value.agents[0].id;
     assert.ok((await reportCommand(`/agent ${agentId}`, "Agents")).includes(agentId));
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+    ]) {
+      window.setContentSize(width, height);
+      await evaluate(
+        "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+      const layout = await evaluate(`(() => {
+        const result = document.querySelector('#command-panel');
+        const bounds = result.getBoundingClientRect();
+        const composer = document.querySelector('#composer-form').getBoundingClientRect();
+        const timeline = document.querySelector('#timeline').getBoundingClientRect();
+        return {popover:result.hasAttribute('popover'), hidden:result.hidden, top:bounds.top,
+          bottom:bounds.bottom, width:bounds.width, composerTop:composer.top, composerWidth:composer.width,
+          timelineBottom:timeline.bottom, overflow:document.documentElement.scrollWidth > innerWidth};
+      })()`);
+      assert.equal(layout.popover, false);
+      assert.equal(layout.hidden, false);
+      assert.equal(layout.overflow, false);
+      assert.ok(layout.top >= layout.timelineBottom && layout.bottom <= layout.composerTop);
+      assert.ok(Math.abs(layout.width - layout.composerWidth) < 1);
+      if (process.env.OPENMINION_E2E_ARTIFACTS) {
+        await mkdir(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
+        await writeFile(
+          join(process.env.OPENMINION_E2E_ARTIFACTS, `inline-agents-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+    }
     assert.equal(
       await reportCommand("/agents missing-test-agent", "Agents"),
       "No matching agents.",
@@ -208,7 +238,7 @@ async function check() {
         exported.stdout.replace(/^Generated: .*\n/m, ""),
       );
       dialog.showSaveDialog = async () => ({ canceled: true });
-      await evaluate("document.querySelector('#command-panel').hidePopover()");
+      await evaluate("document.querySelector('#close-command').click()");
       await fill("/export");
       await evaluate("document.querySelector('#send').click()");
       await waitFor(
@@ -217,7 +247,7 @@ async function check() {
     } finally {
       dialog.showSaveDialog = saveDialog;
     }
-    await evaluate("document.querySelector('#command-panel').hidePopover()");
+    await evaluate("document.querySelector('#close-command').click()");
     console.log(
       "PASS: installed Focus catalog/aliases, daemon tools, canonical tokens, and native transcript export.",
     );
@@ -291,7 +321,7 @@ async function check() {
     );
     assert.equal(canonicalWork.exitCode, 0);
     assert.equal(JSON.parse(canonicalWork.stdout).task.lifecycle_state, "cancelled");
-    await evaluate("document.querySelector('#command-panel').hidePopover()");
+    await evaluate("document.querySelector('#close-command').click()");
     assert.equal(
       (await evaluate(`window.openminion.sessions.load({sessionId:${JSON.stringify(sessionId)}})`))
         .value.messages.length,

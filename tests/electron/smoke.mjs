@@ -83,15 +83,15 @@ async function check() {
       document.querySelector('#composer').value = '/help';
       document.querySelector('#composer').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter'}));
     `);
-    assert.equal(
-      await evaluate("document.querySelector('#command-panel').matches(':popover-open')"),
-      true,
-    );
+    assert.equal(await evaluate("!document.querySelector('#command-panel').hidden"), true);
     assert.equal(
       await evaluate("document.querySelector('#command-title').textContent"),
       "Focus commands — partial integration",
     );
-    await evaluate("document.querySelector('#command-panel').hidePopover()");
+    assert.equal(
+      await evaluate("document.querySelector('#command-panel').hasAttribute('popover')"),
+      false,
+    );
     assert.equal((await evaluate("window.openminion.app.copyText({invalid:true})")).ok, false);
     for (const [width, height] of [
       [760, 560],
@@ -104,16 +104,24 @@ async function check() {
       );
       const bounds = await evaluate(`(() => {
       const composer = document.querySelector('#composer-form').getBoundingClientRect();
+      const result = document.querySelector('#command-panel').getBoundingClientRect();
+      const timeline = document.querySelector('#timeline').getBoundingClientRect();
       const send = document.querySelector('#send').getBoundingClientRect();
       const commands = document.querySelector('#show-commands').getBoundingClientRect();
       const icon = document.querySelector('#show-commands svg').getBoundingClientRect();
       const attachment = document.querySelector('[popovertarget="attachment-menu"]').getBoundingClientRect();
       const screenshot = document.querySelector('.screen-context-button').getBoundingClientRect();
-      return {width:composer.width, right:composer.right, bottom:composer.bottom, sendBottom:send.bottom,
+      return {result:result.toJSON(), timeline:timeline.toJSON(), composerTop:composer.top, width:composer.width, right:composer.right, bottom:composer.bottom, sendBottom:send.bottom,
         commands:commands.toJSON(), icon:icon.toJSON(), attachment:attachment.toJSON(), screenshot:screenshot.toJSON(),
         overflow:document.documentElement.scrollWidth > innerWidth, viewportWidth:innerWidth, viewportHeight:innerHeight};
     })()`);
       assert.equal(bounds.overflow, false);
+      assert.ok(bounds.result.top >= bounds.timeline.bottom, "Results follow the conversation");
+      assert.ok(bounds.result.bottom <= bounds.composerTop, "Results must not cover the composer");
+      assert.ok(
+        Math.abs(bounds.result.width - bounds.width) < 1,
+        "Results align with the composer",
+      );
       assert.ok(bounds.right <= bounds.viewportWidth && bounds.bottom <= bounds.viewportHeight);
       assert.ok(bounds.sendBottom <= bounds.viewportHeight);
       assert.ok(bounds.commands.width >= 30 && bounds.commands.height >= 30);
@@ -133,6 +141,16 @@ async function check() {
       widths.push(bounds.width);
     }
     assert.ok(widths[2] > widths[1] + 400, "Composer must grow with a wider window");
+
+    await evaluate(
+      "document.querySelector('#composer').value='Keep drafting'; document.querySelector('#composer').dispatchEvent(new Event('input'))",
+    );
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), false);
+    await evaluate(
+      "document.querySelector('#composer').dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))",
+    );
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
 
     const worker = new BrowserWindow({
       show: false,
