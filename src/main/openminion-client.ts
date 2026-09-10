@@ -41,6 +41,7 @@ import type {
   TurnResponseV1,
   TurnSubmitInput,
   TurnSubmitValue,
+  TurnUsageDisplay,
 } from "../shared/contracts.js";
 import { clientHeaders } from "./security.js";
 
@@ -1217,18 +1218,22 @@ function daemonUrl(readiness: DesktopClientReady, path: string): string {
 }
 
 function sessionSummary(value: unknown): SessionSummaryV1 {
-  exactRecord(value, [
-    "schema_version",
-    "session_id",
-    "title",
-    "status",
-    "created_at",
-    "updated_at",
-    "active_agent_id",
-    "model",
-    "project_id",
-    "event_cursor",
-  ]);
+  exactRecord(
+    value,
+    [
+      "schema_version",
+      "session_id",
+      "title",
+      "status",
+      "created_at",
+      "updated_at",
+      "active_agent_id",
+      "model",
+      "project_id",
+      "event_cursor",
+    ],
+    ["turn_usage_display"],
+  );
   const record = value as JsonRecord;
   const status = requireString(record.status) as SessionStatus;
   if (record.schema_version !== 1 || !SESSION_STATUSES.has(status)) {
@@ -1247,11 +1252,18 @@ function sessionSummary(value: unknown): SessionSummaryV1 {
     model: { provider: optionalString(model.provider), modelId: optionalString(model.model_id) },
     projectId: optionalString(record.project_id),
     eventCursor: requireString(record.event_cursor),
+    ...(record.turn_usage_display === undefined
+      ? {}
+      : { turnUsageDisplay: turnUsageDisplay(record.turn_usage_display) }),
   };
 }
 
 function messageValue(value: unknown): MessageV1 {
-  exactRecord(value, ["schema_version", "id", "session_id", "role", "body", "created_at"]);
+  exactRecord(
+    value,
+    ["schema_version", "id", "session_id", "role", "body", "created_at"],
+    ["stats"],
+  );
   const record = value as JsonRecord;
   if (record.schema_version !== 1 || (record.role !== "user" && record.role !== "assistant")) {
     throw protocolError("invalid_daemon_response", "The daemon message is invalid.");
@@ -1262,8 +1274,17 @@ function messageValue(value: unknown): MessageV1 {
     sessionId: requireString(record.session_id),
     role: record.role,
     body: requireString(record.body),
+    ...(record.stats === undefined ? {} : { usage: usageValue(record.stats) }),
     createdAt: requireString(record.created_at),
   };
+}
+
+function turnUsageDisplay(value: unknown): TurnUsageDisplay {
+  if (value === undefined) return "total";
+  if (!new Set(["off", "total", "input_output", "input_output_calls"]).has(String(value))) {
+    throw protocolError("invalid_daemon_response", "The turn usage display is invalid.");
+  }
+  return value as TurnUsageDisplay;
 }
 
 function sessionEvent(value: unknown): SessionEventsValue["events"][number] {
@@ -2154,6 +2175,8 @@ export {
   requireString,
   optionalString,
   responseEvent,
+  usageValue,
+  turnUsageDisplay,
   errorValue,
   protocolError,
   failure,

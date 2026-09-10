@@ -37,6 +37,8 @@ import {
   optionalString,
   responseEvent,
   errorValue,
+  usageValue,
+  turnUsageDisplay,
   protocolError,
   failure,
   failureFrom,
@@ -269,6 +271,7 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
         model: { provider: null, modelId: null },
         projectId: null,
         eventCursor: "0",
+        turnUsageDisplay: "total",
         isDraft: true,
       };
       this.#drafts.set(draft.sessionId, draft);
@@ -304,6 +307,7 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
             | "assistant",
           body: requireString(row.body),
           profileName: optionalString(requireRecord(row.metadata ?? {}).display_name ?? null),
+          ...(row.stats === undefined ? {} : { usage: usageValue(row.stats) }),
           createdAt: requireString(row.created_at),
         }));
       const offset = cursorOffset(value.messageAfter);
@@ -863,6 +867,7 @@ function summary(row: Record<string, unknown>, detail: boolean): SessionSummaryV
     model: { provider: null, modelId: null },
     projectId: null,
     eventCursor: "0",
+    turnUsageDisplay: turnUsageDisplay(row.turn_usage_display),
   };
 }
 

@@ -353,7 +353,8 @@ describe("PyPI CLI client", () => {
       let value: unknown;
       if (command.startsWith("sessions list"))
         value = [{ id: "saved", name: "", status: "active", agent: "writer" }];
-      else if (command.startsWith("sessions show")) value = session("saved");
+      else if (command.startsWith("sessions show"))
+        value = { ...session("saved"), turn_usage_display: "input_output_calls" };
       else {
         return {
           exitCode: 0,
@@ -366,6 +367,7 @@ describe("PyPI CLI client", () => {
               body: "Question",
               created_at: now,
               metadata: { token: "private" },
+              stats: {},
             },
             {
               type: "message",
@@ -374,6 +376,15 @@ describe("PyPI CLI client", () => {
               body: "writer: Answer",
               created_at: now,
               metadata: { display_name: "writer", token: "private" },
+              stats: {
+                input_tokens: 5700,
+                output_tokens: 603,
+                cache_read_tokens: 0,
+                llm_calls: 4,
+                tool_calls: 0,
+                tool_errors: 0,
+                duration_ms: 26000,
+              },
             },
             {
               type: "event",
@@ -404,14 +415,25 @@ describe("PyPI CLI client", () => {
     });
     expect(await client.load({ sessionId: "saved", messageLimit: 1 })).toMatchObject({
       ok: true,
-      value: { messages: [{ body: "Question" }], messagesHasMore: true, nextMessageCursor: "1" },
+      value: {
+        session: { turnUsageDisplay: "input_output_calls" },
+        messages: [{ body: "Question", usage: { usageAvailable: false } }],
+        messagesHasMore: true,
+        nextMessageCursor: "1",
+      },
     });
     expect(
       await client.load({ sessionId: "saved", messageAfter: "1", messageLimit: 1 }),
     ).toMatchObject({
       ok: true,
       value: {
-        messages: [{ body: "writer: Answer", profileName: "writer" }],
+        messages: [
+          {
+            body: "writer: Answer",
+            profileName: "writer",
+            usage: { totalTokens: 6303, llmCalls: 4, durationMs: 26000 },
+          },
+        ],
         messagesHasMore: false,
       },
     });

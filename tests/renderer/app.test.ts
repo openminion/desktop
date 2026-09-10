@@ -7,6 +7,7 @@ import {
   applyTurnEvent,
   captureRegionFromPercentages,
   captureStatusCopy,
+  formatDesktopTurnUsage,
   initialChatState,
   waitingTime,
   listArtifacts,
@@ -897,11 +898,44 @@ describe("renderer status view", () => {
     expect(assistantBody("minimax-m2-7: keep this")).toBe("minimax-m2-7: keep this");
   });
 
+  it("formats the four completed-turn usage modes without inventing missing usage", () => {
+    const usage = {
+      usageAvailable: true,
+      inputTokens: 5700,
+      outputTokens: 603,
+      totalTokens: 6303,
+      llmCalls: 4,
+      durationMs: 26000,
+      costUsd: null,
+      costSource: "unavailable" as const,
+    };
+    expect(formatDesktopTurnUsage(usage, "off")).toBe("26s");
+    expect(formatDesktopTurnUsage(usage, "total")).toBe("26s · 6.3k tokens");
+    expect(formatDesktopTurnUsage(usage, "input_output")).toBe("26s · 5.7k in · 603 out");
+    expect(formatDesktopTurnUsage(usage, "input_output_calls")).toBe(
+      "26s · 5.7k in · 603 out · 4 calls",
+    );
+    expect(formatDesktopTurnUsage(undefined, "total")).toBe("");
+  });
+
   it("keeps each saved speaker in the header and copies the displayed reply", async () => {
-    const session = sessionSummary();
+    const session = { ...sessionSummary(), turnUsageDisplay: "input_output_calls" as const };
     const history = [
       { ...message("user", "writer: a user quote"), role: "user" as const },
-      { ...message("reply", "writer: Answer: with punctuation"), profileName: "writer" },
+      {
+        ...message("reply", "writer: Answer: with punctuation"),
+        profileName: "writer",
+        usage: {
+          usageAvailable: true,
+          inputTokens: 5700,
+          outputTokens: 603,
+          totalTokens: 6303,
+          llmCalls: 4,
+          durationMs: 26000,
+          costUsd: null,
+          costSource: "unavailable" as const,
+        },
+      },
     ];
     const api = {
       app: {
@@ -935,6 +969,7 @@ describe("renderer status view", () => {
       expect(page.findText()).toContain("Answer: with punctuation");
       expect(page.findText()).toContain("writer: a user quote");
       expect(page.findText()).not.toContain("writer: Answer: with punctuation");
+      expect(page.findText()).toContain("26s · 5.7k in · 603 out · 4 calls");
       expect(page.element("chat-status").textContent).toBe("");
       page.element("composer").value = "/copy";
       page.element("composer").dispatch("keydown", { key: "Enter" });
@@ -1334,7 +1369,7 @@ describe("renderer status view", () => {
   });
 
   it("renders bounded attachment chips and clears them without replay", async () => {
-    const session = sessionSummary();
+    const session = { ...sessionSummary(), turnUsageDisplay: "input_output_calls" as const };
     const secondSession = {
       ...sessionSummary(),
       sessionId: "session-2",
@@ -1522,6 +1557,25 @@ describe("renderer status view", () => {
         createdAt: "2026-09-08T00:00:01Z",
       });
       expect(page.findText()).toContain("First chunk");
+      turnSubscription.listener?.({
+        schemaVersion: 1,
+        kind: "response",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        finalText: "First chunk",
+        errors: [],
+        usage: {
+          usageAvailable: true,
+          inputTokens: 5700,
+          outputTokens: 603,
+          totalTokens: 6303,
+          llmCalls: 4,
+          durationMs: 26000,
+          costUsd: null,
+          costSource: "unavailable",
+        },
+      });
+      expect(page.findText()).toContain("26s · 5.7k in · 603 out · 4 calls");
       page.element("composer").value = "Draft during the active turn";
       page.element("composer").dispatch("input");
       page.sessionButtons()[1]!.click();

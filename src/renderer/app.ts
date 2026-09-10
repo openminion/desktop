@@ -18,6 +18,7 @@ import type {
   DaemonStatus,
   ErrorV1,
   FileGrantV1,
+  InferenceUsageV1,
   MediaAttachmentV1,
   MessageV1,
   NativeApi,
@@ -28,6 +29,7 @@ import type {
   ToolProgressV1,
   TurnEventV1,
   TurnSubmitValue,
+  TurnUsageDisplay,
 } from "../shared/contracts.js";
 
 declare global {
@@ -640,9 +642,15 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const drafts = new Map<string, string>();
   let submittedText: string | null = null;
   let responseText = "";
+  let responseUsage: InferenceUsageV1 | undefined;
   const liveTurns = new Map<
     string,
-    { state: ChatState; responseText: string; activity: ActivityItem[] }
+    {
+      state: ChatState;
+      responseText: string;
+      responseUsage?: InferenceUsageV1;
+      activity: ActivityItem[];
+    }
   >();
   let hiddenMessageCount = 0;
   let quietTools = false;
@@ -1717,10 +1725,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
                 role: "assistant" as const,
                 body: responseText,
                 profileName: selected?.activeAgentId,
+                usage: responseUsage,
               },
             ]
           : []),
       ],
+      selected?.turnUsageDisplay ?? "total",
       automaticObservation,
       quietTools ? activity.filter((item) => item.kind === "approval") : activity,
       deciding,
@@ -1822,6 +1832,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       messages = [];
       submittedText = null;
       responseText = "";
+      responseUsage = undefined;
       hiddenMessageCount = 0;
       capturePending = Boolean(captureApi);
       artifacts = [];
@@ -1864,6 +1875,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     messages = recovered.messages;
     submittedText = null;
     responseText = "";
+    responseUsage = undefined;
     hiddenMessageCount = 0;
     automaticObservation = null;
     activity = recoverActivity(recovered.session.sessionId, recovered.events);
@@ -1881,6 +1893,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       // Accepted user text is already present in authoritative history after switching.
       submittedText = null;
       responseText = live.responseText;
+      responseUsage = live.responseUsage;
       for (const item of live.activity) activity = applyActivityEvent(activity, item);
     }
     renderChat();
@@ -1984,9 +1997,15 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         live.activity = applyActivityEvent(live.activity, event);
       if (matchesTurn && event.kind === "progress" && event.progressKind === "text")
         live.responseText += event.text;
-      if (matchesTurn && event.kind === "response") live.responseText = event.finalText;
+      if (matchesTurn && event.kind === "response") {
+        live.responseText = event.finalText;
+        live.responseUsage = event.usage;
+      }
       live.state = applyTurnEvent(live.state, event);
-      if (selected?.sessionId === event.sessionId) responseText = live.responseText;
+      if (selected?.sessionId === event.sessionId) {
+        responseText = live.responseText;
+        responseUsage = live.responseUsage;
+      }
       if (event.kind === "done" && matchesTurn) liveTurns.delete(event.sessionId);
     }
     acceptGuidanceTurnEvent(event);
@@ -2231,8 +2250,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     };
     submittedText = message;
     responseText = "";
+    responseUsage = undefined;
     const sessionId = selected.sessionId;
-    liveTurns.set(sessionId, { state: chat, responseText: "", activity: [] });
+    liveTurns.set(sessionId, {
+      state: chat,
+      responseText: "",
+      responseUsage: undefined,
+      activity: [],
+    });
     releaseFileGrants(api, fileGrants);
     fileGrants = [];
     fileLabel = "File grants released for this turn.";
@@ -3006,7 +3031,8 @@ function renderTimeline(
   root: Document,
   timeline: HTMLElement,
   loading: boolean,
-  messages: ReadonlyArray<Pick<MessageV1, "role" | "body" | "profileName">>,
+  messages: ReadonlyArray<Pick<MessageV1, "role" | "body" | "profileName" | "usage">>,
+  turnUsageDisplay: TurnUsageDisplay,
   automaticObservation: ObservationFrameFactV1 | null,
   activity: ActivityItem[],
   deciding: Set<string>,
@@ -3033,6 +3059,15 @@ function renderTimeline(
         ? assistantBody(message.body, message.profileName)
         : message.body;
     article.append(role, body);
+    if (message.role === "assistant") {
+      const usageText = formatDesktopTurnUsage(message.usage, turnUsageDisplay);
+      if (usageText) {
+        const usage = root.createElement("p");
+        usage.className = "message-usage";
+        usage.textContent = usageText;
+        article.append(usage);
+      }
+    }
     return article;
   });
   if (automaticObservation) {
@@ -3229,6 +3264,43 @@ export function assistantBody(body: string, profileName?: string | null): string
   // PyPI responses include a speaker envelope; move only the reported speaker to the header.
   const prefix = profileName ? `${profileName}: ` : null;
   return prefix && body.startsWith(prefix) ? body.slice(prefix.length) : body;
+}
+
+export function formatDesktopTurnUsage(
+  usage: InferenceUsageV1 | undefined,
+  display: TurnUsageDisplay,
+): string {
+  if (!usage?.usageAvailable) return "";
+  const parts = usage.durationMs === null ? [] : [formatDurationMs(usage.durationMs)];
+  if (display === "total" && usage.totalTokens) {
+    parts.push(`${formatTokenCount(usage.totalTokens)} tokens`);
+  }
+  if (display === "input_output" || display === "input_output_calls") {
+    if (usage.inputTokens || usage.outputTokens) {
+      parts.push(
+        `${formatTokenCount(usage.inputTokens)} in`,
+        `${formatTokenCount(usage.outputTokens)} out`,
+      );
+    }
+    if (display === "input_output_calls" && usage.llmCalls) {
+      parts.push(`${usage.llmCalls} ${usage.llmCalls === 1 ? "call" : "calls"}`);
+    }
+  }
+  return parts.join(" · ");
+}
+
+function formatTokenCount(value: number | null): string {
+  if (value === null) return "—";
+  if (value < 1_000) return String(value);
+  const divisor = value < 1_000_000 ? 1_000 : 1_000_000;
+  const suffix = value < 1_000_000 ? "k" : "m";
+  return `${(value / divisor).toFixed(1).replace(".0", "")}${suffix}`;
+}
+
+function formatDurationMs(value: number): string {
+  const seconds = Math.max(0, Math.floor(value / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 export function waitingTime(startedAt: number, now: number): string {

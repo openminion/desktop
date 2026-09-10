@@ -1084,6 +1084,12 @@ details[open] > summary .summary-chevron {
   overflow-wrap: anywhere;
 }
 
+.message-usage {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .activity-card {
   width: 100%;
   min-width: 0;

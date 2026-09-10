@@ -55,6 +55,7 @@ export type ErrorV1 = {
 export type ClientResult<T> = { ok: true; value: T } | { ok: false; error: ErrorV1 };
 
 export type SessionStatus = "active" | "idle" | "paused" | "stale" | "closed";
+export type TurnUsageDisplay = "off" | "total" | "input_output" | "input_output_calls";
 
 export type SessionSummaryV1 = {
   isDraft?: boolean;
@@ -68,6 +69,7 @@ export type SessionSummaryV1 = {
   model: { provider: string | null; modelId: string | null };
   projectId: string | null;
   eventCursor: string;
+  turnUsageDisplay?: TurnUsageDisplay;
 };
 
 export type MessageV1 = {
@@ -77,6 +79,7 @@ export type MessageV1 = {
   role: "user" | "assistant";
   body: string;
   profileName?: string | null;
+  usage?: InferenceUsageV1;
   createdAt: string;
 };
 

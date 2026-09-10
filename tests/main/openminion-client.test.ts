@@ -1476,6 +1476,7 @@ function session(status = "active") {
     model: { provider: null, model_id: null },
     project_id: "project-1",
     event_cursor: "event-zero",
+    turn_usage_display: "input_output_calls",
   };
 }
 
@@ -1491,6 +1492,7 @@ function camelSession(status = "active") {
     model: { provider: null, modelId: null },
     projectId: "project-1",
     eventCursor: "event-zero",
+    turnUsageDisplay: "input_output_calls",
   };
 }
 
@@ -1501,6 +1503,15 @@ function message() {
     session_id: "session-1",
     role: "assistant",
     body: "hello",
+    stats: {
+      input_tokens: 5700,
+      output_tokens: 603,
+      cache_read_tokens: 0,
+      llm_calls: 4,
+      tool_calls: 0,
+      tool_errors: 0,
+      duration_ms: 26_000,
+    },
     created_at: "2026-08-19T00:00:02Z",
   };
 }
@@ -1512,6 +1523,16 @@ function camelMessage() {
     sessionId: "session-1",
     role: "assistant",
     body: "hello",
+    usage: {
+      usageAvailable: true,
+      inputTokens: 5700,
+      outputTokens: 603,
+      totalTokens: 6303,
+      llmCalls: 4,
+      durationMs: 26_000,
+      costUsd: null,
+      costSource: "unavailable",
+    },
     createdAt: "2026-08-19T00:00:02Z",
   };
 }
