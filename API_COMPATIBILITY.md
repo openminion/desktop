@@ -17,7 +17,7 @@ in [README.md](README.md), [SUPPORT.md](SUPPORT.md), and `docs/`.
 ## Desktop-daemon boundary
 
 The Desktop main process owns installation and lifecycle. It currently installs
-the pinned `openminion==0.0.18` PyPI package into app-managed storage and calls
+the pinned `openminion==0.0.19` PyPI package into app-managed storage and calls
 the ordinary `config init` and `daemon start/status/stop` commands. OpenMinion
 remains the owner of sessions, messages, approvals, policy, artifacts, and agent
 execution. Desktop owns presentation, local attachment grants, capture
@@ -29,7 +29,7 @@ runtime roots, and configuration path outside the renderer boundary.
 
 ## Current integration status
 
-Lifecycle integration works with the public PyPI `0.0.18` command surface and
+Lifecycle integration works with the public PyPI `0.0.19` command surface and
 has real-daemon start/status/stop proof. Desktop main invokes fixed `sessions
 list/show/close` and `export transcript` operations for saved conversations.
 Text turns use authenticated loopback `POST /v1/turn/stream`; cancellation uses
@@ -47,9 +47,8 @@ No empty-session prompt is injected.
 
 Approval decisions, media, artifacts, full Focus commands, and active-turn
 reattachment remain incomplete. They must use existing public interfaces without
-restoring Desktop-only code in the OpenMinion package. The legacy typed HTTP
-client remains for its existing tests and shared validation; the live supervisor
-uses `CliClient` exclusively.
+restoring Desktop-only code in the OpenMinion package. The live supervisor uses
+the CLI-backed client exclusively.
 
 ## Local Chat Names
 

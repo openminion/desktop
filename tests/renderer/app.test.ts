@@ -122,7 +122,11 @@ describe("renderer computer observation", () => {
     expect(html).toContain("On change");
     expect(html).toContain("Every 30 seconds");
     expect(html).toContain("Stop watch");
-    expect(html).toContain("may use model tokens");
+    expect(html).toContain(
+      "Screenshot delivery, guidance, and Automatic watch are planned but not connected",
+    );
+    expect(html).not.toContain("share the latest frame with the AI");
+    expect(html).not.toContain("may use model tokens");
     expect(html).toContain("Ask for guidance");
     expect(html).toContain("Advice only — you remain in control.");
     expect(html).toContain('id="guidance-card" class="guidance-card" role="status"');

@@ -17,11 +17,11 @@ application.
 | Linux source compatibility | provider-free CI | supported as a CI host, not a packaged product |
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |
 | macOS native capture | opt-in permissioned test | requires acceptance on an authorized host |
-| OpenMinion installation and daemon lifecycle | pinned PyPI 0.0.18; isolated config; real start/status/stop proof | development-ready |
-| Text chat and saved sessions | real PyPI 0.0.18 CLI and production Electron GUI; first send, task switching, drafts, resizing, outage/restart recovery, canonical close | development-ready |
+| OpenMinion installation and daemon lifecycle | pinned PyPI 0.0.19; isolated config; real start/status/stop proof | development-ready |
+| Text chat and saved sessions | real PyPI 0.0.19 CLI and production Electron GUI; first send, task switching, drafts, resizing, outage/restart recovery, canonical close | development-ready |
 | Provider errors and recovery | real PyPI daemon with a local controlled HTTP provider | locally verified; paid-provider acceptance pending |
-| Cancellation | authenticated request and saved-event evidence; PyPI 0.0.18 can complete an in-flight provider request after acknowledgement | runtime interruption gap remains |
-| Approvals, media, artifacts, full Focus commands | preview UI and legacy typed client; public-interface adaptation pending | not connected |
+| Cancellation | authenticated request and saved-event evidence; PyPI 0.0.19 can complete an in-flight provider request after acknowledgement | runtime interruption gap remains |
+| Approvals, media, artifacts, full Focus commands | preview UI only; public-interface adaptation pending | not connected |
 | Signed and notarized macOS app | no evidence | not ready |
 | Desktop SQLite name migration and restart | fresh native legacy-browser import, saved/reset names and preserved runtime paths | verified for this bounded migration |
 | Full runtime update, rollback, restore and uninstall | no complete end-to-end evidence | not ready |

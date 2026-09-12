@@ -66,6 +66,36 @@ describe("OpenMinionInstallation", () => {
     });
     expect(runCommand).toHaveBeenCalledTimes(1);
   });
+
+  it("replaces a managed executable whose version does not match the pin", async () => {
+    const root = await temporaryRoot();
+    const environmentRoot = join(root, "python");
+    const python = join(environmentRoot, "bin", "python");
+    const executable = join(environmentRoot, "bin", "openminion");
+    await mkdir(join(environmentRoot, "bin"), { recursive: true });
+    await writeFile(python, "", "utf-8");
+    await writeFile(executable, "", "utf-8");
+    let version = "0.0.18";
+    const runCommand = vi.fn<RunCommand>(async (command) => {
+      if (command === executable) return result(0, `${version}\n`);
+      if (command === python) {
+        version = OPENMINION_VERSION;
+        return result(0);
+      }
+      return result(1);
+    });
+
+    const installation = new OpenMinionInstallation({ runtimeRoot: root, runCommand });
+    await expect(installation.ensure()).resolves.toEqual({
+      path: executable,
+      version: OPENMINION_VERSION,
+    });
+    expect(runCommand).toHaveBeenCalledWith(
+      python,
+      expect.arrayContaining(["--upgrade", `openminion==${OPENMINION_VERSION}`]),
+      300_000,
+    );
+  });
 });
 
 function result(exitCode: number | null, stdout = "", stderr = ""): CommandResult {

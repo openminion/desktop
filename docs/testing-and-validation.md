@@ -83,13 +83,20 @@ public lifecycle commands. This is lifecycle proof, not rich chat/session proof.
 Use an isolated installation of the pinned PyPI package:
 
 ```bash
+env -u OPENMINION_EXECUTABLE -u OPENMINION_PYPI_EXECUTABLE \
+  node tests/electron/managed-install.mjs
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npm test -- tests/main/cli-client.test.ts
 npm run build
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/pypi.mjs
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/onboarding.mjs
 ```
 
-These opt-in tests create private temporary config/data roots. The CLI/API test
+The managed-install check uses no executable override: Desktop creates its
+private Python environment, installs the exact pin, starts the ordinary daemon,
+quits through the normal application lifecycle, verifies the daemon stopped,
+then relaunches the same root to prove the installed runtime is reused. The
+other opt-in tests use an isolated package executable and all
+checks create private temporary config/data roots. The CLI/API test
 uses echo and proves canonical history, a same-session follow-up after daemon
 restart, and session closing.
 
@@ -131,7 +138,7 @@ MiniMax verifies CLI-owned setup defaults, not paid MiniMax authentication.
 The provider fixture is a loopback HTTP server with a test credential, configured
 only in the test's isolated runtime. It can hold or reject a request. These tests
 stop their isolated daemon and remove their temporary config/data roots.
-PyPI 0.0.18 can acknowledge cancellation and still complete an in-flight provider
+PyPI 0.0.19 can acknowledge cancellation and still complete an in-flight provider
 request. The GUI test checks the recorded cancellation request and presents the
 daemon's terminal outcome; it does not certify interruption of provider work.
 These checks do not contact a paid provider, record the user's screen, or certify

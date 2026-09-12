@@ -82,10 +82,13 @@ npm run package
 OPENMINION_ODC_NATIVE_CAPTURE=1 npm test -- tests/main/capture-native.test.ts
 ```
 
-Run real-daemon integration tests with a compatible OpenMinion executable:
+Run the real managed-runtime and pinned-package integration checks:
 
 ```bash
-OPENMINION_ODF_EXECUTABLE=/path/to/openminion npm test -- tests/main/index.test.ts
+env -u OPENMINION_EXECUTABLE -u OPENMINION_PYPI_EXECUTABLE \
+  node tests/electron/managed-install.mjs
+OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npm test -- tests/main/cli-client.test.ts
+OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/pypi.mjs
 ```
 
 These checks prove different tiers. An unsigned package does not prove native

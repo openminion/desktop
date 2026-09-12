@@ -51,7 +51,7 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 - Added opt-in published-package CLI and production Electron conversation checks.
 
 - Added a Desktop-owned first-run lifecycle that installs pinned
-  `openminion==0.0.18` from PyPI, creates an isolated authenticated demo config,
+  `openminion==0.0.19` from PyPI, creates an isolated authenticated demo config,
   and uses the ordinary daemon start, status, and stop commands.
 - Removed Desktop lifecycle dependence on the former Desktop-specific bootstrap
   and lease contract. Approval, media, and artifact transport remain pending.

@@ -1,27 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  clientHeaders,
   privilegedSchemeOptions,
-  publicStatus,
   validateAppRequest,
   validateCapturePreviewRequest,
-  validateReadiness,
 } from "../../src/main/security.js";
-import { CLIENT_TOKEN_HEADER } from "../../src/shared/contracts.js";
-
-const validReadiness = {
-  schema_version: 1,
-  event: "desktop.client.ready",
-  host: "127.0.0.1",
-  port: 49152,
-  protocol_min: 1,
-  protocol_max: 1,
-  daemon_version: "0.0.9",
-  config_id: "a".repeat(64),
-  client_id: "client-1",
-  client_token: "x".repeat(43),
-  expires_at: "2999-08-16T12:00:00Z",
-} as const;
 
 describe("security helpers", () => {
   it("uses the required privileged scheme options", () => {
@@ -36,16 +18,6 @@ describe("security helpers", () => {
         bypassCSP: false,
       },
     });
-  });
-
-  it("validates the exact readiness contract", () => {
-    expect(validateReadiness(validReadiness)).toEqual(validReadiness);
-    expect(() => validateReadiness({ ...validReadiness, host: "0.0.0.0" })).toThrow(/loopback/);
-    expect(() => validateReadiness({ ...validReadiness, protocol_max: 2 })).toThrow(/protocol/);
-    expect(() =>
-      validateReadiness({ ...validReadiness, expires_at: "2000-01-01T00:00:00Z" }),
-    ).toThrow(/expired/);
-    expect(() => validateReadiness({ ...validReadiness, extra: true })).toThrow(/fields/);
   });
 
   it("admits only exact local asset requests", () => {
@@ -82,21 +54,5 @@ describe("security helpers", () => {
         new Request(`openminion://app/capture/frames/${id}`, { method: "POST" }),
       ),
     ).toBeNull();
-  });
-
-  it("keeps the client credential in main-only request headers", () => {
-    const headers = clientHeaders("secret-token", true);
-    expect(headers[CLIENT_TOKEN_HEADER]).toBe("secret-token");
-    expect(headers["Content-Type"]).toBe("application/json; charset=utf-8");
-  });
-
-  it("projects no endpoint or credential into renderer status", () => {
-    const status = publicStatus("ready", validReadiness, ["daemon.health"], null);
-    const serialized = JSON.stringify(status);
-    expect(status.reachable).toBe(true);
-    expect(status.configId).toBe(validReadiness.config_id);
-    expect(serialized).not.toContain(validReadiness.client_token);
-    expect(serialized).not.toContain(validReadiness.host);
-    expect(serialized).not.toContain(validReadiness.port.toString());
   });
 });

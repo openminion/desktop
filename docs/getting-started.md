@@ -48,7 +48,7 @@ Start Desktop with:
 npm start
 ```
 
-On first launch, Desktop creates a Python environment under `~/.openminion/desktop/runtime`, installs the pinned `openminion==0.0.18` PyPI package, initializes a
+On first launch, Desktop creates a Python environment under `~/.openminion/desktop/runtime`, installs the pinned `openminion==0.0.19` PyPI package, initializes a
 credential-free echo config, assigns an authenticated loopback daemon endpoint,
 and starts the daemon. Later launches reuse the environment while its version
 matches the pin.
@@ -163,7 +163,7 @@ If the daemon stops while the window stays open, click the connection indicator
 at the bottom of the sidebar. Opening its details checks the current connection;
 use **Reconnect** when offered. Your unsent message stays in the composer.
 
-With PyPI 0.0.18, **Stop** requests cancellation, but an in-flight provider
+With PyPI 0.0.19, **Stop** requests cancellation, but an in-flight provider
 request can still complete. Desktop displays the outcome reported by the daemon.
 
 Text chat and completed conversation history work in the real app. Attachment
@@ -204,14 +204,12 @@ for the supported commands and remaining integration work.
 The **+** button beside the composer opens image and file attachments.
 **Screenshot** opens the screen or window chooser beside your message.
 Choose **Entire screen** or **Window**, select a source, and **Start preview**.
-The composer shows the selected source and its local preview. Check
-**Include screenshot**, write your instruction, and send: OpenMinion receives
-one latest frame with that message, not a video stream. The checkbox resets
-after sending. Pause, change, or stop the preview from **Screenshot**.
-
-Preview stays local until you explicitly send it, ask for guidance, or enable
-the advanced **Automatic watch**. Watch sends repeated screenshots and can
-incur model costs; it is not continuous video or computer control.
+The composer shows the selected source and its local preview. Pause, change,
+or stop the preview from **Screenshot**. Preview pixels stay on this device in
+the current app: screenshot attachment, guidance, and **Automatic watch** are
+visible future-facing controls but are not connected to OpenMinion or a model.
+Automatic watch, when implemented, will use repeated still frames rather than
+continuous video and will remain separate from computer control.
 
 **Context** contains local files and task outputs. Both option panels close
 with Escape or an outside click; neither is a permanent side panel. See

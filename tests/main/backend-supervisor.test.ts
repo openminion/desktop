@@ -20,7 +20,7 @@ describe("DaemonSupervisor", () => {
     let reachable = false;
     const runCommand: RunCommand = vi.fn(async (command, args) => {
       calls.push({ executable: command, args });
-      if (args.length === 1 && args[0] === "--version") return result(0, "0.0.18\n");
+      if (args.length === 1 && args[0] === "--version") return result(0, "0.0.19\n");
       if (args.includes("init")) {
         await writeFile(join(root, "agents.json"), '{"runtime":{}}\n', "utf-8");
         return result(0, "Initialized config\n");
@@ -50,7 +50,7 @@ describe("DaemonSupervisor", () => {
     expect(await supervisor.start()).toMatchObject({
       state: "running",
       reachable: true,
-      daemonVersion: "0.0.18",
+      daemonVersion: "0.0.19",
       protocol: null,
       capabilities: ["sessions", "turns.text", "turns.cancel"],
     });
@@ -90,7 +90,7 @@ describe("DaemonSupervisor", () => {
     const root = await temporaryRoot();
     const executable = await fakeExecutable(root);
     const runCommand = vi.fn<RunCommand>(async (_command, args) => {
-      if (args.length === 1) return result(0, "0.0.18\n");
+      if (args.length === 1) return result(0, "0.0.19\n");
       if (args.at(-1) === "--json") return result(0, JSON.stringify({ reachable: true }));
       if (args.at(-1) === "stop") return result(0, "Stopped daemon\n");
       return result(2);
@@ -111,7 +111,7 @@ describe("DaemonSupervisor", () => {
     const executable = await fakeExecutable(root);
     let stopFailed = true;
     const runCommand = vi.fn<RunCommand>(async (_command, args) => {
-      if (args.length === 1) return result(0, "0.0.18");
+      if (args.length === 1) return result(0, "0.0.19");
       if (args.at(-1) === "--json") return result(1, JSON.stringify({ reachable: false }));
       if (args.at(-1) === "stop") return result(stopFailed ? 1 : 0);
       return result(1);
@@ -147,7 +147,7 @@ describe("DaemonSupervisor", () => {
       runtimeRoot: join(root, "runtime"),
       openminionExecutable: executable,
       runCommand: async (_command, args) =>
-        args.length === 1 ? result(0, "0.0.18\n") : result(0, "not json\n"),
+        args.length === 1 ? result(0, "0.0.19\n") : result(0, "not json\n"),
     });
     expect(await malformed.start()).toMatchObject({
       state: "degraded",
@@ -173,7 +173,7 @@ it.skipIf(!integrationExecutable)(
     expect(await supervisor.start()).toMatchObject({
       state: "running",
       reachable: true,
-      daemonVersion: "0.0.18",
+      daemonVersion: "0.0.19",
     });
     expect(await supervisor.status()).toMatchObject({ state: "running", reachable: true });
     expect(await supervisor.stop()).toEqual({ stopped: true });

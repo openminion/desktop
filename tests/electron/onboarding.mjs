@@ -130,6 +130,7 @@ async function check() {
       "!document.querySelector('#profile-dialog').open && document.querySelector('#setup-key').value === ''",
     );
     assert.equal(await readFile(join(root, "agents.json"), "utf8"), initialConfig);
+    await waitFor("document.querySelector('#connection-label').textContent === 'Connected'");
     assert.equal((await evaluate("window.openminion.sessions.list({})")).value.sessions.length, 0);
     await evaluate("document.querySelector('#show-settings').click()");
     await waitFor(

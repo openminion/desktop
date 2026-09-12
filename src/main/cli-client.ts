@@ -3,7 +3,18 @@ import type { ReportValue } from "../shared/reports.js";
 import type { RuntimeTask, TaskControlValue } from "../shared/tasks.js";
 import { request, type IncomingMessage } from "node:http";
 import type {
+  ApprovalDecisionInput,
+  ApprovalDecisionV1,
+  ArtifactContentV1,
+  ArtifactDecisionInput,
+  ArtifactDecisionValue,
+  ArtifactListInput,
+  ArtifactListValue,
+  ArtifactReadInput,
   ClientResult,
+  MediaAttachmentV1,
+  MediaReleaseInput,
+  MediaReleaseValue,
   SessionSummaryV1,
   SessionListInput,
   SessionListValue,
@@ -22,7 +33,6 @@ import type {
 } from "../shared/contracts.js";
 import { runCommand, type RunCommand } from "./installation.js";
 import {
-  type OpenMinionClient,
   EVENT_FACTS,
   validateListInput,
   validateCreateInput,
@@ -67,7 +77,7 @@ function runtimeTask(value: unknown): RuntimeTask {
   };
 }
 
-export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient> {
+export class CliClient {
   readonly #context: () => CliCommandContext | null;
   readonly #run: RunCommand;
   readonly #drafts = new Map<string, DraftSession>();
@@ -544,19 +554,37 @@ export class CliClient implements Pick<OpenMinionClient, keyof OpenMinionClient>
     }
   }
 
-  readonly decide: OpenMinionClient["decide"] = async () => unsupported("Approval decisions");
-  readonly listArtifacts: OpenMinionClient["listArtifacts"] = async () =>
-    unsupported("Artifact browsing");
-  readonly readArtifact: OpenMinionClient["readArtifact"] = async () =>
-    unsupported("Artifact browsing");
-  readonly detachArtifact: OpenMinionClient["detachArtifact"] = async () =>
-    unsupported("Artifact changes");
-  readonly restoreArtifact: OpenMinionClient["restoreArtifact"] = async () =>
-    unsupported("Artifact changes");
-  readonly uploadMedia: OpenMinionClient["uploadMedia"] = async () =>
-    unsupported("Attachments and screenshots");
-  readonly releaseMedia: OpenMinionClient["releaseMedia"] = async () =>
-    unsupported("Attachments and screenshots");
+  async decide(_input: ApprovalDecisionInput): Promise<ClientResult<ApprovalDecisionV1>> {
+    return unsupported("Approval decisions");
+  }
+
+  async listArtifacts(_input: ArtifactListInput): Promise<ClientResult<ArtifactListValue>> {
+    return unsupported("Artifact browsing");
+  }
+
+  async readArtifact(_input: ArtifactReadInput): Promise<ClientResult<ArtifactContentV1>> {
+    return unsupported("Artifact browsing");
+  }
+
+  async detachArtifact(
+    _input: ArtifactDecisionInput,
+  ): Promise<ClientResult<ArtifactDecisionValue>> {
+    return unsupported("Artifact changes");
+  }
+
+  async restoreArtifact(
+    _input: ArtifactDecisionInput,
+  ): Promise<ClientResult<ArtifactDecisionValue>> {
+    return unsupported("Artifact changes");
+  }
+
+  async uploadMedia(_input: unknown): Promise<ClientResult<MediaAttachmentV1>> {
+    return unsupported("Attachments and screenshots");
+  }
+
+  async releaseMedia(_input: MediaReleaseInput): Promise<ClientResult<MediaReleaseValue>> {
+    return unsupported("Attachments and screenshots");
+  }
 
   #requireContext(): CliCommandContext {
     const context = this.#context();

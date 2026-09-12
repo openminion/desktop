@@ -62,8 +62,8 @@ and should be treated as a scam.
 | Current line | Development alpha |
 | Current platform | macOS development and unsigned packaging |
 | Runtime | Node.js 24, npm 11, and Electron |
-| Managed core | Pinned `openminion==0.0.18` from PyPI |
-| Best fit | Local chat, session work, approvals, artifacts, and visible context |
+| Managed core | Pinned `openminion==0.0.19` from PyPI |
+| Best fit | Local chat, saved sessions, task controls, and visible-context preview |
 | Not the claim | Signed release, remote operation, or autonomous native control |
 
 ## Common Commands
@@ -126,7 +126,7 @@ Start the development app:
 npm start
 ```
 
-The first launch installs `openminion==0.0.18` under `~/.openminion/desktop`,
+The first launch installs `openminion==0.0.19` under `~/.openminion/desktop`,
 creates a private initial config, and starts an isolated daemon. A setup screen
 offers OpenMinion's provider choices, including MiniMax, model and API-key fields,
 profile import, or an explicit echo demo. Setup uses the ordinary CLI setup
@@ -158,7 +158,7 @@ that permission keeps chat available and observation unavailable.
 | OpenMinion | Agent execution, sessions, messages, tools, policy, credentials, artifacts, and durable state |
 | Desktop main process | Desktop metadata, daemon lifecycle, authenticated local communication, file grants, capture, and operating-system access |
 | Desktop preload | Small typed bridge exposing fixed application operations |
-| Desktop renderer | Chat, session navigation, approvals, artifacts, and visible capture controls |
+| Desktop renderer | Chat, session navigation, task controls, and local capture preview |
 
 Desktop manages an isolated OpenMinion installation and daemon through the
 ordinary CLI lifecycle commands. The daemon remains authoritative. A main-only

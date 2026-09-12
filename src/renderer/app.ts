@@ -897,7 +897,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       captureFrame === null ||
       attachments.length > 3;
     elements.screenContextStatus.textContent = observationStatus?.watchEnabled
-      ? "Automatic watch enabled · sends repeated screenshots"
+      ? "Automatic watch preview · delivery is not connected"
       : captureState?.state === "observing"
         ? elements.includeCurrentView.checked
           ? "Included with next message · latest eligible frame"

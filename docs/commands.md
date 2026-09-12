@@ -84,10 +84,10 @@ status. Full tool activity and approval presentation remain separate gaps.
 ## Remaining Focus Parity
 
 Focus's canonical command catalog is owned by OpenMinion's CLI presentation
-layer. Its handlers operate on the CLI runtime. Desktop's legacy typed client
-models sessions, turns, approvals, media, and artifacts. The live CLI adapter
-connects text turns, saved sessions, task inventory/lifecycle controls, agent/tool inventories, token reports, and transcript export; approvals, media, artifacts, and broader
-Focus commands remain pending.
+layer. Its handlers operate on the CLI runtime. Desktop's CLI-backed client
+connects text turns, saved sessions, task inventory/lifecycle controls,
+agent/tool inventories, token reports, and transcript export; approvals, media,
+artifacts, and broader Focus commands remain pending.
 
 | Focus command family | Required Desktop adaptation before it is connected |
 | --- | --- |

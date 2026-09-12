@@ -6,20 +6,6 @@ import type {
 } from "./profiles.js";
 import type { TaskControlInput, TaskControlValue } from "./tasks.js";
 import type { ReportInput, ReportValue } from "./reports.js";
-export type DesktopClientReady = {
-  schema_version: 1;
-  event: "desktop.client.ready";
-  host: "127.0.0.1" | "::1";
-  port: number;
-  protocol_min: 1;
-  protocol_max: 1;
-  daemon_version: string;
-  config_id: string;
-  client_id: string;
-  client_token: string;
-  expires_at: string;
-};
-
 export type DaemonState =
   | "idle"
   | "probing"
@@ -697,30 +683,6 @@ export type NativeApi = {
 
 export const PROTOCOL_SCHEME = "openminion";
 export const PROTOCOL_HOST = "app";
-export const CLIENT_TOKEN_HEADER = "X-OpenMinion-Client-Token";
-export const DESKTOP_CAPABILITIES = [
-  "daemon.health",
-  "daemon.ready",
-  "client.capabilities",
-  "client.lease.renew",
-  "client.lease.revoke",
-  "sessions.list",
-  "sessions.create",
-  "sessions.load",
-  "sessions.close",
-  "sessions.events",
-  "turns.submit",
-  "turns.cancel",
-  "turns.tool_progress",
-  "approvals.decide",
-  "media.upload",
-  "media.read",
-  "media.release",
-  "artifacts.catalog.v1",
-  "artifacts.content.v1",
-  "artifacts.detach_restore.v1",
-  "tool_outputs.read.v1",
-] as const;
 export const IPC_CHANNELS = {
   chatNamesLoad: "desktop:chat-names:load",
   chatNamesSave: "desktop:chat-names:save",

@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 
-export const OPENMINION_VERSION = "0.0.18";
+export const OPENMINION_VERSION = "0.0.19";
 
 export type CommandResult = {
   exitCode: number | null;
