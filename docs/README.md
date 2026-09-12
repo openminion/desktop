@@ -15,6 +15,8 @@ OpenMinion Desktop repository.
 | Follow implementation and simplicity rules | [Engineering Patterns](engineering-patterns.md) |
 | Understand local hooks and hosted checks | [Code Quality Enforcement](code-quality-enforcement.md) |
 | Run provider-free, package, native, or daemon proof | [Testing And Validation](testing-and-validation.md) |
+| Check CLI/Focus coverage and remaining GUI workflows | [Focus Parity Contract](focus-parity.md) |
+| Use the currently connected slash commands | [Desktop Commands](commands.md) |
 | Review the composer polish and its acceptance evidence | [Composer Refinement](composer-refinement.md) |
 | Check which product claims are currently supported | [Certification Readiness Matrix](certification-readiness-matrix.md) |
 

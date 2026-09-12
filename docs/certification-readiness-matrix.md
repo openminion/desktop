@@ -1,7 +1,7 @@
 # OpenMinion Desktop Certification Readiness Matrix
 
 Status: active
-Last updated: 2026-09-08
+Last updated: 2026-09-12
 
 Purpose: summarize the current proof posture for the standalone Desktop
 application.
@@ -23,7 +23,8 @@ application.
 | Cancellation | authenticated request and saved-event evidence; PyPI 0.0.18 can complete an in-flight provider request after acknowledgement | runtime interruption gap remains |
 | Approvals, media, artifacts, full Focus commands | preview UI and legacy typed client; public-interface adaptation pending | not connected |
 | Signed and notarized macOS app | no evidence | not ready |
-| Update, rollback, migration, uninstall | no evidence | not ready |
+| Desktop SQLite name migration and restart | fresh native legacy-browser import, saved/reset names and preserved runtime paths | verified for this bounded migration |
+| Full runtime update, rollback, restore and uninstall | no complete end-to-end evidence | not ready |
 | Windows and Linux packages | no evidence | not ready |
 | Remote daemon operation | out of the current local profile | not ready |
 | Public release | release workflow intentionally absent | not ready |

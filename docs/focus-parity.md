@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-09-09
+Last updated: 2026-09-12
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -145,9 +145,32 @@ It does not infer tool execution, model thinking, or progress percentages.
 Focus model/effort selection, permissions, rooms, prompt queues, and live context
 operate on interactive-runtime state. The pinned public CLI/daemon surface does
 not provide a general Focus command dispatcher. Separate CLI reports or config
-changes cannot stand in for those session operations. Full parity needs public
-runtime transport support; Desktop must not import private Python runtime code,
-start another interactive session, or duplicate those owners.
+changes cannot stand in for those session operations.
+
+The pinned 0.0.18 package already contains public session turn-input queue,
+approval-resume, trace stream attachment, and runtime capability routes. Desktop
+must qualify and consume their exact semantics before calling those workflows
+connected or declaring a missing-core blocker. An approval grant alone does not
+prove the original pending action resumed. Missing public semantics require an
+explicit generic-owner dependency; Desktop must not import private Python runtime
+code, start another interactive session, or duplicate those owners.
+
+## Full GUI Workflow Scope
+
+Parity includes the entire public CLI command tree and semantic arguments, not
+only the slash menu. Guided and Advanced GUI workflows must cover configuration,
+services, channels/pairings, schedules, projects/delegation, extensions, memory,
+identity, graphs, diagnostics, data maintenance and operator utilities. Preserve
+canonical effects while presenting friendly labels and controls; an instruction
+to switch to CLI does not complete a GUI workflow.
+
+As assessed on 2026-09-12, both the pinned 0.0.18 and current 0.0.19 source parsers
+register 44 command families and 243 leaf paths. Source has 51 built-in Focus
+commands; the pin has 50. Desktop advertises 14 built-ins with partial semantics.
+Bundled/user/project custom commands and shell intent add separate qualification
+requirements. These counts are a dated source inventory, not execution proof.
+Every static and dynamic GUI control needs an effective action, scope/error
+behavior and actual Electron acceptance.
 
 ## Acceptance
 
