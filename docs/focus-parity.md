@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -112,13 +112,17 @@ returned `valid_actions`; core validates them again on execution.
 
 The renderer receives only task presentation fields and a pending-decision count.
 Task changes are fenced against active Desktop turns and Settings updates. Reads
-remain available during a turn. Pending decisions, task creation forms, and richer
-run-history inspection still need integration. Tasks can already be created through
-ordinary OpenMinion chat or CLI operations and then controlled here.
+remain available during a turn. The inline form creates scheduled work using fixed `schedule create` arguments:
+name, instruction, one-time ISO timestamp, interval in minutes, or cron expression
+with timezone. It carries the same session and agent scope, then reads back the
+canonical task list. Core owns schedule validation and execution. Pending
+decisions, non-scheduled task creation and richer run-history inspection still
+need integration.
 
-The current source tree includes `/close`, but the pinned PyPI Focus catalog does
-not. Desktop retains its existing GUI Close operation without adding that slash
-command prematurely. Broader catalog discovery remains a gap.
+Pinned PyPI 0.0.19 includes `/close`; Desktop now routes that command to its
+existing canonical Close operation. `/resume` remains unavailable because the
+current saved-task picker does not establish Focus directory and non-empty
+history filtering. Broader catalog discovery remains a gap.
 
 ## Connected Reports And Export
 

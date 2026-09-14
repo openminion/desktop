@@ -253,6 +253,7 @@ const api: NativeApi = {
     import: async () => ok(null),
   },
   app: {
+    openLink: async () => ({ ok: true, value: null }),
     copyText: async () => ({
       ok: false,
       error: {

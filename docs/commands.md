@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-09-09
+Last updated: 2026-09-13
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -33,8 +33,9 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | --- | --- |
 | `/help` or `/` | Show the working Desktop command list. |
 | `/new`, `/new session` | Create a local task draft; its first message creates the saved session. Requires connection and no active turn in the selected task. |
+| `/close` | Close the selected conversation through the public CLI; new messages require an open conversation. |
 | `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration. |
-| `/tasks`, `/task` | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID or use the returned Pause, Resume, and Cancel controls. |
+| `/tasks`, `/task` | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID, use the returned Pause, Resume, and Cancel controls, or create scheduled work in the inline form. |
 | `/agents`, `/agent` | Read the daemon's agent discovery list. An exact ID or display name filters the list; this does not change the session's agent. |
 | `/tools`, `/tool` | Show the daemon's tool inventory and reported availability. Exposure changes are not connected. |
 | `/tokens` | Request the selected session's canonical durable token report. Pinned PyPI may report daemon-created sessions unavailable; no usage is fabricated. |
@@ -61,6 +62,21 @@ changes wait for that conversation's active turn to finish. OpenMinion validates
 each transition; Desktop does not infer task state or schedule ownership.
 Pending approval decisions are counted but must still be resolved in Focus/CLI.
 The inventory uses the public CLI's default limit of 50.
+
+The `/tasks` panel includes **Schedule work**. Enter a name and instruction, then
+choose a local date/time, an interval in minutes, or an advanced cron expression
+and timezone. Creation invokes the ordinary CLI `schedule create` command with
+the selected conversation and agent. The daemon must be running when work is
+due. Creation authorizes that future execution. Invalid input stays in the form;
+a successful creation with failed readback offers Refresh instead of another
+Create action. Raw cron administration and schedule run/tick history remain
+unconnected.
+
+Assistant responses render Markdown, code blocks, lists and tables. Raw HTML is
+literal text; embedded images do not load automatically. Clicking an HTTP(S)
+link explicitly opens the system browser. Other URL schemes are unavailable.
+Unchanged message elements stay mounted during status updates so text selection
+and reading position can be retained.
 
 Except for task commands, `/agents <exact-id-or-name>`, and `/new session`, commands currently take no arguments. Bare agent/tool queries, token reports, and export remain available during a turn. Agent filtering waits for the turn to finish, matching Focus admission. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.

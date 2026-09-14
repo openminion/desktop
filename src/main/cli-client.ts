@@ -77,6 +77,44 @@ function runtimeTask(value: unknown): RuntimeTask {
   };
 }
 
+function scheduleArguments(input: unknown): string[] {
+  const schedule = requireRecord(input);
+  if (
+    Object.keys(schedule).some(
+      (key) => !["name", "instruction", "kind", "value", "timezone"].includes(key),
+    )
+  )
+    throw protocolError("invalid_request", "Choose the schedule settings shown in the form.");
+  const name = requireString(schedule.name).trim();
+  const instruction = requireString(schedule.instruction).trim();
+  const timing = requireString(schedule.value).trim();
+  const timezone = requireString(schedule.timezone).trim();
+  if (
+    !name ||
+    name.length > 120 ||
+    !instruction ||
+    instruction.length > 32_000 ||
+    /\0/.test(name + instruction + timing + timezone)
+  )
+    throw protocolError("invalid_request", "Enter a name and an instruction for this schedule.");
+  const args = ["schedule", "create", `--name=${name}`, `--instruction=${instruction}`];
+  if (schedule.kind === "at") {
+    if (!Number.isFinite(Date.parse(timing)) || !/(?:Z|[+-]\d{2}:\d{2})$/.test(timing))
+      throw protocolError("invalid_request", "Choose a date and time with a timezone.");
+    args.push(`--at=${timing}`);
+  } else if (schedule.kind === "every") {
+    const minutes = Number(timing);
+    if (!Number.isSafeInteger(minutes * 60_000) || minutes <= 0)
+      throw protocolError("invalid_request", "Enter a positive interval in minutes.");
+    args.push(`--every-ms=${minutes * 60_000}`);
+  } else if (schedule.kind === "cron") {
+    if (!timing || timing.length > 256 || !timezone || timezone.length > 128)
+      throw protocolError("invalid_request", "Enter a cron expression and timezone.");
+    args.push(`--cron=${timing}`, `--tz=${timezone}`);
+  } else throw protocolError("invalid_request", "Choose a schedule type.");
+  return args;
+}
+
 export class CliClient {
   readonly #context: () => CliCommandContext | null;
   readonly #run: RunCommand;
@@ -192,13 +230,27 @@ export class CliClient {
   controlTasks(input: unknown): Promise<ClientResult<TaskControlValue>> {
     return this.#control(async () => {
       const value = requireRecord(input);
-      if (Object.keys(value).some((key) => !["sessionId", "action", "taskId"].includes(key)))
+      if (
+        Object.keys(value).some(
+          (key) => !["sessionId", "action", "taskId", "schedule"].includes(key),
+        )
+      )
         throw protocolError("invalid_request", "Choose a supported task operation.");
       const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
+      if (sessionId.startsWith("-") || sessionId.includes("\0"))
+        throw protocolError("invalid_request", "Choose a saved conversation.");
       const action = requireString(value.action);
-      if (!["list", "show", "pause", "resume", "cancel"].includes(action))
+      if (!["list", "show", "pause", "resume", "cancel", "schedule"].includes(action))
         throw protocolError("invalid_request", "Choose a supported task action.");
-      const taskId = action === "list" ? null : requireString(value.taskId);
+      if (action !== "schedule" && value.schedule !== undefined)
+        throw protocolError(
+          "invalid_request",
+          "Schedule fields are only valid when creating a schedule.",
+        );
+      if (["list", "schedule"].includes(action) && value.taskId !== undefined)
+        throw protocolError("invalid_request", "This operation does not take a task ID.");
+      const taskId =
+        action === "list" || action === "schedule" ? null : requireString(value.taskId);
       if (
         taskId !== null &&
         (!taskId || taskId.startsWith("-") || /\s|\0/.test(taskId) || taskId.length > 512)
@@ -214,14 +266,23 @@ export class CliClient {
         );
       // Reserve before loading scope so a turn or Settings cannot race a task change.
       if (mutating) this.#taskControls.add(sessionId);
+      let scheduled = false;
       try {
         const loaded = await this.load({ sessionId, messageLimit: 1 });
         if (!loaded.ok) throw protocolError(loaded.error.code, loaded.error.message);
-        const args = ["tasks", action];
-        if (taskId) args.push(taskId);
-        args.push("--session", sessionId, "--json");
+        const scope = ["--session", sessionId, "--json"];
         if (loaded.value.session.activeAgentId)
-          args.push("--agent-id", loaded.value.session.activeAgentId);
+          scope.push("--agent-id", loaded.value.session.activeAgentId);
+        if (action === "schedule") {
+          const result = requireRecord(
+            await this.#json([...scheduleArguments(value.schedule), ...scope]),
+          );
+          if (result.ok !== true)
+            throw protocolError("schedule_failed", "OpenMinion did not create this schedule.");
+          scheduled = true;
+        }
+        const list = action === "list" || action === "schedule";
+        const args = ["tasks", list ? "list" : action, ...(taskId ? [taskId] : []), ...scope];
         const payload = requireRecord(await this.#json(args));
         if (payload.ok !== true)
           throw protocolError(
@@ -229,11 +290,16 @@ export class CliClient {
             "OpenMinion did not complete this task operation.",
           );
         return {
-          tasks: (action === "list" ? requireArray(payload.tasks) : [payload.task]).map(
-            runtimeTask,
-          ),
-          pendingActions: action === "list" ? requireArray(payload.pending_actions).length : 0,
+          tasks: (list ? requireArray(payload.tasks) : [payload.task]).map(runtimeTask),
+          pendingActions: list ? requireArray(payload.pending_actions).length : 0,
         };
+      } catch (error) {
+        if (scheduled)
+          throw protocolError(
+            "schedule_refresh_failed",
+            "Your schedule was created. Refresh the work list to see its details.",
+          );
+        throw error;
       } finally {
         if (mutating) this.#taskControls.delete(sessionId);
       }

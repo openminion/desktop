@@ -50,6 +50,7 @@
     "@types/node": "24.13.3",
     "electron": "43.1.1",
     "esbuild": "0.28.2",
+    "markdown-it": "15.0.2",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   }

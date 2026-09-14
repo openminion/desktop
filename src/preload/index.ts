@@ -29,6 +29,7 @@ const api: NativeApi = {
     import: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesImport, input),
   },
   app: {
+    openLink: (url) => ipcRenderer.invoke(IPC_CHANNELS.openLink, url),
     copyText(text) {
       return ipcRenderer.invoke(IPC_CHANNELS.copyText, text);
     },

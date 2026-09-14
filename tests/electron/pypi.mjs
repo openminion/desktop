@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { app, dialog } from "electron";
+import { app, dialog, shell } from "electron";
 import { runCommand } from "../../dist/src/main/installation.js";
 import { DESKTOP_ALIASES, DESKTOP_COMMANDS } from "../../dist/src/renderer/app.js";
 
@@ -61,7 +61,7 @@ async function check() {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       throw new Error(
-        `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent + ' / ' + document.querySelector('#profile-status').textContent + ' / command: ' + document.querySelector('#command-title').textContent + ' / ' + document.querySelector('#command-result').textContent.slice(0, 500) + ' / open: ' + !document.querySelector('#command-panel').hidden")}`,
+        `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent + ' / ' + document.querySelector('#profile-status').textContent + ' / command: ' + document.querySelector('#command-title').textContent + ' / ' + document.querySelector('#command-result').textContent.slice(0, 500) + ' / open: ' + !document.querySelector('#command-panel').hidden + ' / timeline: ' + document.querySelector('#timeline').textContent.slice(-1800)")}`,
       );
     };
     const fill = async (text) =>
@@ -252,6 +252,41 @@ async function check() {
     console.log(
       "PASS: installed Focus catalog/aliases, daemon tools, canonical tokens, and native transcript export.",
     );
+    await fill("/tasks");
+    await evaluate("document.querySelector('#send').click()");
+    await waitFor("document.querySelector('#schedule-name') !== null");
+    await evaluate(`document.querySelector('#schedule-name').value = 'GUI scheduled work';
+      document.querySelector('#schedule-instruction').value = 'Isolated future acceptance task. Do not contact external systems.';
+      document.querySelector('#schedule-value').value = '2099-02-01T12:00';
+      document.querySelector('.schedule-form').requestSubmit()`);
+    await waitFor(
+      "[...document.querySelectorAll('.runtime-task h3')].some(node => node.textContent === 'GUI scheduled work')",
+    );
+    const guiWork = await runCommand(
+      executable,
+      [...args, "tasks", "list", "--session", sessionId, "--json"],
+      30_000,
+    );
+    assert.equal(guiWork.exitCode, 0);
+    const guiScheduled = JSON.parse(guiWork.stdout).tasks.find(
+      (task) => task.title === "GUI scheduled work",
+    );
+    assert.ok(guiScheduled, "GUI-created schedule must exist in canonical CLI inventory");
+    assert.match(guiScheduled.due_at, /^2099-02-/);
+    await evaluate(
+      `[...document.querySelectorAll('.runtime-task')].find(node => node.querySelector('h3').textContent === 'GUI scheduled work').querySelectorAll('button')[1].click()`,
+    );
+    await waitFor("document.querySelector('.runtime-task')?.textContent.includes('paused')");
+    const guiPaused = await runCommand(
+      executable,
+      [...args, "tasks", "show", guiScheduled.id, "--session", sessionId, "--json"],
+      30_000,
+    );
+    assert.equal(JSON.parse(guiPaused.stdout).task.lifecycle_state, "paused");
+    await evaluate("document.querySelector('#close-command').click()");
+    console.log(
+      "PASS: DGUI-16 GUI schedule creation and pause match canonical CLI state without executing future work.",
+    );
     const scheduled = await runCommand(
       executable,
       [
@@ -284,7 +319,7 @@ async function check() {
       await fill(text);
       await evaluate("document.querySelector('#send').click()");
       await waitFor(
-        `document.querySelector('.runtime-task')?.textContent.includes(${JSON.stringify(state)})`,
+        `[...document.querySelectorAll('.runtime-task')].find(node => node.textContent.includes(${JSON.stringify(taskId)}))?.textContent.includes(${JSON.stringify(state)})`,
       );
     };
     await command("/tasks pause", "Task command");
@@ -310,9 +345,11 @@ async function check() {
     }
 
     await evaluate(
-      "Array.from(document.querySelectorAll('.runtime-task button')).find(button => button.textContent === 'Pause').click()",
+      "Array.from(document.querySelectorAll('.runtime-task')).find(node => node.querySelector('h3').textContent === 'Desktop work controls').querySelectorAll('button')[1].click()",
     );
-    await waitFor("document.querySelector('.runtime-task')?.textContent.includes('paused')");
+    await waitFor(
+      "[...document.querySelectorAll('.runtime-task')].find(node => node.querySelector('h3').textContent === 'Desktop work controls')?.textContent.includes('paused')",
+    );
     await workCommand(`/task resume ${taskId}`, "active");
     await workCommand(`/tasks cancel ${taskId}`, "cancelled");
     const canonicalWork = await runCommand(
@@ -485,6 +522,7 @@ async function check() {
     );
     // Only this isolated test config talks to this local controlled provider.
     let providerMode = "hold";
+    let providerText = "Local fixture response";
     let providerCalls = 0;
     let rejectedRequests = 0;
     const providerAuthorizations = [];
@@ -515,7 +553,7 @@ async function check() {
           } else if (body.stream) {
             res.writeHead(200, { "Content-Type": "text/event-stream" });
             res.end(
-              `data: ${JSON.stringify({ id: "e2e", object: "chat.completion.chunk", model: "e2e-fixture", choices: [{ index: 0, delta: { content: "Local fixture response" }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "e2e", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+              `data: ${JSON.stringify({ id: "e2e", object: "chat.completion.chunk", model: "e2e-fixture", choices: [{ index: 0, delta: { content: providerText }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "e2e", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
             );
           } else {
             res.writeHead(200, { "Content-Type": "application/json" });
@@ -527,7 +565,7 @@ async function check() {
                 choices: [
                   {
                     index: 0,
-                    message: { role: "assistant", content: "Local fixture response" },
+                    message: { role: "assistant", content: providerText },
                     finish_reason: "stop",
                   },
                 ],
@@ -734,6 +772,102 @@ async function check() {
     );
     console.log(
       "PASS: provider failure and recovery through the real daemon and a local controlled provider; no paid provider call.",
+    );
+    providerText =
+      "# Readable reply\n\n**Bold** and `inline code`.\n\n- First item\n- Second item\n\n| Item | Value |\n| --- | --- |\n| Result | 391 |\n\n```js\nconst answer = '<script>bad()</script>';\n```\n\n[Documentation](https://example.com/docs)\n\n<script>window.markdownExecuted = true</script>\n\n[Unsafe](javascript:alert(1))\n\n![Remote](https://example.com/tracker.png)";
+    await fill("Render the next fixture reply");
+    await waitFor("!document.querySelector('#send').disabled");
+    await evaluate("document.querySelector('#send').click()");
+    await waitFor(
+      "document.querySelector('#cancel').hidden && document.querySelector('.message.assistant h1')?.textContent === 'Readable reply'",
+    );
+    const markdownResult = await evaluate(`(() => {
+      const body = document.querySelector('.message.assistant:last-of-type .message-body');
+      return { headings: body.querySelectorAll('h1').length, strong: body.querySelector('strong')?.textContent,
+        code: body.querySelector('pre code')?.textContent, rows: body.querySelectorAll('tr').length,
+        scripts: body.querySelectorAll('script').length, images: body.querySelectorAll('img').length,
+        hrefs: [...body.querySelectorAll('a')].map(a => a.getAttribute('href')), executed: window.markdownExecuted === true };
+    })()`);
+    assert.equal(markdownResult.headings, 1);
+    assert.equal(markdownResult.strong, "Bold");
+    assert.match(markdownResult.code, /<script>bad/);
+    assert.equal(markdownResult.rows, 2);
+    assert.equal(markdownResult.scripts, 0);
+    assert.equal(markdownResult.images, 0);
+    assert.equal(markdownResult.executed, false);
+    assert.ok(markdownResult.hrefs.every((url) => url.startsWith("https://")));
+    const openedLinks = [];
+    const originalOpenExternal = shell.openExternal;
+    shell.openExternal = async (url) => {
+      openedLinks.push(url);
+    };
+    await evaluate("document.querySelector('.message.assistant:last-of-type a').click()");
+    await waitFor("document.activeElement !== null");
+    for (let attempt = 0; !openedLinks.length && attempt < 20; attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    shell.openExternal = originalOpenExternal;
+    assert.deepEqual(openedLinks, ["https://example.com/docs"]);
+    await evaluate(`(() => {
+      const body = document.querySelector('.message.assistant:last-of-type .message-body');
+      window.preservedMessage = body;
+      document.activeElement?.blur();
+      const range = document.createRange(); range.selectNodeContents(body.querySelector('strong'));
+      getSelection().removeAllRanges(); getSelection().addRange(range);
+    })()`);
+    assert.equal(await evaluate("getSelection().toString()"), "Bold");
+    await evaluate(
+      "document.querySelector('#composer').value = 'Unsent draft'; document.querySelector('#composer').dispatchEvent(new Event('input'))",
+    );
+    assert.equal(
+      await evaluate(
+        "window.preservedMessage === document.querySelector('.message.assistant:last-of-type .message-body')",
+      ),
+      true,
+    );
+    assert.equal(await evaluate("getSelection().toString()"), "Bold");
+    await waitFor("document.querySelector('#timeline').getAttribute('aria-busy') === 'false'");
+    assert.equal(
+      await evaluate(
+        "window.preservedMessage === document.querySelector('.message.assistant:last-of-type .message-body')",
+      ),
+      true,
+    );
+    assert.equal(await evaluate("getSelection().toString()"), "Bold");
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+      [1800, 1000],
+    ]) {
+      window.setContentSize(width, height);
+      await waitFor(`innerWidth === ${width}`);
+      assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true);
+      const artifacts = process.env.OPENMINION_E2E_ARTIFACTS;
+      if (artifacts) {
+        await mkdir(artifacts, { recursive: true });
+        await writeFile(
+          join(artifacts, `markdown-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+    }
+    await command("/sessions", "Choose a task");
+    const activeId = (await evaluate("window.openminion.sessions.list({})")).value.sessions[0]
+      .sessionId;
+    await waitFor("!document.querySelector('#close-session').disabled");
+    await fill("/close");
+    await evaluate("document.querySelector('#send').click()");
+    await waitFor(
+      "document.querySelector('#chat-status').textContent.includes('closed') || document.querySelector('#current-title').textContent === 'New task'",
+    );
+    const slashClosed = await runCommand(
+      executable,
+      [...args, "sessions", "show", activeId, "--json"],
+      30_000,
+    );
+    assert.equal(slashClosed.exitCode, 0);
+    assert.equal(JSON.parse(slashClosed.stdout).status, "closed");
+    console.log(
+      "PASS: DGUI-05 Markdown/code/table safety, explicit link opening, stable message DOM/selection, three window sizes; DGUI-03/04 session selection and close through UI with CLI readback.",
     );
     console.log(
       "PyPI GUI passed: production main/preload/renderer, first send, keyboard controls, commands, task switching, drafts, resize, outage/restart recovery, canonical close, cancellation request, provider failure/recovery, unavailable attachments.",

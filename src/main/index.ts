@@ -9,6 +9,7 @@ import {
   ipcMain,
   powerMonitor,
   screen,
+  shell,
   session,
   systemPreferences,
   type DisplayMediaRequestHandlerHandlerRequest,
@@ -233,6 +234,26 @@ export function registerIpcHandlers(
       );
     }
   });
+  ipcMain.handle(
+    IPC_CHANNELS.openLink,
+    async (event, input: unknown): Promise<ClientResult<null>> => {
+      if (!isAppInvocation(event)) return forbiddenResult();
+      if (typeof input !== "string" || input.length > 8192)
+        return failure("invalid_request", "Choose a web link.");
+      try {
+        const url = new URL(input);
+        if (!["https:", "http:"].includes(url.protocol) || url.username || url.password)
+          return failure(
+            "invalid_request",
+            "Only web links without embedded credentials can be opened.",
+          );
+        await shell.openExternal(url.href);
+        return { ok: true, value: null };
+      } catch {
+        return failure("open_link_failed", "Could not open this link in your browser.");
+      }
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.copyText, (event, text: unknown): ClientResult<null> => {
     if (!isAppInvocation(event)) return forbiddenResult();
     if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 1024 * 1024) {

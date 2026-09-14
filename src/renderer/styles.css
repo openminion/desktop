@@ -1827,3 +1827,94 @@ code {
 .rename-dialog #rename-error:empty {
   display: none;
 }
+
+.message-body.markdown {
+  white-space: normal;
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p {
+  margin: 0.65em 0;
+  white-space: pre-wrap;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+  font-size: 1.15em;
+}
+.markdown ul,
+.markdown ol {
+  padding-left: 1.6em;
+}
+.markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--bg-deep);
+  white-space: pre;
+}
+.markdown code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+}
+.markdown :not(pre) > code {
+  background: var(--bg-deep);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.markdown blockquote {
+  margin-left: 0;
+  padding-left: 16px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+}
+.markdown a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.schedule-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.schedule-form label {
+  display: grid;
+  gap: 6px;
+}
+.schedule-form input,
+.schedule-form textarea,
+.schedule-form select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px;
+  color: var(--text);
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.schedule-form textarea {
+  resize: vertical;
+  min-height: 80px;
+}

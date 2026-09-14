@@ -627,6 +627,7 @@ export type NativeApi = {
   app: {
     info(): Promise<AppInfo>;
     copyText(text: string): Promise<ClientResult<null>>;
+    openLink(url: string): Promise<ClientResult<null>>;
   };
   daemon: {
     status(): Promise<DaemonStatus>;
@@ -695,6 +696,7 @@ export const IPC_CHANNELS = {
   profilesSave: "openminion:profiles:save",
   profilesImport: "openminion:profiles:import",
   copyText: "openminion:copy-text",
+  openLink: "openminion:open-link",
   daemonStatus: "openminion:daemon-status",
   daemonRetry: "openminion:daemon-retry",
   sessionsList: "openminion:sessions-list",

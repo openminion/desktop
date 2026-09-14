@@ -345,6 +345,7 @@ describe("renderer status view", () => {
     const api = {
       reports: { read },
       app: {
+        openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
         info: async () => ({ shellVersion: "test" }),
       },
@@ -493,7 +494,7 @@ describe("renderer status view", () => {
       expect(page.element("command-title").textContent).toBe(
         "Focus commands — partial integration",
       );
-      for (const command of ["/files", "/screenshot", "/cancel", "/close", "/retry", "/resume"]) {
+      for (const command of ["/files", "/screenshot", "/cancel", "/retry", "/resume"]) {
         page.element("composer").value = command;
         page.element("composer").dispatch("keydown", { key: "Enter" });
         expect(page.element("command-title").textContent).toBe("Command unavailable");
@@ -801,6 +802,7 @@ describe("renderer status view", () => {
     });
     const api = {
       app: {
+        openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
         info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
       },
@@ -944,6 +946,7 @@ describe("renderer status view", () => {
     const api = {
       app: {
         info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+        openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
       },
       daemon: {
@@ -1250,6 +1253,7 @@ describe("renderer status view", () => {
       });
     const api = {
       app: {
+        openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
         info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
       },
@@ -1426,6 +1430,7 @@ describe("renderer status view", () => {
     };
     const api = {
       app: {
+        openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
         info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
       },
@@ -1809,6 +1814,7 @@ describe("renderer status view", () => {
       .mockResolvedValue({ ok: true, value: { released: true } });
     const api = {
       app: {
+        openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
         info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
       },
@@ -1969,6 +1975,7 @@ describe("renderer status view", () => {
     const mediaPick = vi.fn();
     const api = {
       app: {
+        openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
         info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
       },
@@ -2567,6 +2574,7 @@ describe("renderer status view", () => {
       });
     const api = {
       app: {
+        openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
         info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
       },
@@ -2802,6 +2810,15 @@ class FixtureElement {
 
   append(...children: FixtureElement[]): void {
     this.children.push(...children);
+  }
+  get lastElementChild(): FixtureElement | null {
+    return this.children.at(-1) ?? null;
+  }
+  replaceChild(next: FixtureElement, previous: FixtureElement): void {
+    this.children.splice(this.children.indexOf(previous), 1, next);
+  }
+  removeChild(child: FixtureElement): void {
+    this.children.splice(this.children.indexOf(child), 1);
   }
   replaceChildren(...children: FixtureElement[]): void {
     this.children = children;

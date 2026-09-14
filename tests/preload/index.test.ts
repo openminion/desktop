@@ -64,7 +64,7 @@ describe("preload surface", () => {
     });
     invoke.mockClear();
     expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);
-    expect(Object.keys(api.app)).toEqual(["copyText", "info"]);
+    expect(Object.keys(api.app)).toEqual(["openLink", "copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["status", "retry"]);
     expect(Object.keys(api.sessions)).toEqual([
       "export",

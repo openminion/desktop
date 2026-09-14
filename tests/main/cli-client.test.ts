@@ -180,6 +180,111 @@ describe("PyPI CLI client", () => {
     expect(run).toHaveBeenCalledTimes(calls);
   });
 
+  it("creates schedules through the CLI with exact session and agent scope", async () => {
+    const run = vi.fn();
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    for (const [kind, value, timing] of [
+      ["at", "2099-02-01T12:00:00Z", ["--at=2099-02-01T12:00:00Z"]],
+      ["every", "5", ["--every-ms=300000"]],
+      ["cron", "0 9 * * 1-5", ["--cron=0 9 * * 1-5", "--tz=America/Los_Angeles"]],
+    ] as const) {
+      run.mockResolvedValueOnce({ exitCode: 0, stdout: '{"ok":true}', stderr: "" });
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: '{"ok":true,"tasks":[{"id":"scheduled-1"}],"pending_actions":[]}',
+        stderr: "",
+      });
+      const result = await client.controlTasks({
+        sessionId,
+        action: "schedule",
+        schedule: {
+          name: "--help",
+          instruction: "Do this; $(literal)",
+          kind,
+          value,
+          timezone: "America/Los_Angeles",
+        },
+      });
+      expect(result).toMatchObject({ ok: true, value: { tasks: [{ id: "scheduled-1" }] } });
+      expect(run.mock.calls.at(-2)?.[1]).toEqual([
+        "schedule",
+        "create",
+        "--name=--help",
+        "--instruction=Do this; $(literal)",
+        ...timing,
+        "--session",
+        sessionId,
+        "--json",
+        "--agent-id",
+        "writer",
+      ]);
+      expect(run.mock.calls.at(-1)?.[1]).toEqual([
+        "tasks",
+        "list",
+        "--session",
+        sessionId,
+        "--json",
+        "--agent-id",
+        "writer",
+      ]);
+    }
+  });
+
+  it("rejects malformed schedule inputs and reports a created schedule when readback fails", async () => {
+    const run = vi.fn();
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    const schedule = {
+      name: "Daily",
+      instruction: "Summarize",
+      kind: "every",
+      value: "5",
+      timezone: "UTC",
+    };
+    for (const change of [
+      { name: "" },
+      { instruction: "" },
+      { value: "0" },
+      { value: "-1" },
+      { value: "Infinity" },
+      { name: "bad\0name" },
+      { kind: "unknown" },
+      { kind: "at", value: "2099-01-01T09:00" },
+      { kind: "cron", timezone: "" },
+      { args: ["--config", "/other"] },
+    ])
+      expect(
+        await client.controlTasks({
+          sessionId,
+          action: "schedule",
+          schedule: { ...schedule, ...change },
+        }),
+      ).toMatchObject({ ok: false });
+    expect(
+      await client.controlTasks({ sessionId, action: "schedule", taskId: "unrelated", schedule }),
+    ).toMatchObject({ ok: false });
+    expect(
+      await client.controlTasks({ sessionId: "--help", action: "schedule", schedule }),
+    ).toMatchObject({ ok: false });
+    expect(run).not.toHaveBeenCalled();
+    run.mockResolvedValueOnce({ exitCode: 0, stdout: '{"ok":true}', stderr: "" });
+    run.mockResolvedValueOnce({ exitCode: 1, stdout: "", stderr: "private detail" });
+    expect(await client.controlTasks({ sessionId, action: "schedule", schedule })).toMatchObject({
+      ok: false,
+      error: {
+        code: "schedule_refresh_failed",
+        message: "Your schedule was created. Refresh the work list to see its details.",
+      },
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(client.beginConfiguration()).toBe(true);
+  });
+
   it("fences a pending task change from Settings and sending, then releases after failure", async () => {
     let finish!: (value: { exitCode: number; stdout: string; stderr: string }) => void;
     const run = vi.fn(

@@ -9,6 +9,7 @@ import {
 import { IPC_CHANNELS, type NativeApi, type TurnEventV1 } from "../../src/shared/contracts.js";
 
 const mocks = vi.hoisted(() => ({
+  openExternal: vi.fn().mockResolvedValue(undefined),
   ipcHandlers: new Map<string, (...args: any[]) => unknown>(),
   ipcListeners: new Map<string, (...args: any[]) => unknown>(),
   exposedApi: null as NativeApi | null,
@@ -88,6 +89,7 @@ vi.mock("electron", () => {
     }
   }
   return {
+    shell: { openExternal: mocks.openExternal },
     app: {
       whenReady: vi.fn(() => new Promise(() => {})),
       on: vi.fn(),
@@ -287,6 +289,7 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.tasksControl,
       IPC_CHANNELS.reportsRead,
       IPC_CHANNELS.sessionsExport,
+      IPC_CHANNELS.openLink,
       IPC_CHANNELS.copyText,
       IPC_CHANNELS.profilesRead,
       IPC_CHANNELS.profilesPresets,
@@ -876,6 +879,35 @@ describe("desktop main boundary", () => {
     expect(window.webContents.on).toHaveBeenCalledWith("will-navigate", expect.any(Function));
   });
 
+  it("opens only explicit web links from the application frame", async () => {
+    const openLink = mocks.ipcHandlers.get(IPC_CHANNELS.openLink)!;
+    const frame = { url: "openminion://app/" };
+    const event = { senderFrame: frame, sender: { mainFrame: frame } };
+    mocks.openExternal.mockClear();
+    for (const url of [
+      "file:///etc/passwd",
+      "javascript:alert(1)",
+      "data:text/html,test",
+      "openminion://app/",
+      "https://user:secret@example.com/",
+      "bad",
+      {},
+      "x".repeat(8193),
+    ])
+      expect(await openLink(event, url)).toMatchObject({ ok: false });
+    expect(await openLink({ senderFrame: null }, "https://example.com/")).toMatchObject({
+      ok: false,
+    });
+    expect(mocks.openExternal).not.toHaveBeenCalled();
+    expect(await openLink(event, "https://example.com/docs")).toEqual({ ok: true, value: null });
+    expect(mocks.openExternal).toHaveBeenCalledWith("https://example.com/docs");
+    mocks.openExternal.mockRejectedValueOnce(new Error("browser unavailable"));
+    expect(await openLink(event, "https://example.com/")).toMatchObject({
+      ok: false,
+      error: { code: "open_link_failed" },
+    });
+  });
+
   it("admits one exact worker permission and display grant", async () => {
     mocks.permissionStatus = "not-determined";
     mocks.desktopSources = [
@@ -1436,6 +1468,15 @@ class CaptureFixtureElement {
 
   append(...children: CaptureFixtureElement[]) {
     this.children.push(...children);
+  }
+  get lastElementChild(): CaptureFixtureElement | null {
+    return this.children.at(-1) ?? null;
+  }
+  replaceChild(next: CaptureFixtureElement, previous: CaptureFixtureElement): void {
+    this.children.splice(this.children.indexOf(previous), 1, next);
+  }
+  removeChild(child: CaptureFixtureElement): void {
+    this.children.splice(this.children.indexOf(child), 1);
   }
   replaceChildren(...children: CaptureFixtureElement[]) {
     this.children = children;

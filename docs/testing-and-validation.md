@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-09-09
+Last updated: 2026-09-13
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -107,8 +107,10 @@ The Electron test drives production main, preload, and renderer and covers:
 - inline command results aligned above the composer at narrow and wide sizes, without overlaying history or input;
 - command names and aliases checked against the installed Focus catalog, with every canonical command tracked in the parity contract;
 - agent/tool reports, canonical CLI token output, and native Markdown export/cancel without model turns;
-- canonical task creation through the public CLI, Desktop task inventory, pause,
+- schedule creation through the GUI with canonical CLI readback, plus task creation through the public CLI, Desktop task inventory, pause,
   resume and cancellation, and independent CLI verification of durable state;
+- safe Markdown/code/table rendering, explicit HTTP(S) link opening, and stable message DOM/text selection;
+- `/close` with independent CLI confirmation;
 - two conversations, task-local unsent drafts, and visible clearing without deleting history;
 - populated layout at 760 × 560, 1180 × 800, and 1800 × 1000;
 - daemon outage detection through connection details, reconnect with the draft intact,
@@ -144,6 +146,27 @@ daemon's terminal outcome; it does not certify interruption of provider work.
 These checks do not contact a paid provider, record the user's screen, or certify
 approval/media delivery, full Focus command parity, or active-turn reattachment
 across an application quit.
+
+## Opt-in Live Provider
+
+Only run this after the user authorizes provider calls with the selected profile:
+
+```bash
+OPENMINION_PYPI_EXECUTABLE=/path/to/openminion \
+  OPENMINION_E2E_PROFILE=/path/to/authorized-profile.json \
+  OPENMINION_E2E_ARTIFACTS=/path/to/scratch/screenshots \
+  npx electron tests/electron/live-profile.mjs
+```
+
+This launches production Electron in a disposable home, imports the selected
+profile through Settings, sends two ordinary model requests, reloads the renderer
+between them, checks conversation recall and independently verifies the CLI
+transcript and agent. The source profile is read but not changed. The native
+file chooser result is supplied by the harness; all Settings and chat handlers
+are real. No paid-provider endpoint is replaced by a fixture. Two short calls
+can incur provider charges. Keys are never printed or included in screenshots.
+The temporary configuration and daemon are removed on exit. This test proves
+chat continuity for the selected profile, not tool execution or full parity.
 
 ## Workspace Regression Checks
 

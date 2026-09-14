@@ -1,6 +1,7 @@
+import { renderMarkdown } from "./markdown.js";
 import { mountProfiles } from "./profiles.js";
 import { renderTasks } from "./tasks.js";
-import type { TaskAction } from "../shared/tasks.js";
+import type { ScheduleInput, TaskAction } from "../shared/tasks.js";
 import type {
   ApprovalDecision,
   ApprovalDecisionV1,
@@ -71,6 +72,7 @@ export const DESKTOP_COMMANDS = [
   { name: "/help", description: "Show commands currently connected in Desktop" },
   { name: "/new", description: "Start a new session" },
   { name: "/sessions", description: "Pick a session" },
+  { name: "/close", description: "Close the current session" },
   { name: "/tasks", description: "Inspect and control OpenMinion work" },
   { name: "/agents", description: "List agents or find one by ID or name" },
   { name: "/tools", description: "Show available tools" },
@@ -1378,26 +1380,44 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.commandPanel.hidden = false;
   };
 
-  const runTasks = async (action: TaskAction, taskId?: string) => {
+  const runTasks = async (action: TaskAction, taskId?: string, schedule?: ScheduleInput) => {
     if (!selected || !daemonReady || !api.tasks) {
+      if (schedule) return "Connect OpenMinion and choose a conversation first.";
       showCommandResult("OpenMinion work", "Connect OpenMinion and choose a conversation first.");
       return;
     }
     if (chat.active && !["list", "show"].includes(action)) {
+      if (schedule) return "Finish or stop this turn before scheduling work.";
       showCommandResult("Turn in progress", "Finish or stop this turn before changing work.");
       return;
     }
     const sessionId = selected.sessionId;
-    showCommandResult(
-      "OpenMinion work",
-      action === "list" || action === "show" ? "Loading work…" : "Applying change…",
-    );
+    if (!schedule)
+      showCommandResult(
+        "OpenMinion work",
+        action === "list" || action === "show" ? "Loading work…" : "Applying change…",
+      );
     const request = commandResultGeneration;
-    const result = await api.tasks.control({ sessionId, action, taskId });
+    const result = await api.tasks.control({
+      sessionId,
+      action,
+      taskId,
+      ...(schedule ? { schedule } : {}),
+    });
     if (request !== commandResultGeneration || selected?.sessionId !== sessionId) return;
     // A dismissed result stays dismissed; completion must not reopen it over the chat.
     if (elements.commandPanel.hidden) return;
     if (!result.ok) {
+      if (schedule && result.error.code === "schedule_refresh_failed") {
+        showCommandResult("Schedule created", result.error.message);
+        const refresh = root.createElement("button");
+        refresh.type = "button";
+        refresh.textContent = "Refresh work list";
+        refresh.addEventListener("click", () => void runTasks("list"));
+        elements.commandResult.append(refresh);
+        return;
+      }
+      if (schedule) return result.error.message;
       showCommandResult("OpenMinion work", result.error.message);
       return;
     }
@@ -1414,9 +1434,19 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         .filter(Boolean)
         .join("\n"),
     );
-    renderTasks(root, elements.commandResult, result.value.tasks, chat.active, (nextAction, id) => {
-      if (selected?.sessionId === sessionId) void runTasks(nextAction, id);
-    });
+    renderTasks(
+      root,
+      elements.commandResult,
+      result.value.tasks,
+      chat.active,
+      (nextAction, id) => {
+        if (selected?.sessionId === sessionId) void runTasks(nextAction, id);
+      },
+      (schedule) =>
+        selected?.sessionId === sessionId
+          ? runTasks("schedule", undefined, schedule)
+          : Promise.resolve("Choose the original conversation before scheduling work."),
+    );
   };
 
   const runCommand = async (text: string): Promise<boolean> => {
@@ -1558,6 +1588,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         else button.click();
         break;
       }
+      case "/close":
+        if (elements.closeSession.disabled)
+          showCommandResult(
+            "Close conversation",
+            "Choose an open conversation and finish or stop its active turn first.",
+          );
+        else elements.closeSession.click();
+        break;
       case "/sessions":
         showCommandResult(
           "Choose a task",
@@ -1633,6 +1671,15 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderChat();
     return true;
   };
+
+  elements.timeline.addEventListener("click", (event) => {
+    const link = (event.target as Element).closest("a[href]");
+    if (!link) return;
+    event.preventDefault();
+    void api.app.openLink(link.getAttribute("href")!).then((result) => {
+      if (!result.ok) showCommandResult("Open link", result.error.message);
+    });
+  });
 
   const renderWaitTime = () => {
     elements.chatElapsed.textContent =
@@ -3027,6 +3074,14 @@ function renderSessions(
   list.replaceChildren(...items);
 }
 
+type TimelineMessage = {
+  key: string;
+  node: HTMLElement;
+  profile: HTMLElement | null;
+  usage: HTMLElement | null;
+};
+const timelineMessages = new WeakMap<HTMLElement, TimelineMessage[]>();
+
 function renderTimeline(
   root: Document,
   timeline: HTMLElement,
@@ -3040,34 +3095,57 @@ function renderTimeline(
 ): void {
   const scrollTop = timeline.scrollTop;
   const followLatest = timeline.scrollHeight - timeline.clientHeight - scrollTop <= 1;
-  const items: HTMLElement[] = messages.map((message) => {
+  const previous = timelineMessages.get(timeline) ?? [];
+  const next: TimelineMessage[] = [];
+  const items: HTMLElement[] = messages.map((message, index) => {
+    const bodyText =
+      message.role === "assistant"
+        ? assistantBody(message.body, message.profileName)
+        : message.body;
+    const usageText =
+      message.role === "assistant" ? formatDesktopTurnUsage(message.usage, turnUsageDisplay) : "";
+    const key = JSON.stringify([message.role, bodyText]);
+    const cached = previous[index];
+    if (cached?.key === key) {
+      if (cached.profile) {
+        if (cached.profile.textContent !== (message.profileName ?? ""))
+          cached.profile.textContent = message.profileName ?? "";
+        cached.profile.hidden = !message.profileName;
+      }
+      if (cached.usage) {
+        if (cached.usage.textContent !== usageText) cached.usage.textContent = usageText;
+        cached.usage.hidden = !usageText;
+      }
+      next.push(cached);
+      return cached.node;
+    }
     const article = root.createElement("article");
     article.className = `message ${message.role}`;
     const role = root.createElement("p");
     role.className = "message-role";
     role.textContent = message.role === "user" ? "You" : "OpenMinion";
-    if (message.role === "assistant" && message.profileName) {
-      const profile = root.createElement("span");
+    const profile = message.role === "assistant" ? root.createElement("span") : null;
+    if (profile) {
       profile.className = "message-profile";
-      profile.textContent = message.profileName;
+      profile.textContent = message.profileName ?? "";
+      profile.hidden = !message.profileName;
       role.append(profile);
     }
-    const body = root.createElement("p");
+    const body = root.createElement("div");
     body.className = "message-body";
-    body.textContent =
-      message.role === "assistant"
-        ? assistantBody(message.body, message.profileName)
-        : message.body;
-    article.append(role, body);
     if (message.role === "assistant") {
-      const usageText = formatDesktopTurnUsage(message.usage, turnUsageDisplay);
-      if (usageText) {
-        const usage = root.createElement("p");
-        usage.className = "message-usage";
-        usage.textContent = usageText;
-        article.append(usage);
-      }
+      body.className += " markdown";
+      renderMarkdown(root, body, bodyText);
+    } else body.textContent = bodyText;
+    article.append(role, body);
+    const usage = message.role === "assistant" ? root.createElement("p") : null;
+    if (usage) {
+      usage.className = "message-usage";
+      usage.textContent = usageText;
+      usage.hidden = !usageText;
+      article.append(usage);
     }
+    next.push({ key, node: article, profile, usage });
     return article;
   });
   if (automaticObservation) {
@@ -3099,7 +3177,14 @@ function renderTimeline(
     empty.textContent = "What would you like to work on?";
     items.push(empty);
   }
-  timeline.replaceChildren(...items);
+  timelineMessages.set(timeline, next);
+  for (const [index, item] of items.entries()) {
+    const current = timeline.children[index];
+    if (current === item) continue;
+    if (current) timeline.replaceChild(item, current);
+    else timeline.append(item);
+  }
+  while (timeline.children.length > items.length) timeline.removeChild(timeline.lastElementChild!);
   timeline.scrollTop = followLatest ? timeline.scrollHeight : scrollTop;
 }
 
