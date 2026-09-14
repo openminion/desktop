@@ -139,3 +139,16 @@ unchanged.
 Native startup coverage checks menu, input, conversation and title/action bounds
 at 760 × 560, 1180 × 800 and 1800 × 1000, plus arrow navigation and draft
 restoration. This layout iteration changes no daemon or CLI behavior.
+
+## Daemon Diagnostics Dialog
+
+September 13 correction: Daemon status and View logs open a separate native
+dialog; they are application diagnostics, not conversation command results.
+The output scrolls within the dialog while Refresh, Copy and Close remain
+reachable. Escape dismisses it using native dialog behavior. Closing during a
+read prevents its late result from reopening the dialog. Ordinary slash-command
+results keep their conversation placement.
+
+The two sidebar diagnostic buttons use 12px text, 4px vertical padding and a
+30px minimum height. Dialog actions share that compact sizing. This preserves
+the existing fixed public CLI read operations and adds no runtime authority.

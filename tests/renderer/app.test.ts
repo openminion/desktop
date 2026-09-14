@@ -328,11 +328,18 @@ describe("renderer status view", () => {
       page.element("show-daemon-logs").click();
       await vi.waitFor(() => expect(page.element("show-daemon-logs").disabled).toBe(false));
       expect(inspect).toHaveBeenCalledExactlyOnceWith("logs");
-      const result = page.element("command-result");
+      const result = page.element("diagnostics-result");
+      expect(page.element("diagnostics-dialog").open).toBe(true);
+      expect(page.element("diagnostics-title").textContent).toBe("Daemon logs");
+      expect(page.element("command-result").children).toHaveLength(0);
+      expect(page.element("conversation").scrollIntoView).not.toHaveBeenCalled();
       expect(result.children.find((item) => item.tagName === "pre")?.textContent).toBe(
         "<script>literal log entry</script>",
       );
-      result.children.find((item) => item.textContent === "Copy")!.click();
+      result
+        .descendants()
+        .find((item) => item.textContent === "Copy")!
+        .click();
       await vi.waitFor(() =>
         expect(copyText).toHaveBeenCalledWith("<script>literal log entry</script>"),
       );
@@ -345,10 +352,13 @@ describe("renderer status view", () => {
           retryAfterMs: null,
         },
       });
-      result.children.find((item) => item.textContent === "Refresh")!.click();
+      result
+        .descendants()
+        .find((item) => item.textContent === "Refresh")!
+        .click();
       await vi.waitFor(() => expect(result.children[0]?.textContent).toBe("Log unavailable"));
-      expect(result.children.some((item) => item.textContent === "Refresh")).toBe(true);
-      expect(result.children.some((item) => item.textContent === "Copy")).toBe(false);
+      expect(result.descendants().some((item) => item.textContent === "Refresh")).toBe(true);
+      expect(result.descendants().some((item) => item.textContent === "Copy")).toBe(false);
       let resolve!: (value: Awaited<ReturnType<NativeApi["daemon"]["inspect"]>>) => void;
       inspect.mockImplementationOnce(
         () =>
@@ -358,10 +368,12 @@ describe("renderer status view", () => {
       );
       page.element("show-daemon-status").click();
       expect(page.element("show-daemon-logs").disabled).toBe(true);
-      page.element("close-command").click();
+      page.element("close-diagnostics").click();
       resolve({ ok: true, value: { text: "Late status" } });
       await vi.waitFor(() => expect(page.element("show-daemon-logs").disabled).toBe(false));
-      expect(page.element("command-panel").hidden).toBe(true);
+      expect(page.element("diagnostics-dialog").open).toBe(false);
+      expect(page.element("show-connection").focus).toHaveBeenCalled();
+      expect(result.descendants().some((item) => item.textContent === "Late status")).toBe(false);
       expect(page.element("composer").value).toBe("Keep my draft");
     } finally {
       vi.unstubAllGlobals();
@@ -3103,6 +3115,10 @@ class FixtureDocument {
     "status-summary",
     "retry",
     "show-connection",
+    "diagnostics-dialog",
+    "diagnostics-title",
+    "diagnostics-result",
+    "close-diagnostics",
     "show-daemon-status",
     "show-daemon-logs",
     "connection-details",

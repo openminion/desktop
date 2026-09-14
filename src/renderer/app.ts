@@ -1381,43 +1381,59 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.commandPanel.scrollIntoView({ block: "start" });
   };
 
+  let diagnosticsGeneration = 0;
+  let diagnosticsTrigger = elements.showDaemonStatus;
+  elements.closeDiagnostics.addEventListener("click", () => elements.diagnosticsDialog.close());
+  elements.diagnosticsDialog.addEventListener("close", () => {
+    if (elements.diagnosticsDialog.open) return;
+    diagnosticsGeneration += 1;
+    const focusTarget = diagnosticsTrigger.disabled ? elements.showConnection : diagnosticsTrigger;
+    focusTarget.focus();
+  });
   const inspectDaemon = async (kind: "status" | "logs") => {
     if (elements.showDaemonStatus.disabled) return;
     elements.showDaemonStatus.disabled = true;
     elements.showDaemonLogs.disabled = true;
     const title = kind === "logs" ? "Daemon logs" : "Daemon status";
-    showCommandResult(title, "Reading from OpenMinion…");
-    const generation = commandResultGeneration;
+    diagnosticsTrigger = kind === "logs" ? elements.showDaemonLogs : elements.showDaemonStatus;
+    elements.diagnosticsTitle.textContent = title;
+    const summary = root.createElement("p");
+    summary.setAttribute("role", "status");
+    summary.textContent = "Reading from OpenMinion…";
+    elements.diagnosticsResult.replaceChildren(summary);
+    if (!elements.diagnosticsDialog.open) elements.diagnosticsDialog.showModal();
+    const generation = ++diagnosticsGeneration;
     try {
       const result = await api.daemon.inspect(kind);
-      if (generation !== commandResultGeneration || elements.commandPanel.hidden) return;
-      showCommandResult(
-        title,
-        result.ok
-          ? kind === "logs"
-            ? "Latest 200 lines. Refresh to read newer entries."
-            : "Current status from OpenMinion."
-          : result.error.message,
-      );
+      if (generation !== diagnosticsGeneration || !elements.diagnosticsDialog.open) return;
+      summary.textContent = result.ok
+        ? kind === "logs"
+          ? "Latest 200 lines. Refresh to read newer entries."
+          : "Current status from OpenMinion."
+        : result.error.message;
+      const actions = root.createElement("div");
+      actions.className = "diagnostic-actions";
+      elements.diagnosticsResult.append(actions);
       const refresh = root.createElement("button");
       refresh.type = "button";
-      refresh.className = "quiet-button diagnostic-action";
+      refresh.className = "quiet-button diagnostic-control";
       refresh.textContent = "Refresh";
       refresh.addEventListener("click", () => void inspectDaemon(kind));
-      elements.commandResult.append(refresh);
+      actions.append(refresh);
       if (result.ok) {
         const output = root.createElement("pre");
         output.className = "diagnostic-output";
         output.textContent = result.value.text;
         const copy = root.createElement("button");
         copy.type = "button";
-        copy.className = "quiet-button diagnostic-action";
+        copy.className = "quiet-button diagnostic-control";
         copy.textContent = "Copy";
         copy.addEventListener("click", async () => {
           const copied = await api.app.copyText(result.value.text);
           copy.textContent = copied.ok ? "Copied" : "Copy failed";
         });
-        elements.commandResult.append(copy, output);
+        actions.append(copy);
+        elements.diagnosticsResult.append(output);
       }
     } finally {
       elements.showDaemonStatus.disabled = false;
@@ -2721,6 +2737,10 @@ function rendererElements(root: Document) {
     statusSummary: required(root, "status-summary"),
     retry: required(root, "retry") as HTMLButtonElement,
     showConnection: required(root, "show-connection"),
+    diagnosticsDialog: required(root, "diagnostics-dialog") as HTMLDialogElement,
+    diagnosticsTitle: required(root, "diagnostics-title"),
+    diagnosticsResult: required(root, "diagnostics-result"),
+    closeDiagnostics: required(root, "close-diagnostics"),
     showDaemonStatus: required(root, "show-daemon-status") as HTMLButtonElement,
     showDaemonLogs: required(root, "show-daemon-logs") as HTMLButtonElement,
     connectionDetails: required(root, "connection-details") as HTMLDetailsElement,

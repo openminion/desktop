@@ -11,6 +11,13 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <dialog id="diagnostics-dialog" class="diagnostics-dialog" aria-labelledby="diagnostics-title">
+      <header class="diagnostics-heading">
+        <h2 id="diagnostics-title">Daemon status</h2>
+        <button id="close-diagnostics" class="quiet-button diagnostic-control" type="button" autofocus>Close</button>
+      </header>
+      <div id="diagnostics-result" class="diagnostics-result"></div>
+    </dialog>
     <dialog id="rename-dialog" class="rename-dialog" aria-labelledby="rename-title" aria-describedby="rename-description">
       <form id="rename-form">
         <h2 id="rename-title">Rename chat</h2>
@@ -112,8 +119,8 @@
               </p>
               <button id="retry" class="quiet-button" type="button" hidden>Reconnect</button>
               <div class="daemon-actions">
-                <button id="show-daemon-status" class="quiet-button" type="button">Daemon status</button>
-                <button id="show-daemon-logs" class="quiet-button" type="button">View logs</button>
+                <button id="show-daemon-status" class="quiet-button diagnostic-control" type="button">Daemon status</button>
+                <button id="show-daemon-logs" class="quiet-button diagnostic-control" type="button">View logs</button>
               </div>
               <details class="connection-help">
                 <summary>Technical details</summary>

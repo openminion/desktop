@@ -253,10 +253,11 @@ these local names.
 ## Daemon Status And Logs
 
 Expand **Connected** (or **Not connected**) in the sidebar, then choose
-**Daemon status** or **View logs**. The result appears in the conversation
-scroll area. **Refresh** reads a new snapshot; **Copy** copies the displayed
-output. Logs show the latest 200 lines, without automatically following new
-entries. Dismiss the result to return to the conversation.
+**Daemon status** or **View logs**. A separate diagnostics dialog opens above
+Desktop. **Refresh** reads a new snapshot; **Copy** copies the displayed output.
+Logs show the latest 200 lines in a scrollable area, while the controls remain
+visible. **Close** or Escape dismisses the dialog and returns focus to the sidebar. Your conversation, scroll position and draft stay in place. Logs do not
+automatically follow new entries.
 
 Desktop runs the installed CLI's `daemon status` and `daemon logs --lines 200`
 with its recorded home, data, and profile paths. Inspection also works while

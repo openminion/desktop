@@ -95,13 +95,23 @@ async function check() {
     await evaluate("document.querySelector('#setup-demo').click()");
     await waitFor("!document.querySelector('#profile-dialog').open");
     const inspectDaemon = async (kind) => {
+      await evaluate(
+        "if (document.querySelector('#diagnostics-dialog').open) document.querySelector('#close-diagnostics').click()",
+      );
       await evaluate("document.querySelector('#connection-details').open = true");
-      await evaluate(`document.querySelector('#show-daemon-${kind}').click()`);
+      await evaluate(
+        `document.querySelector('#show-daemon-${kind}').focus(); document.querySelector('#show-daemon-${kind}').click()`,
+      );
       await waitFor(
         "!document.querySelector('#show-daemon-status').disabled && !!document.querySelector('.diagnostic-output')",
       );
       return evaluate("document.querySelector('.diagnostic-output').textContent");
     };
+    const chatBeforeDiagnostics = await evaluate(`({
+      content:document.querySelector('#conversation').innerHTML,
+      scroll:document.querySelector('#conversation').scrollTop,
+      draft:document.querySelector('#composer').value
+    })`);
     const cliStatus = await runCommand(executable, [...args, "daemon", "status"], 30_000);
     assert.equal(cliStatus.exitCode, 0);
     assert.equal(await inspectDaemon("status"), cliStatus.stdout.trim());
@@ -113,21 +123,61 @@ async function check() {
     assert.equal(await evaluate("document.querySelector('.diagnostic-output').children.length"), 0);
     await appendFile(cliFacts.log_file, "Desktop refresh fixture\n");
     await evaluate(
-      "[...document.querySelectorAll('#command-result button')].find(button => button.textContent === 'Refresh').click()",
+      "[...document.querySelectorAll('#diagnostics-result button')].find(button => button.textContent === 'Refresh').click()",
     );
     await waitFor(
       "document.querySelector('.diagnostic-output')?.textContent.includes('Desktop refresh fixture')",
     );
     await evaluate(
-      "[...document.querySelectorAll('#command-result button')].find(button => button.textContent === 'Copy').click()",
+      "[...document.querySelectorAll('#diagnostics-result button')].find(button => button.textContent === 'Copy').click()",
     );
     await waitFor(
-      "[...document.querySelectorAll('#command-result button')].some(button => button.textContent === 'Copied')",
+      "[...document.querySelectorAll('#diagnostics-result button')].some(button => button.textContent === 'Copied')",
     );
     assert.equal(
       clipboard.readText(),
       await evaluate("document.querySelector('.diagnostic-output').textContent"),
     );
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+      [1800, 1000],
+    ]) {
+      window.setContentSize(width, height);
+      await waitFor(`innerWidth === ${width}`);
+      const diagnostics = await evaluate(`(() => {
+        const dialog = document.querySelector('#diagnostics-dialog');
+        const output = dialog.querySelector('.diagnostic-output');
+        const bounds = dialog.getBoundingClientRect();
+        output.scrollTop = output.scrollHeight;
+        const actions = dialog.querySelector('.diagnostic-actions').getBoundingClientRect();
+        const close = document.querySelector('#close-diagnostics').getBoundingClientRect();
+        return {modal:dialog.matches(':modal'), outsideChat:!document.querySelector('#conversation').contains(output),
+          fits:bounds.left >= 0 && bounds.top >= 0 && bounds.right <= innerWidth && bounds.bottom <= innerHeight,
+          controlsVisible:actions.top >= bounds.top && actions.bottom <= bounds.bottom && close.top >= bounds.top,
+          scrollable:getComputedStyle(output).overflowY === 'auto',
+          buttons:[...document.querySelectorAll('.daemon-actions button')].map(button => ({
+            height:button.getBoundingClientRect().height,fontSize:getComputedStyle(button).fontSize
+          }))};
+      })()`);
+      assert.equal(diagnostics.modal, true);
+      assert.equal(diagnostics.outsideChat, true);
+      assert.equal(diagnostics.fits, true);
+      assert.equal(diagnostics.controlsVisible, true);
+      assert.equal(diagnostics.scrollable, true);
+      if (process.env.OPENMINION_E2E_ARTIFACTS) {
+        await mkdir(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
+        await writeFile(
+          join(process.env.OPENMINION_E2E_ARTIFACTS, `diagnostics-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+      assert.ok(
+        diagnostics.buttons.every(
+          (button) => button.height >= 30 && button.height <= 34 && button.fontSize === "12px",
+        ),
+      );
+    }
     if (process.env.OPENMINION_E2E_ARTIFACTS) {
       await mkdir(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
       await writeFile(
@@ -136,10 +186,32 @@ async function check() {
       );
     }
     await evaluate(
-      "document.querySelector('#close-command').click(); document.querySelector('#connection-details').open = false",
+      "document.querySelector('#close-diagnostics').click(); document.querySelector('#connection-details').open = false",
     );
+    assert.equal(await evaluate("document.querySelector('#diagnostics-dialog').open"), false);
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      chatBeforeDiagnostics.draft,
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#conversation').scrollTop"),
+      chatBeforeDiagnostics.scroll,
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#conversation').innerHTML"),
+      chatBeforeDiagnostics.content,
+    );
+    await inspectDaemon("status");
+    app.focus({ steal: true });
+    window.focus();
+    window.webContents.focus();
+    await waitFor("document.hasFocus()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await waitFor("!document.querySelector('#diagnostics-dialog').open");
+    await waitFor("document.activeElement.id === 'show-daemon-status'");
     console.log(
-      "PASS: GUI daemon status equals CLI output; logs refresh and copy literal output from the same daemon.",
+      "PASS: separate modal daemon diagnostics match CLI output; Refresh, Copy, Close, Escape, compact buttons and chat preservation pass at three sizes.",
     );
     await fill("   ");
     assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
@@ -555,7 +627,7 @@ async function check() {
       await evaluate("document.querySelector('#composer').value"),
       "Draft preserved across outage",
     );
-    await evaluate("document.querySelector('#close-command').click()");
+    await evaluate("document.querySelector('#close-diagnostics').click()");
     console.log(
       "PASS: GUI diagnostics work during an outage without restarting the daemon or changing the draft.",
     );

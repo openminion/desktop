@@ -102,6 +102,7 @@ restart, and session closing.
 
 The Electron test drives production main, preload, and renderer and covers:
 
+- separate modal daemon status/logs with CLI readback, Refresh/Copy, Close/Escape, compact sidebar buttons, bounded output scrolling and unchanged chat/draft at three window sizes;
 - first send from an empty workspace, whitespace rejection, real keyboard input, and immediate composer clearing while the daemon works;
 - help and unsupported slash commands without creating a model turn;
 - active turn status and elapsed time directly below the request, with the composer stationary and completed progress hidden;

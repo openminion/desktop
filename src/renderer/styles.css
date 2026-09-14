@@ -1959,12 +1959,69 @@ code {
   gap: 6px;
   margin-block: 10px;
 }
-.diagnostic-output {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.diagnostics-dialog {
+  width: min(900px, calc(100vw - 40px));
+  height: min(640px, calc(100dvh - 40px));
+  padding: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.diagnostics-dialog[open],
+.diagnostics-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.diagnostics-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.diagnostics-heading,
+.diagnostic-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.diagnostics-heading {
+  justify-content: space-between;
+}
+
+.diagnostics-heading h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.diagnostics-result {
+  flex: 1;
+  min-height: 0;
+}
+
+.diagnostics-result > p {
+  margin: 0;
+  color: var(--muted);
   font-size: 12px;
 }
 
-.diagnostic-action {
-  margin: 12px 8px 0 0;
+.diagnostic-control {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.diagnostic-output {
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  flex: 1;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
