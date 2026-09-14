@@ -218,6 +218,8 @@ async function check() {
       await evaluate(
         "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
       );
+      // Resize can move later content below the fold; reveal it through the chat scroll area.
+      await evaluate("document.querySelector('#command-panel').scrollIntoView({block:'end'})");
       const layout = await evaluate(`(() => {
         const result = document.querySelector('#command-panel');
         const bounds = result.getBoundingClientRect();
@@ -231,7 +233,10 @@ async function check() {
       assert.equal(layout.hidden, false);
       assert.equal(layout.overflow, false);
       assert.equal(layout.inConversation, true);
-      assert.ok(layout.top >= layout.timelineBottom && layout.bottom <= layout.composerTop);
+      assert.ok(
+        layout.top >= layout.timelineBottom && layout.bottom <= layout.composerTop,
+        JSON.stringify(layout),
+      );
       assert.ok(Math.abs(layout.width - layout.composerWidth) < 1);
       if (process.env.OPENMINION_E2E_ARTIFACTS) {
         await mkdir(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
@@ -923,6 +928,28 @@ async function check() {
     assert.equal(markdownResult.images, 0);
     assert.equal(markdownResult.executed, false);
     assert.ok(markdownResult.hrefs.every((url) => url.startsWith("https://")));
+    assert.equal(
+      await evaluate("document.querySelectorAll('.message .message-copy').length"),
+      await evaluate("document.querySelectorAll('.message').length"),
+    );
+    await evaluate("[...document.querySelectorAll('.message.user .message-copy')].at(-1).click()");
+    await waitFor(
+      "[...document.querySelectorAll('.message.user .message-copy')].at(-1).textContent === 'Copied'",
+    );
+    assert.equal(clipboard.readText(), "Render the next fixture reply");
+    await evaluate(
+      "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).click()",
+    );
+    await waitFor(
+      "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).textContent === 'Copied'",
+    );
+    assert.equal(clipboard.readText(), providerText);
+    await waitFor(
+      "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).textContent === 'Copy'",
+    );
+    console.log(
+      "PASS: every user/reply message has Copy; native clipboard matches the selected message, preserves Markdown and omits profile labels.",
+    );
     const openedLinks = [];
     const originalOpenExternal = shell.openExternal;
     shell.openExternal = async (url) => {

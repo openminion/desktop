@@ -7,6 +7,10 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Added Copy beneath each user message and assistant reply, with brief success
+  or failure feedback. Copy preserves message text and Markdown without role or
+  profile labels.
+
 - Added Daemon status and View logs in connection details, with Refresh and Copy.
   Both inspect the app's own runtime through the public CLI, including while
   disconnected. Log snapshots show the latest 200 lines in the conversation.

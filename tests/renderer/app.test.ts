@@ -150,6 +150,63 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it("copies each message body without its role or profile and reports failure", async () => {
+    const copyText = vi.fn().mockResolvedValue({ ok: true, value: null });
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }), copyText },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list: async () => ({
+          ok: true,
+          value: { sessions: [sessionSummary()], nextCursor: null, hasMore: false },
+        }),
+        load: async () => ({
+          ok: true,
+          value: {
+            session: sessionSummary(),
+            messages: [
+              { ...message("question", "First line\nSecond line"), role: "user" },
+              { ...message("reply", "minimax: **Answer**"), profileName: "minimax" },
+            ],
+            nextMessageCursor: null,
+            messagesHasMore: false,
+          },
+        }),
+        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+      },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const buttons = page
+        .element("timeline")
+        .descendants()
+        .filter((item) => item.className.includes("message-copy"));
+      expect(buttons).toHaveLength(2);
+      buttons[0]!.click();
+      await vi.waitFor(() => expect(buttons[0]!.textContent).toBe("Copied"));
+      expect(copyText).toHaveBeenLastCalledWith("First line\nSecond line");
+      buttons[1]!.click();
+      await vi.waitFor(() => expect(buttons[1]!.textContent).toBe("Copied"));
+      expect(copyText).toHaveBeenLastCalledWith("**Answer**");
+      await vi.waitFor(() => expect(buttons[1]!.disabled).toBe(false), { timeout: 2500 });
+      expect(buttons[1]!.textContent).toBe("Copy");
+      copyText.mockResolvedValueOnce({ ok: false });
+      buttons[1]!.click();
+      await vi.waitFor(() => expect(buttons[1]!.textContent).toBe("Copy failed"));
+      copyText.mockRejectedValueOnce(new Error("Clipboard unavailable"));
+      buttons[0]!.click();
+      await vi.waitFor(() => expect(buttons[0]!.textContent).toBe("Copy failed"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("reads, refreshes, copies and dismisses diagnostics while disconnected", async () => {
     const inspect = vi
       .fn<NativeApi["daemon"]["inspect"]>()

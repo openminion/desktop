@@ -1099,6 +1099,16 @@ details[open] > summary .summary-chevron {
   overflow-wrap: anywhere;
 }
 
+.message-copy {
+  min-width: 72px;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
 .message-usage {
   margin-top: 7px;
   color: var(--muted);

@@ -1828,6 +1828,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           : []),
       ],
       selected?.turnUsageDisplay ?? "total",
+      (text) => api.app.copyText(text),
       automaticObservation,
       quietTools ? activity.filter((item) => item.kind === "approval") : activity,
       deciding,
@@ -3144,6 +3145,7 @@ function renderTimeline(
   loading: boolean,
   messages: ReadonlyArray<Pick<MessageV1, "role" | "body" | "profileName" | "usage">>,
   turnUsageDisplay: TurnUsageDisplay,
+  copyText: NativeApi["app"]["copyText"],
   automaticObservation: ObservationFrameFactV1 | null,
   activity: ActivityItem[],
   deciding: Set<string>,
@@ -3201,6 +3203,25 @@ function renderTimeline(
       usage.hidden = !usageText;
       article.append(usage);
     }
+    const copy = root.createElement("button");
+    copy.type = "button";
+    copy.className = "quiet-button message-copy";
+    copy.textContent = "Copy";
+    copy.title = "Copy message";
+    copy.addEventListener("click", async () => {
+      copy.disabled = true;
+      try {
+        const result = await copyText(bodyText);
+        copy.textContent = result.ok ? "Copied" : "Copy failed";
+      } catch {
+        copy.textContent = "Copy failed";
+      }
+      setTimeout(() => {
+        copy.textContent = "Copy";
+        copy.disabled = false;
+      }, 1500);
+    });
+    article.append(copy);
     next.push({ key, node: article, profile, usage });
     return article;
   });
