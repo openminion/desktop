@@ -180,7 +180,9 @@ npm run electron-check
 This launches built Electron main, both CommonJS preload bundles, and the
 renderer through the real local protocol. It checks bridge availability,
 sandbox settings, disconnected draft entry, popovers, and fluid composer
-widths. It deliberately uses a missing daemon executable and never requests
+widths. It also checks that slash suggestions stay inside the composer without
+covering conversation messages or text input at all three window sizes, and
+that the labeled chat actions do not overlap the title. It deliberately uses a missing daemon executable and never requests
 native capture. Hosted macOS CI runs this in addition to the normal package
 gate; importing TypeScript under a mocked Electron module cannot prove that
 Electron can load the distributed preloads.

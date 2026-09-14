@@ -145,6 +145,66 @@ async function check() {
       assert.ok(bounds.attachment.right <= bounds.screenshot.left);
       assert.ok(bounds.screenshot.bottom <= bounds.viewportHeight);
       widths.push(bounds.width);
+      assert.equal(
+        await evaluate("document.querySelector('#close-session').textContent.trim()"),
+        "Close task",
+      );
+      assert.equal(
+        await evaluate("document.querySelector('#close-command').textContent.trim()"),
+        "Dismiss",
+      );
+      await evaluate(`
+        document.querySelector('#composer').value = 'Keep this draft';
+        document.querySelector('#show-commands').click();
+      `);
+      await evaluate("new Promise(resolve => requestAnimationFrame(resolve))");
+      const suggestions = await evaluate(`(() => {
+        const menu = document.querySelector('#command-menu');
+        const menuBounds = menu.getBoundingClientRect();
+        const composer = document.querySelector('#composer-form').getBoundingClientRect();
+        const input = document.querySelector('#composer').getBoundingClientRect();
+        const conversation = document.querySelector('#conversation').getBoundingClientRect();
+        const header = document.querySelector('.chat-heading');
+        const title = document.querySelector('#current-title').getBoundingClientRect();
+        const actions = document.querySelector('.chat-heading-actions').getBoundingClientRect();
+        return {hidden:menu.hidden, position:getComputedStyle(menu).position,
+          menu:menuBounds.toJSON(), composer:composer.toJSON(), input:input.toJSON(),
+          conversationBottom:conversation.bottom, viewport:innerHeight,
+          headerFits:header.scrollWidth <= header.clientWidth && title.right <= actions.left};
+      })()`);
+      assert.equal(suggestions.hidden, false);
+      assert.equal(suggestions.position, "static");
+      assert.ok(suggestions.menu.height >= 40, "Suggestions remain readable at the minimum height");
+      assert.ok(suggestions.menu.top >= suggestions.composer.top);
+      assert.ok(
+        suggestions.menu.bottom <= suggestions.input.top,
+        "Suggestions cannot cover typing",
+      );
+      assert.ok(
+        suggestions.conversationBottom <= suggestions.composer.top,
+        "Suggestions cannot cover chat",
+      );
+      assert.ok(suggestions.composer.bottom <= suggestions.viewport);
+      assert.equal(suggestions.headerFits, true, "Labeled task actions cannot overlap the title");
+      if (process.env.OPENMINION_E2E_ARTIFACTS) {
+        mkdirSync(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
+        writeFileSync(
+          join(process.env.OPENMINION_E2E_ARTIFACTS, `composer-commands-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+      await evaluate(
+        "document.querySelector('#composer').dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown'}))",
+      );
+      assert.equal(
+        await evaluate("document.querySelector('#command-menu .active').id"),
+        "command-option-1",
+      );
+      await evaluate(
+        "document.querySelector('#composer').dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))",
+      );
+      assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep this draft");
+      assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), true);
     }
     assert.ok(widths[2] > widths[1] + 400, "Composer must grow with a wider window");
     const scrolling = await evaluate(`(() => {

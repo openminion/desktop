@@ -138,9 +138,7 @@
               <button class="context-link" type="button" popovertarget="context-panel">
                 Context
               </button>
-              <button id="close-session" class="icon-only-button" type="button" disabled aria-label="Close task" title="Close task">
-                ×
-              </button>
+              <button id="close-session" class="context-link" type="button" disabled>Close task</button>
             </div>
           </header>
           <div id="conversation" class="conversation">
@@ -162,7 +160,7 @@
             <section id="command-panel" class="command-panel" hidden aria-live="polite" aria-labelledby="command-title">
               <header class="panel-heading">
                 <h3 id="command-title">Commands</h3>
-                <button id="close-command" class="icon-only-button" type="button" aria-label="Close command result">×</button>
+                <button id="close-command" class="quiet-button command-dismiss" type="button" aria-label="Dismiss command result">Dismiss</button>
               </header>
               <div id="command-result" class="command-result"></div>
             </section>

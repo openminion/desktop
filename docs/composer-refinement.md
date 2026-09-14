@@ -126,3 +126,16 @@ Enter/Shift+Enter, Stop, copy, Markdown, inline command results and responsive
 composer checks remain part of the package and native GUI suites. Full CLI/Focus
 parity, backend timeout tuning, guaranteed provider cancellation, prompt queues,
 and active-turn recovery after quitting remain separate work.
+
+## Command Controls Without Overlap
+
+September 13 follow-up: slash suggestions expand inside the composer, above
+the text input, and have their own bounded scroll area. They occupy layout space
+instead of covering conversation messages. Keyboard selection and Escape draft
+restoration keep the same command owner. Chat actions use explicit Close task
+and Dismiss labels instead of ambiguous × glyphs; their existing actions remain
+unchanged.
+
+Native startup coverage checks menu, input, conversation and title/action bounds
+at 760 × 560, 1180 × 800 and 1800 × 1000, plus arrow navigation and draft
+restoration. This layout iteration changes no daemon or CLI behavior.
