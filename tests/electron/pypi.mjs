@@ -227,7 +227,7 @@ async function check() {
         const timeline = document.querySelector('#timeline').getBoundingClientRect();
         return {popover:result.hasAttribute('popover'), hidden:result.hidden, top:bounds.top,
           bottom:bounds.bottom, width:bounds.width, composerTop:composer.top, composerWidth:composer.width,
-          timelineBottom:timeline.bottom, inConversation:document.querySelector('#conversation').contains(result), overflow:document.documentElement.scrollWidth > innerWidth};
+          timelineBottom:timeline.bottom, scrollbarWidth:document.querySelector('#conversation').offsetWidth-document.querySelector('#conversation').clientWidth, inConversation:document.querySelector('#conversation').contains(result), overflow:document.documentElement.scrollWidth > innerWidth};
       })()`);
       assert.equal(layout.popover, false);
       assert.equal(layout.hidden, false);
@@ -237,7 +237,10 @@ async function check() {
         layout.top >= layout.timelineBottom && layout.bottom <= layout.composerTop,
         JSON.stringify(layout),
       );
-      assert.ok(Math.abs(layout.width - layout.composerWidth) < 1);
+      assert.ok(
+        Math.abs(layout.width + layout.scrollbarWidth - layout.composerWidth) < 1,
+        JSON.stringify(layout),
+      );
       if (process.env.OPENMINION_E2E_ARTIFACTS) {
         await mkdir(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
         await writeFile(
