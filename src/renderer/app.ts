@@ -1378,6 +1378,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     paragraph.textContent = text;
     elements.commandResult.replaceChildren(paragraph);
     elements.commandPanel.hidden = false;
+    elements.commandPanel.scrollIntoView({ block: "start" });
   };
 
   const runTasks = async (action: TaskAction, taskId?: string, schedule?: ScheduleInput) => {
@@ -1762,6 +1763,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderTimeline(
       root,
       elements.timeline,
+      elements.conversation,
       conversationLoading,
       [
         ...messages.slice(hiddenMessageCount),
@@ -2309,7 +2311,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     fileGrants = [];
     fileLabel = "File grants released for this turn.";
     renderChat();
-    elements.timeline.scrollTop = elements.timeline.scrollHeight;
+    elements.conversation.scrollTop = elements.conversation.scrollHeight;
     const generation = ++submissionGeneration;
     const includeCurrentView = asGuidance || elements.includeCurrentView.checked;
     const result = await api.turns.submit({
@@ -2670,6 +2672,7 @@ function rendererElements(root: Document) {
     renameCancel: required(root, "rename-cancel"),
     renameReset: required(root, "rename-reset"),
     timeline: required(root, "timeline"),
+    conversation: required(root, "conversation"),
     chatStatus: required(root, "chat-status"),
     chatDetail: required(root, "chat-detail"),
     chatUpdate: required(root, "chat-update"),
@@ -3085,6 +3088,7 @@ const timelineMessages = new WeakMap<HTMLElement, TimelineMessage[]>();
 function renderTimeline(
   root: Document,
   timeline: HTMLElement,
+  conversation: HTMLElement,
   loading: boolean,
   messages: ReadonlyArray<Pick<MessageV1, "role" | "body" | "profileName" | "usage">>,
   turnUsageDisplay: TurnUsageDisplay,
@@ -3093,8 +3097,8 @@ function renderTimeline(
   deciding: Set<string>,
   decide: (approval: ApprovalEventV1, decision: ApprovalDecision) => void,
 ): void {
-  const scrollTop = timeline.scrollTop;
-  const followLatest = timeline.scrollHeight - timeline.clientHeight - scrollTop <= 1;
+  const scrollTop = conversation.scrollTop;
+  const followLatest = conversation.scrollHeight - conversation.clientHeight - scrollTop <= 1;
   const previous = timelineMessages.get(timeline) ?? [];
   const next: TimelineMessage[] = [];
   const items: HTMLElement[] = messages.map((message, index) => {
@@ -3185,7 +3189,7 @@ function renderTimeline(
     else timeline.append(item);
   }
   while (timeline.children.length > items.length) timeline.removeChild(timeline.lastElementChild!);
-  timeline.scrollTop = followLatest ? timeline.scrollHeight : scrollTop;
+  conversation.scrollTop = followLatest ? conversation.scrollHeight : scrollTop;
 }
 
 function renderToolCard(root: Document, item: ToolProgressV1): HTMLElement {

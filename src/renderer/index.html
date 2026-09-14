@@ -139,18 +139,20 @@
               </button>
             </div>
           </header>
-          <div id="timeline" class="timeline" aria-live="polite">
-            <p class="timeline-empty">
-              What would you like to work on?
-            </p>
+          <div id="conversation" class="conversation">
+            <div id="timeline" class="timeline" aria-live="polite">
+              <p class="timeline-empty">
+                What would you like to work on?
+              </p>
+            </div>
+            <section id="command-panel" class="command-panel" hidden aria-live="polite" aria-labelledby="command-title">
+              <header class="panel-heading">
+                <h3 id="command-title">Commands</h3>
+                <button id="close-command" class="icon-only-button" type="button" aria-label="Close command result">×</button>
+              </header>
+              <div id="command-result" class="command-result"></div>
+            </section>
           </div>
-          <section id="command-panel" class="command-panel" hidden aria-live="polite" aria-labelledby="command-title">
-            <header class="panel-heading">
-              <h3 id="command-title">Commands</h3>
-              <button id="close-command" class="icon-only-button" type="button" aria-label="Close command result">×</button>
-            </header>
-            <div id="command-result" class="command-result"></div>
-          </section>
           <div class="guidance-region">
             <section id="guidance-card" class="guidance-card" role="status" aria-live="polite" aria-atomic="true" hidden>
               <div class="guidance-heading">

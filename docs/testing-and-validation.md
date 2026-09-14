@@ -104,7 +104,7 @@ The Electron test drives production main, preload, and renderer and covers:
 
 - first send from an empty workspace, whitespace rejection, and real keyboard input;
 - help and unsupported slash commands without creating a model turn;
-- inline command results aligned above the composer at narrow and wide sizes, without overlaying history or input;
+- command results inside the conversation scroll area at narrow and wide sizes, with long results scrolling with messages and leaving the composer in place;
 - command names and aliases checked against the installed Focus catalog, with every canonical command tracked in the parity contract;
 - agent/tool reports, canonical CLI token output, and native Markdown export/cancel without model turns;
 - schedule creation through the GUI with canonical CLI readback, plus task creation through the public CLI, Desktop task inventory, pause,

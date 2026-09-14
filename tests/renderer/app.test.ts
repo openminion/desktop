@@ -1300,7 +1300,7 @@ describe("renderer status view", () => {
     try {
       const firstDocument = new FixtureDocument();
       await mount(api, firstDocument.asDocument());
-      const timeline = firstDocument.element("timeline");
+      const timeline = firstDocument.element("conversation");
       timeline.scrollHeight = 1600;
       timeline.clientHeight = 400;
       timeline.scrollTop = 200;
@@ -2890,6 +2890,7 @@ class FixtureDocument {
     "rename-cancel",
     "rename-reset",
     "timeline",
+    "conversation",
     "chat-status",
     "chat-detail",
     "chat-update",

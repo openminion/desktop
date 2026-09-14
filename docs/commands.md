@@ -18,9 +18,9 @@ elsewhere). Use the arrow keys to select a command. Enter runs it; Tab completes
 its name. Escape dismisses the menu. Opening the menu with the button or shortcut
 preserves an existing draft and restores it when you dismiss or run a command.
 
-Command results appear inline below the conversation and above the composer.
+Command results appear after the messages inside the conversation scroll area.
 You can keep drafting while reading a result. Close it with its × button or press
-Escape from the composer or result. Long results scroll within the panel. Picking
+Escape from the composer or result. Long results scroll with the chat, without a separate panel or fixed overlay. Picking
 a different conversation dismisses the previous result.
 
 Commands operate through Desktop presentation or fixed public OpenMinion operations. Unknown or unsupported slash commands produce

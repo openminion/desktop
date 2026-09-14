@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -107,21 +107,26 @@ async function check() {
       const composer = document.querySelector('#composer-form').getBoundingClientRect();
       const result = document.querySelector('#command-panel').getBoundingClientRect();
       const timeline = document.querySelector('#timeline').getBoundingClientRect();
+      const conversation = document.querySelector('#conversation');
       const send = document.querySelector('#send').getBoundingClientRect();
       const commands = document.querySelector('#show-commands').getBoundingClientRect();
       const icon = document.querySelector('#show-commands svg').getBoundingClientRect();
       const attachment = document.querySelector('[popovertarget="attachment-menu"]').getBoundingClientRect();
       const screenshot = document.querySelector('.screen-context-button').getBoundingClientRect();
-      return {result:result.toJSON(), timeline:timeline.toJSON(), composerTop:composer.top, width:composer.width, right:composer.right, bottom:composer.bottom, sendBottom:send.bottom,
+      return {result:result.toJSON(), timeline:timeline.toJSON(), conversationBottom:conversation.getBoundingClientRect().bottom, scrollbar:conversation.offsetWidth-conversation.clientWidth,
+        insideConversation:conversation.contains(document.querySelector('#command-panel')),
+        resultOverflow:getComputedStyle(document.querySelector('#command-result')).overflowY, composerTop:composer.top, width:composer.width, right:composer.right, bottom:composer.bottom, sendBottom:send.bottom,
         commands:commands.toJSON(), icon:icon.toJSON(), attachment:attachment.toJSON(), screenshot:screenshot.toJSON(),
         overflow:document.documentElement.scrollWidth > innerWidth, viewportWidth:innerWidth, viewportHeight:innerHeight};
     })()`);
       assert.equal(bounds.overflow, false);
       assert.ok(bounds.result.top >= bounds.timeline.bottom, "Results follow the conversation");
-      assert.ok(bounds.result.bottom <= bounds.composerTop, "Results must not cover the composer");
+      assert.equal(bounds.insideConversation, true, "Results belong to the chat scroll area");
+      assert.equal(bounds.resultOverflow, "visible", "Results have no separate scrollbar");
+      assert.ok(bounds.conversationBottom <= bounds.composerTop, "Chat cannot cover the composer");
       assert.ok(
-        Math.abs(bounds.result.width - bounds.width) < 1,
-        "Results align with the composer",
+        Math.abs(bounds.result.width + bounds.scrollbar - bounds.width) < 1,
+        "Results align with the composer, allowing for the chat scrollbar",
       );
       assert.ok(bounds.right <= bounds.viewportWidth && bounds.bottom <= bounds.viewportHeight);
       assert.ok(bounds.sendBottom <= bounds.viewportHeight);
@@ -142,6 +147,40 @@ async function check() {
       widths.push(bounds.width);
     }
     assert.ok(widths[2] > widths[1] + 400, "Composer must grow with a wider window");
+    const scrolling = await evaluate(`(() => {
+      const conversation = document.querySelector('#conversation');
+      const result = document.querySelector('#command-panel');
+      const composer = document.querySelector('#composer-form');
+      const before = composer.getBoundingClientRect().top;
+      document.querySelector('#command-result p').textContent = Array(100).fill('Command detail').join('\\n');
+      conversation.scrollTop = 0;
+      const top = result.getBoundingClientRect().top;
+      conversation.scrollTop = conversation.scrollHeight;
+      return {delta:top-result.getBoundingClientRect().top, scroll:conversation.scrollTop,
+        composerMoved:composer.getBoundingClientRect().top-before};
+    })()`);
+    assert.ok(scrolling.scroll > 100, "Long command output scrolls with the chat");
+    assert.ok(Math.abs(scrolling.delta - scrolling.scroll) < 1, "Result moves with chat scrolling");
+    assert.equal(scrolling.composerMoved, 0, "Long results leave the composer in place");
+    await evaluate(`
+      document.querySelector('#composer').value='/status';
+      document.querySelector('#composer').dispatchEvent(new Event('input'));
+      document.querySelector('#composer').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter'}));
+    `);
+    assert.equal(
+      await evaluate("document.querySelector('#command-title').textContent"),
+      "Task status",
+    );
+    await evaluate(
+      "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+    );
+    if (process.env.OPENMINION_E2E_ARTIFACTS) {
+      mkdirSync(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
+      writeFileSync(
+        join(process.env.OPENMINION_E2E_ARTIFACTS, "command-in-conversation.png"),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+    }
 
     await evaluate(
       "document.querySelector('#composer').value='Keep drafting'; document.querySelector('#composer').dispatchEvent(new Event('input'))",

@@ -178,11 +178,12 @@ async function check() {
         const timeline = document.querySelector('#timeline').getBoundingClientRect();
         return {popover:result.hasAttribute('popover'), hidden:result.hidden, top:bounds.top,
           bottom:bounds.bottom, width:bounds.width, composerTop:composer.top, composerWidth:composer.width,
-          timelineBottom:timeline.bottom, overflow:document.documentElement.scrollWidth > innerWidth};
+          timelineBottom:timeline.bottom, inConversation:document.querySelector('#conversation').contains(result), overflow:document.documentElement.scrollWidth > innerWidth};
       })()`);
       assert.equal(layout.popover, false);
       assert.equal(layout.hidden, false);
       assert.equal(layout.overflow, false);
+      assert.equal(layout.inConversation, true);
       assert.ok(layout.top >= layout.timelineBottom && layout.bottom <= layout.composerTop);
       assert.ok(Math.abs(layout.width - layout.composerWidth) < 1);
       if (process.env.OPENMINION_E2E_ARTIFACTS) {
@@ -382,6 +383,36 @@ async function check() {
       savedReply.body.startsWith(prefix) ? savedReply.body.slice(prefix.length) : savedReply.body,
     );
     assert.equal(await evaluate("document.querySelector('#chat-status').textContent"), "");
+    await fill("/status");
+    await evaluate("document.querySelector('#send').click()");
+    await waitFor("document.querySelector('#command-title').textContent === 'Task status'");
+    const statusLayout = await evaluate(`(() => {
+      const result = document.querySelector('#command-panel');
+      const history = document.querySelector('#timeline');
+      return {sameScroll:result.parentElement === history.parentElement,
+        gap:result.getBoundingClientRect().top-history.getBoundingClientRect().bottom,
+        border:getComputedStyle(result).borderTopWidth};
+    })()`);
+    assert.equal(statusLayout.sameScroll, true);
+    assert.ok(
+      statusLayout.gap >= 0 && statusLayout.gap <= 32,
+      "Status directly follows chat messages",
+    );
+    assert.equal(statusLayout.border, "0px");
+    if (process.env.OPENMINION_E2E_ARTIFACTS) {
+      await evaluate(
+        "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+      await writeFile(
+        join(process.env.OPENMINION_E2E_ARTIFACTS, "status-after-chat.png"),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+    }
+    await evaluate("document.querySelector('#close-command').click()");
+    console.log(
+      "PASS: status follows real chat messages in the shared scroll area without an overlay.",
+    );
+
     console.log(
       "PASS: empty/whitespace draft, real Enter, help, unsupported command, first click send.",
     );

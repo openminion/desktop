@@ -1525,6 +1525,7 @@ class CaptureFixtureDocument {
     "rename-cancel",
     "rename-reset",
     "timeline",
+    "conversation",
     "chat-status",
     "chat-detail",
     "chat-update",
