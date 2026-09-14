@@ -1922,3 +1922,19 @@ code {
   resize: vertical;
   min-height: 80px;
 }
+
+.daemon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block: 10px;
+}
+.diagnostic-output {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.diagnostic-action {
+  margin: 12px 8px 0 0;
+}

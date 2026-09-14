@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-09-09
+Last updated: 2026-09-13
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -18,14 +18,14 @@ in [README.md](README.md), [SUPPORT.md](SUPPORT.md), and `docs/`.
 
 The Desktop main process owns installation and lifecycle. It currently installs
 the pinned `openminion==0.0.19` PyPI package into app-managed storage and calls
-the ordinary `config init` and `daemon start/status/stop` commands. OpenMinion
+the ordinary `config init` and `daemon start/status/stop/logs` commands. OpenMinion
 remains the owner of sessions, messages, approvals, policy, artifacts, and agent
 execution. Desktop owns presentation, local attachment grants, capture
 lifecycle, and operating-system integration.
 
 Desktop does not require or add a Desktop-specific command, bootstrap endpoint,
 or lease protocol in OpenMinion. The main process keeps the managed executable,
-runtime roots, and configuration path outside the renderer boundary.
+runtime roots, and configuration path outside renderer control.
 
 ## Current integration status
 
@@ -49,6 +49,21 @@ Approval decisions, media, artifacts, full Focus commands, and active-turn
 reattachment remain incomplete. They must use existing public interfaces without
 restoring Desktop-only code in the OpenMinion package. The live supervisor uses
 the CLI-backed client exclusively.
+
+## Daemon Diagnostics
+
+The connection details expose **Daemon status** and **View logs** through a
+fixed `daemon.inspect("status" | "logs")` preload operation. Main validates the
+app frame and the requested operation, then runs `daemon status` or
+`daemon logs --lines 200` using the same installed executable and recorded
+root arguments as the lifecycle owner. No executable, path, flag or shell
+command is accepted from the renderer.
+
+Results contain the CLI's diagnostic text, displayed literally and available
+for explicit copying. This includes CLI-reported runtime paths. Inspection
+works while stopped after installation and does not start, stop or reconnect
+the daemon. Logs are snapshots, refreshed on request; there is no follow stream
+or Desktop log store. Other service families remain unconnected.
 
 ## Local Chat Names
 

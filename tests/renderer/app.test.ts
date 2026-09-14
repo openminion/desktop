@@ -150,6 +150,64 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it("reads, refreshes, copies and dismisses diagnostics while disconnected", async () => {
+    const inspect = vi
+      .fn<NativeApi["daemon"]["inspect"]>()
+      .mockResolvedValue({ ok: true, value: { text: "<script>literal log entry</script>" } });
+    const copyText = vi.fn().mockResolvedValue({ ok: true, value: null });
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }), copyText },
+      daemon: { status: async () => status({ state: "degraded", reachable: false }), inspect },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "Keep my draft";
+      page.element("show-daemon-logs").click();
+      await vi.waitFor(() => expect(page.element("show-daemon-logs").disabled).toBe(false));
+      expect(inspect).toHaveBeenCalledExactlyOnceWith("logs");
+      const result = page.element("command-result");
+      expect(result.children.find((item) => item.tagName === "pre")?.textContent).toBe(
+        "<script>literal log entry</script>",
+      );
+      result.children.find((item) => item.textContent === "Copy")!.click();
+      await vi.waitFor(() =>
+        expect(copyText).toHaveBeenCalledWith("<script>literal log entry</script>"),
+      );
+      inspect.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "diagnostics_unavailable",
+          message: "Log unavailable",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      result.children.find((item) => item.textContent === "Refresh")!.click();
+      await vi.waitFor(() => expect(result.children[0]?.textContent).toBe("Log unavailable"));
+      expect(result.children.some((item) => item.textContent === "Refresh")).toBe(true);
+      expect(result.children.some((item) => item.textContent === "Copy")).toBe(false);
+      let resolve!: (value: Awaited<ReturnType<NativeApi["daemon"]["inspect"]>>) => void;
+      inspect.mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            resolve = done;
+          }),
+      );
+      page.element("show-daemon-status").click();
+      expect(page.element("show-daemon-logs").disabled).toBe(true);
+      page.element("close-command").click();
+      resolve({ ok: true, value: { text: "Late status" } });
+      await vi.waitFor(() => expect(page.element("show-daemon-logs").disabled).toBe(false));
+      expect(page.element("command-panel").hidden).toBe(true);
+      expect(page.element("composer").value).toBe("Keep my draft");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps local chat names across reloads without changing canonical sessions", async () => {
     const sessions = [
       sessionSummary(),
@@ -2879,6 +2937,8 @@ class FixtureDocument {
     "status-summary",
     "retry",
     "show-connection",
+    "show-daemon-status",
+    "show-daemon-logs",
     "connection-details",
     "recovery",
     "daemon-version",

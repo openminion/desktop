@@ -86,6 +86,82 @@ describe("DaemonSupervisor", () => {
     expect(calls.flatMap((call) => call.args)).not.toContain("desktop-setup");
   });
 
+  it("inspects the same daemon through fixed CLI commands, including after stopping", async () => {
+    const root = await temporaryRoot();
+    const executable = await fakeExecutable(root);
+    const configPath = join(root, "agents.json");
+    await writeFile(configPath, '{"runtime":{}}');
+    let reachable = true;
+    let logResult = result(0, "<script>literal log text</script>\n");
+    const runCommand = vi.fn<RunCommand>(async (_command, args) => {
+      if (args.length === 1) return result(0, "0.0.19");
+      if (args.at(-1) === "--json") return result(reachable ? 0 : 1, JSON.stringify({ reachable }));
+      if (args.at(-1) === "stop") {
+        reachable = false;
+        return result(0);
+      }
+      if (args.at(-1) === "status")
+        return result(reachable ? 0 : 1, `daemon status: ${reachable ? "running" : "stopped"}`);
+      if (args.includes("logs")) return logResult;
+      throw new Error("Unexpected command");
+    });
+    const supervisor = new DaemonSupervisor({
+      runtimeRoot: join(root, "runtime"),
+      openminionExecutable: executable,
+      homeRoot: join(root, "home"),
+      dataRoot: join(root, "data"),
+      configPath,
+      runCommand,
+    });
+    expect(await supervisor.inspect("logs")).toMatchObject({
+      ok: false,
+      error: { code: "runtime_unavailable" },
+    });
+    await supervisor.start();
+    const commandContext = supervisor.getCommandContext()!;
+    expect(await supervisor.inspect("status")).toEqual({
+      ok: true,
+      value: { text: "daemon status: running" },
+    });
+    expect(await supervisor.inspect("logs")).toEqual({
+      ok: true,
+      value: { text: "<script>literal log text</script>" },
+    });
+    expect(runCommand).toHaveBeenLastCalledWith(
+      executable,
+      [...commandContext.args, "daemon", "logs", "--lines", "200"],
+      30_000,
+    );
+    runCommand.mockClear();
+    expect(await supervisor.inspect("restart")).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    expect(runCommand).not.toHaveBeenCalled();
+    await supervisor.stop();
+    runCommand.mockClear();
+    expect(await supervisor.inspect("status")).toEqual({
+      ok: true,
+      value: { text: "daemon status: stopped" },
+    });
+    expect(runCommand).toHaveBeenCalledExactlyOnceWith(
+      executable,
+      [...commandContext.args, "daemon", "status"],
+      30_000,
+    );
+    expect(supervisor.snapshot().state).toBe("stopped");
+    logResult = result(1, "Log file does not exist", "private diagnostic");
+    expect(await supervisor.inspect("logs")).toMatchObject({
+      ok: false,
+      error: { code: "diagnostics_unavailable" },
+    });
+    runCommand.mockRejectedValueOnce(new Error("private diagnostic"));
+    expect(await supervisor.inspect("logs")).toMatchObject({
+      ok: false,
+      error: { code: "diagnostics_unavailable" },
+    });
+  });
+
   it("does not start a second daemon when the app-owned daemon is already reachable", async () => {
     const root = await temporaryRoot();
     const executable = await fakeExecutable(root);

@@ -111,6 +111,10 @@
                 Finding your local OpenMinion daemon…
               </p>
               <button id="retry" class="quiet-button" type="button" hidden>Reconnect</button>
+              <div class="daemon-actions">
+                <button id="show-daemon-status" class="quiet-button" type="button">Daemon status</button>
+                <button id="show-daemon-logs" class="quiet-button" type="button">View logs</button>
+              </div>
               <details class="connection-help">
                 <summary>Technical details</summary>
                 <dl class="runtime-facts">
@@ -118,7 +122,7 @@
                   <div><dt>Protocol</dt><dd id="protocol-version">Unavailable</dd></div>
                   <div><dt>Desktop</dt><dd id="shell-version"></dd></div>
                 </dl>
-                <p>Check <code>openminion daemon status</code> or view logs with <code>openminion daemon logs</code>. No prompt or action is replayed on reconnect.</p>
+                <p>Daemon status and logs use this Desktop installation’s OpenMinion runtime. Reconnect does not replay prompts or actions.</p>
               </details>
             </div>
           </details>

@@ -41,6 +41,7 @@ const api: NativeApi = {
     },
   },
   daemon: {
+    inspect: (kind) => ipcRenderer.invoke(IPC_CHANNELS.daemonInspect, kind),
     status() {
       return ipcRenderer.invoke(IPC_CHANNELS.daemonStatus);
     },

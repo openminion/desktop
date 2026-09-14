@@ -65,7 +65,7 @@ describe("preload surface", () => {
     invoke.mockClear();
     expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);
     expect(Object.keys(api.app)).toEqual(["openLink", "copyText", "info"]);
-    expect(Object.keys(api.daemon)).toEqual(["status", "retry"]);
+    expect(Object.keys(api.daemon)).toEqual(["inspect", "status", "retry"]);
     expect(Object.keys(api.sessions)).toEqual([
       "export",
       "list",
@@ -107,6 +107,9 @@ describe("preload surface", () => {
     invoke.mockResolvedValue({ state: "ready" });
     await api.app.copyText("Local reply");
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.copyText, "Local reply");
+    invoke.mockClear();
+    await api.daemon.inspect("logs");
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.daemonInspect, "logs");
     invoke.mockClear();
     await api.daemon.status();
     await api.daemon.retry();

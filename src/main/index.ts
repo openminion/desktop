@@ -310,6 +310,9 @@ export function registerIpcHandlers(
       profiles.importFile(selected.filePaths[0], revision, executable),
     );
   });
+  ipcMain.handle(IPC_CHANNELS.daemonInspect, (event, kind) =>
+    isAppInvocation(event) ? supervisor.inspect(kind) : forbiddenResult(),
+  );
   ipcMain.handle(IPC_CHANNELS.daemonStatus, () => supervisor.status());
   ipcMain.handle(IPC_CHANNELS.daemonRetry, () => supervisor.retry());
   ipcMain.handle(IPC_CHANNELS.sessionsList, (event, input) =>

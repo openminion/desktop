@@ -1,11 +1,15 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-09
+Last updated: 2026-09-13
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Added Daemon status and View logs in connection details, with Refresh and Copy.
+  Both inspect the app's own runtime through the public CLI, including while
+  disconnected. Log snapshots show the latest 200 lines in the conversation.
 
 - Save Desktop chat names in SQLite under `~/.openminion/desktop`, with one-time
   migration from browser storage. Source and packaged launches share a stable

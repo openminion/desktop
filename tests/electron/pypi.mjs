@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { app, dialog, shell } from "electron";
+import { app, clipboard, dialog, shell } from "electron";
 import { runCommand } from "../../dist/src/main/installation.js";
 import { DESKTOP_ALIASES, DESKTOP_COMMANDS } from "../../dist/src/renderer/app.js";
 
@@ -94,6 +94,53 @@ async function check() {
     );
     await evaluate("document.querySelector('#setup-demo').click()");
     await waitFor("!document.querySelector('#profile-dialog').open");
+    const inspectDaemon = async (kind) => {
+      await evaluate("document.querySelector('#connection-details').open = true");
+      await evaluate(`document.querySelector('#show-daemon-${kind}').click()`);
+      await waitFor(
+        "!document.querySelector('#show-daemon-status').disabled && !!document.querySelector('.diagnostic-output')",
+      );
+      return evaluate("document.querySelector('.diagnostic-output').textContent");
+    };
+    const cliStatus = await runCommand(executable, [...args, "daemon", "status"], 30_000);
+    assert.equal(cliStatus.exitCode, 0);
+    assert.equal(await inspectDaemon("status"), cliStatus.stdout.trim());
+    const cliFacts = JSON.parse(
+      (await runCommand(executable, [...args, "daemon", "status", "--json"], 30_000)).stdout,
+    );
+    await appendFile(cliFacts.log_file, "\nDesktop diagnostic fixture <literal>\n");
+    assert.match(await inspectDaemon("logs"), /Desktop diagnostic fixture <literal>/);
+    assert.equal(await evaluate("document.querySelector('.diagnostic-output').children.length"), 0);
+    await appendFile(cliFacts.log_file, "Desktop refresh fixture\n");
+    await evaluate(
+      "[...document.querySelectorAll('#command-result button')].find(button => button.textContent === 'Refresh').click()",
+    );
+    await waitFor(
+      "document.querySelector('.diagnostic-output')?.textContent.includes('Desktop refresh fixture')",
+    );
+    await evaluate(
+      "[...document.querySelectorAll('#command-result button')].find(button => button.textContent === 'Copy').click()",
+    );
+    await waitFor(
+      "[...document.querySelectorAll('#command-result button')].some(button => button.textContent === 'Copied')",
+    );
+    assert.equal(
+      clipboard.readText(),
+      await evaluate("document.querySelector('.diagnostic-output').textContent"),
+    );
+    if (process.env.OPENMINION_E2E_ARTIFACTS) {
+      await mkdir(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
+      await writeFile(
+        join(process.env.OPENMINION_E2E_ARTIFACTS, "daemon-logs.png"),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+    }
+    await evaluate(
+      "document.querySelector('#close-command').click(); document.querySelector('#connection-details').open = false",
+    );
+    console.log(
+      "PASS: GUI daemon status equals CLI output; logs refresh and copy literal output from the same daemon.",
+    );
     await fill("   ");
     assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
     await fill("First line");
@@ -484,6 +531,25 @@ async function check() {
     assert.equal(
       await evaluate("document.querySelector('#composer').value"),
       "Draft preserved across outage",
+    );
+    const stoppedStatus = await runCommand(executable, [...args, "daemon", "status"], 30_000);
+    assert.equal(stoppedStatus.exitCode, 1);
+    assert.equal(await inspectDaemon("status"), stoppedStatus.stdout.trim());
+    const stoppedLogs = await runCommand(
+      executable,
+      [...args, "daemon", "logs", "--lines", "200"],
+      30_000,
+    );
+    assert.equal(stoppedLogs.exitCode, 0);
+    assert.equal(await inspectDaemon("logs"), stoppedLogs.stdout.trim());
+    assert.equal((await runCommand(executable, [...args, "daemon", "status"], 30_000)).exitCode, 1);
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Draft preserved across outage",
+    );
+    await evaluate("document.querySelector('#close-command').click()");
+    console.log(
+      "PASS: GUI diagnostics work during an outage without restarting the daemon or changing the draft.",
     );
     await evaluate("document.querySelector('#retry').click()");
     await waitFor(

@@ -225,6 +225,7 @@ describe("desktop main boundary", () => {
       submit: vi.fn(),
     };
     const supervisor = {
+      inspect: vi.fn().mockResolvedValue({ ok: true, value: { text: "daemon status" } }),
       status: vi.fn().mockResolvedValue({ state: "ready" }),
       retry: vi.fn().mockResolvedValue({ state: "probing" }),
       client,
@@ -296,6 +297,7 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.profilesSetup,
       IPC_CHANNELS.profilesSave,
       IPC_CHANNELS.profilesImport,
+      IPC_CHANNELS.daemonInspect,
       IPC_CHANNELS.daemonStatus,
       IPC_CHANNELS.daemonRetry,
       IPC_CHANNELS.sessionsList,
@@ -340,12 +342,15 @@ describe("desktop main boundary", () => {
       mainFrame,
     };
     const event = { senderFrame: mainFrame, sender };
+    await mocks.ipcHandlers.get(IPC_CHANNELS.daemonInspect)!(event, "logs");
+    expect(supervisor.inspect).toHaveBeenCalledExactlyOnceWith("logs");
     await mocks.ipcHandlers.get(IPC_CHANNELS.tasksControl)!(event, {
       sessionId: "session-1",
       action: "list",
     });
     expect(client.controlTasks).toHaveBeenCalledWith({ sessionId: "session-1", action: "list" });
     for (const channel of [
+      IPC_CHANNELS.daemonInspect,
       IPC_CHANNELS.chatNamesLoad,
       IPC_CHANNELS.chatNamesSave,
       IPC_CHANNELS.tasksControl,
@@ -1506,6 +1511,8 @@ class CaptureFixtureDocument {
     "status-summary",
     "retry",
     "show-connection",
+    "show-daemon-status",
+    "show-daemon-logs",
     "connection-details",
     "recovery",
     "daemon-version",

@@ -226,7 +226,7 @@ export function statusView(status: DaemonStatus): StatusView {
       summary:
         status.state === "ready"
           ? "Ready for messages and screen context."
-          : "Connected to OpenMinion. New installations use the echo demo provider.",
+          : "Connected to your local OpenMinion daemon.",
       tone: "ready",
       showRetry: false,
       showRecovery: false,
@@ -1380,6 +1380,52 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.commandPanel.hidden = false;
     elements.commandPanel.scrollIntoView({ block: "start" });
   };
+
+  const inspectDaemon = async (kind: "status" | "logs") => {
+    if (elements.showDaemonStatus.disabled) return;
+    elements.showDaemonStatus.disabled = true;
+    elements.showDaemonLogs.disabled = true;
+    const title = kind === "logs" ? "Daemon logs" : "Daemon status";
+    showCommandResult(title, "Reading from OpenMinion…");
+    const generation = commandResultGeneration;
+    try {
+      const result = await api.daemon.inspect(kind);
+      if (generation !== commandResultGeneration || elements.commandPanel.hidden) return;
+      showCommandResult(
+        title,
+        result.ok
+          ? kind === "logs"
+            ? "Latest 200 lines. Refresh to read newer entries."
+            : "Current status from OpenMinion."
+          : result.error.message,
+      );
+      const refresh = root.createElement("button");
+      refresh.type = "button";
+      refresh.className = "quiet-button diagnostic-action";
+      refresh.textContent = "Refresh";
+      refresh.addEventListener("click", () => void inspectDaemon(kind));
+      elements.commandResult.append(refresh);
+      if (result.ok) {
+        const output = root.createElement("pre");
+        output.className = "diagnostic-output";
+        output.textContent = result.value.text;
+        const copy = root.createElement("button");
+        copy.type = "button";
+        copy.className = "quiet-button diagnostic-action";
+        copy.textContent = "Copy";
+        copy.addEventListener("click", async () => {
+          const copied = await api.app.copyText(result.value.text);
+          copy.textContent = copied.ok ? "Copied" : "Copy failed";
+        });
+        elements.commandResult.append(copy, output);
+      }
+    } finally {
+      elements.showDaemonStatus.disabled = false;
+      elements.showDaemonLogs.disabled = false;
+    }
+  };
+  elements.showDaemonStatus.addEventListener("click", () => void inspectDaemon("status"));
+  elements.showDaemonLogs.addEventListener("click", () => void inspectDaemon("logs"));
 
   const runTasks = async (action: TaskAction, taskId?: string, schedule?: ScheduleInput) => {
     if (!selected || !daemonReady || !api.tasks) {
@@ -2651,6 +2697,8 @@ function rendererElements(root: Document) {
     statusSummary: required(root, "status-summary"),
     retry: required(root, "retry") as HTMLButtonElement,
     showConnection: required(root, "show-connection"),
+    showDaemonStatus: required(root, "show-daemon-status") as HTMLButtonElement,
+    showDaemonLogs: required(root, "show-daemon-logs") as HTMLButtonElement,
     connectionDetails: required(root, "connection-details") as HTMLDetailsElement,
     recovery: required(root, "recovery"),
     daemonVersion: required(root, "daemon-version"),

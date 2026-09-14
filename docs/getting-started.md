@@ -1,7 +1,7 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-09-08
+Last updated: 2026-09-13
 
 Purpose: provide the package-local bootstrap and first-run path for the
 OpenMinion Desktop source repository.
@@ -249,3 +249,18 @@ does not change the session ID, history, agent, or the CLI's saved session data;
 continue using the original ID when resuming through the CLI. Names can also be
 changed while a reply is running. Clearing Desktop's local application data removes
 these local names.
+
+## Daemon Status And Logs
+
+Expand **Connected** (or **Not connected**) in the sidebar, then choose
+**Daemon status** or **View logs**. The result appears in the conversation
+scroll area. **Refresh** reads a new snapshot; **Copy** copies the displayed
+output. Logs show the latest 200 lines, without automatically following new
+entries. Dismiss the result to return to the conversation.
+
+Desktop runs the installed CLI's `daemon status` and `daemon logs --lines 200`
+with its recorded home, data, and profile paths. Inspection also works while
+that daemon is stopped, once the runtime is installed. It does not reconnect,
+restart, or replay a message. If no runtime or log exists yet, the view explains
+that it is unavailable. These are daemon logs, separate from Electron's own
+application logs.

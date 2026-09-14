@@ -266,6 +266,7 @@ const api: NativeApi = {
     info: async () => ({ appName: "OpenMinion", shellVersion: "UI preview · simulated" }),
   },
   daemon: {
+    inspect: async () => ok({ text: "Preview diagnostics · simulated" }),
     status: async () => ({
       state: "ready",
       reachable: true,

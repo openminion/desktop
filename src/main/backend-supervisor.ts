@@ -131,6 +131,31 @@ export class DaemonSupervisor {
     return this.snapshot();
   }
 
+  async inspect(kind: unknown): Promise<ClientResult<{ text: string }>> {
+    if (kind !== "status" && kind !== "logs")
+      return failure("invalid_request", "Choose daemon status or logs.");
+    if (!this.#executable)
+      return failure(
+        "runtime_unavailable",
+        "OpenMinion is not installed yet. Check the connection details.",
+      );
+    try {
+      const result = await this.#runOpenMinion([
+        "daemon",
+        kind,
+        ...(kind === "logs" ? ["--lines", "200"] : []),
+      ]);
+      if (result.exitCode !== 0 && !(kind === "status" && result.exitCode === 1))
+        return failure(
+          "diagnostics_unavailable",
+          "Could not read daemon diagnostics. The log may not exist yet; try Refresh after reconnecting.",
+        );
+      return { ok: true, value: { text: result.stdout.trim() || "No entries reported." } };
+    } catch {
+      return failure("diagnostics_unavailable", "Could not read daemon diagnostics. Try Refresh.");
+    }
+  }
+
   async retry(): Promise<DaemonStatus> {
     return this.lifecycle.current === "running" ? this.status() : this.start();
   }
