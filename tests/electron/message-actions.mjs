@@ -64,9 +64,17 @@ async function check() {
       );
       const button = await evaluate(`(() => {
       const button = document.querySelector('.message-copy');
-      return {width:button.getBoundingClientRect().width, icon:getComputedStyle(button, '::before').borderStyle, label:button.getAttribute('aria-label')};
+      const bounds = button.getBoundingClientRect();
+      const icon = getComputedStyle(button, '::before');
+      return {width:bounds.width, height:bounds.height, border:getComputedStyle(button).borderWidth,
+        icon:icon.borderStyle, iconWidth:icon.width, iconHeight:icon.height,
+        label:button.getAttribute('aria-label')};
     })()`);
       assert.equal(button.width, 28);
+      assert.equal(button.height, 28);
+      assert.equal(button.border, "0px");
+      assert.equal(button.iconWidth, "10px");
+      assert.equal(button.iconHeight, "12px");
       assert.equal(button.icon, "solid");
       assert.equal(button.label, "Copy message");
       window.webContents.sendInputEvent({ type: "mouseMove", x: 2, y: 2 });

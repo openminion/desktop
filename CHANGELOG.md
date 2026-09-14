@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Refine message actions with smaller copy icons, a square borderless click
+  target, and tighter timestamp spacing.
+
 - Show compact message copy icons and local timestamps on hover or keyboard
   focus, with copy confirmation and no conversation layout shift.
 
