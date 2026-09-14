@@ -217,3 +217,8 @@ acceptance tier; they are not implied by daemon lifecycle proof.
 Provider-free tests, unsigned packaging, native capture, real-daemon
 integration, provider-backed behavior, and signed release acceptance are
 different proof tiers. Do not present one tier as evidence for another.
+
+The published-runtime GUI harness also compares a completed reply's duration
+and token footer to its public CLI transcript, reloads the renderer, and checks
+that the same footer is restored. Main-process tests cover both the current
+`stats` export and PyPI 0.0.19's `metadata.run_stats_json` representation.

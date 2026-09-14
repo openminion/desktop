@@ -186,7 +186,15 @@ button or **Enter** to send. **Shift+Enter** adds a new line.
 
 Assistant replies show the reported profile beside **OpenMinion**. Desktop moves
 a matching speaker prefix out of the displayed answer and copied reply; saved
-transcripts remain unchanged. Progress uses a subtle working indicator, while
+transcripts remain unchanged. Completed replies show their saved duration and
+usage below the answer, for example **22s · 18.4k tokens**. Token detail follows
+the agent's CLI `turn_usage_display` setting when the runtime exports it:
+total, input/output, or input/output plus model calls. PyPI 0.0.19 does not
+export that preference, so Desktop shows total tokens. These statistics survive
+reopening a chat, including histories from PyPI 0.0.19. Missing usage is not estimated, and
+Desktop does not invent a cost when the runtime does not report one.
+
+Progress uses a subtle working indicator, while
 successful completion leaves the composer quiet. Stop requests and errors remain
 visible; a stop request is not treated as confirmed cancellation.
 While a reply is running, its status, details and elapsed time appear directly

@@ -452,7 +452,7 @@ describe("PyPI CLI client", () => {
     client.endConfiguration();
   });
 
-  it("maps canonical session history and events without exposing metadata secrets", async () => {
+  it.each(["stats", "metadata"])("loads %s usage and hides secrets", async (format) => {
     const run = vi.fn(async (_executable: string, args: readonly string[]) => {
       const command = args.slice(2).join(" ");
       let value: unknown;
@@ -504,14 +504,26 @@ describe("PyPI CLI client", () => {
               },
             },
           ]
-            .map((row) => JSON.stringify(row))
+            .map((row) => {
+              if (format === "metadata" && row.stats) {
+                const { stats, ...record } = row;
+                return JSON.stringify({
+                  ...record,
+                  metadata: { ...row.metadata, run_stats_json: JSON.stringify(stats) },
+                });
+              }
+              return JSON.stringify(row);
+            })
             .join("\n"),
         };
       }
       return { exitCode: 0, stderr: "", stdout: JSON.stringify(value) };
     });
     const client = new CliClient(
-      () => ({ executable: "/managed/openminion", args: ["--config", "/config with spaces.json"] }),
+      () => ({
+        executable: "/managed/openminion",
+        args: ["--config", "/config with spaces.json"],
+      }),
       run,
     );
     expect(await client.list({})).toMatchObject({
@@ -545,7 +557,9 @@ describe("PyPI CLI client", () => {
     const events = await client.events({ sessionId: "saved", after: "0" });
     expect(events).toMatchObject({
       ok: true,
-      value: { events: [{ traceId: "trace", state: "completed", facts: { agent_id: "writer" } }] },
+      value: {
+        events: [{ traceId: "trace", state: "completed", facts: { agent_id: "writer" } }],
+      },
     });
     expect(JSON.stringify(events)).not.toContain("private");
     expect(await client.load({ sessionId: "saved", messageAfter: "bad" })).toMatchObject({

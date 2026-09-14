@@ -1028,6 +1028,48 @@ async function check() {
     console.log(
       "PASS: every user/reply message has Copy; native clipboard matches the selected message, preserves Markdown and omits profile labels.",
     );
+    await waitFor("document.querySelector('#timeline').getAttribute('aria-busy') === 'false'");
+    const usageSessions = await evaluate("window.openminion.sessions.list({})");
+    const usageSessionId = usageSessions.value.sessions[0].sessionId;
+    const usageTranscript = await runCommand(
+      executable,
+      [...args, "export", "transcript", "--session-id", usageSessionId, "--format", "jsonl"],
+      30000,
+    );
+    assert.equal(usageTranscript.exitCode, 0);
+    const usageRecord = usageTranscript.stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((row) => row.type === "message" && ["outbound", "assistant"].includes(row.role))
+      .at(-1);
+    assert.ok(usageRecord.body.includes("Readable reply"));
+    const savedStats = usageRecord.stats ?? JSON.parse(usageRecord.metadata.run_stats_json);
+    const expectedUsage = `${Math.floor(savedStats.duration_ms / 1000)}s · ${savedStats.input_tokens + savedStats.output_tokens} tokens`;
+    await waitFor(
+      `[...document.querySelectorAll('.message-usage')].at(-1)?.textContent === ${JSON.stringify(expectedUsage)}`,
+    );
+    const usageSessionIndex = await evaluate(
+      "[...document.querySelectorAll('#session-list button')].findIndex(button => button.getAttribute('aria-current') === 'true')",
+    );
+    window.webContents.reload();
+    await new Promise((resolve) => window.webContents.once("did-finish-load", resolve));
+    await waitFor(
+      `document.querySelectorAll('#session-list button').length > ${usageSessionIndex}`,
+    );
+    await evaluate(
+      `document.querySelectorAll('#session-list button')[${usageSessionIndex}].click()`,
+    );
+    await waitFor(
+      `[...document.querySelectorAll('.message-usage')].at(-1)?.textContent === ${JSON.stringify(expectedUsage)}`,
+    );
+    assert.equal(
+      await evaluate("[...document.querySelectorAll('.message-usage')].at(-1).hidden"),
+      false,
+    );
+    console.log(
+      "PASS: reply duration and tokens match the public CLI transcript and persist after renderer reload.",
+    );
     const openedLinks = [];
     const originalOpenExternal = shell.openExternal;
     shell.openExternal = async (url) => {

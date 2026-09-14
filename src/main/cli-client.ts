@@ -374,18 +374,26 @@ export class CliClient {
             row.type === "message" &&
             ["inbound", "outbound", "user", "assistant"].includes(String(row.role)),
         )
-        .map((row) => ({
-          schemaVersion: 1 as const,
-          id: requireString(row.id),
-          sessionId: value.sessionId,
-          role: (row.role === "inbound" || row.role === "user" ? "user" : "assistant") as
-            | "user"
-            | "assistant",
-          body: requireString(row.body),
-          profileName: optionalString(requireRecord(row.metadata ?? {}).display_name ?? null),
-          ...(row.stats === undefined ? {} : { usage: usageValue(row.stats) }),
-          createdAt: requireString(row.created_at),
-        }));
+        .map((row) => {
+          const metadata = requireRecord(row.metadata ?? {});
+          // PyPI 0.0.19 exports the same runtime stats inside message metadata.
+          const stats =
+            row.stats === undefined && metadata.run_stats_json !== undefined
+              ? JSON.parse(requireString(metadata.run_stats_json))
+              : row.stats;
+          return {
+            schemaVersion: 1 as const,
+            id: requireString(row.id),
+            sessionId: value.sessionId,
+            role: (row.role === "inbound" || row.role === "user" ? "user" : "assistant") as
+              | "user"
+              | "assistant",
+            body: requireString(row.body),
+            profileName: optionalString(metadata.display_name ?? null),
+            ...(stats === undefined ? {} : { usage: usageValue(stats) }),
+            createdAt: requireString(row.created_at),
+          };
+        });
       const offset = cursorOffset(value.messageAfter);
       const end = offset + (value.messageLimit ?? 200);
       return {
