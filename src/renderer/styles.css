@@ -1227,6 +1227,20 @@ details[open] > summary .summary-chevron {
   box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
 }
 
+.jump-latest {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 20px;
+  background: #292929;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+  white-space: nowrap;
+}
+
 .composer:focus-within {
   border-color: rgb(255 255 255 / 28%);
 }

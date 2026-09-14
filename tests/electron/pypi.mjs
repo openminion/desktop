@@ -785,6 +785,9 @@ async function check() {
     await waitFor(
       "!document.querySelector('#cancel').hidden && !document.querySelector('#cancel').disabled",
     );
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "");
+    await fill("Draft while waiting for the response");
+    assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
     const turnProgress = await evaluate(`(() => {
       const progress = document.querySelector('#chat-progress');
       const request = progress.previousElementSibling;
@@ -998,6 +1001,30 @@ async function check() {
       window.setContentSize(width, height);
       await waitFor(`innerWidth === ${width}`);
       assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true);
+      const canScroll = await evaluate(`(() => {
+        const chat = document.querySelector('#conversation');
+        return chat.scrollHeight - chat.clientHeight > 48;
+      })()`);
+      if (canScroll) {
+        await evaluate("document.querySelector('#conversation').scrollTop = 0");
+        await waitFor("!document.querySelector('#jump-latest').hidden");
+        await fill("Keep reading earlier messages");
+        assert.equal(await evaluate("document.querySelector('#conversation').scrollTop"), 0);
+        await evaluate("document.querySelector('#jump-latest').click()");
+        await waitFor("document.querySelector('#jump-latest').hidden");
+        assert.equal(
+          await evaluate(`(() => {
+          const chat = document.querySelector('#conversation');
+          return chat.scrollHeight - chat.clientHeight - chat.scrollTop <= 1;
+        })()`),
+          true,
+        );
+        assert.equal(await evaluate("document.activeElement.id"), "composer");
+        assert.equal(
+          await evaluate("document.querySelector('#composer').value"),
+          "Keep reading earlier messages",
+        );
+      }
       const artifacts = process.env.OPENMINION_E2E_ARTIFACTS;
       if (artifacts) {
         await mkdir(artifacts, { recursive: true });

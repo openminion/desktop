@@ -102,7 +102,7 @@ restart, and session closing.
 
 The Electron test drives production main, preload, and renderer and covers:
 
-- first send from an empty workspace, whitespace rejection, and real keyboard input;
+- first send from an empty workspace, whitespace rejection, real keyboard input, and immediate composer clearing while the daemon works;
 - help and unsupported slash commands without creating a model turn;
 - active turn status and elapsed time directly below the request, with the composer stationary and completed progress hidden;
 - command results inside the conversation scroll area at narrow and wide sizes, with long results scrolling with messages and leaving the composer in place;
@@ -113,7 +113,7 @@ The Electron test drives production main, preload, and renderer and covers:
 - safe Markdown/code/table rendering, explicit HTTP(S) link opening, and stable message DOM/text selection;
 - `/close` with independent CLI confirmation;
 - two conversations, task-local unsent drafts, and visible clearing without deleting history;
-- populated layout at 760 × 560, 1180 × 800, and 1800 × 1000;
+- populated layout at 760 × 560, 1180 × 800, and 1800 × 1000, preserving the reading position while drafting and returning to the bottom with Jump to latest;
 - daemon outage detection through connection details, reconnect with the draft intact,
   renderer reload, restored history, and closed-session send rejection;
 - profile JSON import, model-key editing, private credential readback, responsive

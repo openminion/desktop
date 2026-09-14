@@ -207,6 +207,109 @@ describe("renderer status view", () => {
     }
   });
 
+  it("clears a sending draft immediately, preserves new typing, and keeps terminal errors after refresh", async () => {
+    let finishSubmit!: (result: Awaited<ReturnType<NativeApi["turns"]["submit"]>>) => void;
+    const submit = vi.fn<NativeApi["turns"]["submit"]>(
+      () =>
+        new Promise((resolve) => {
+          finishSubmit = resolve;
+        }),
+    );
+    let receive!: (event: TurnEventV1) => void;
+    const load = vi.fn(async () => ({
+      ok: true,
+      value: {
+        session: sessionSummary(),
+        messages: [{ ...message("question", "Weather?"), role: "user" }],
+        nextMessageCursor: null,
+        messagesHasMore: false,
+      },
+    }));
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list: async () => ({
+          ok: true,
+          value: { sessions: [sessionSummary()], nextCursor: null, hasMore: false },
+        }),
+        load,
+        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+      },
+      turns: {
+        submit,
+        subscribe: (listener: typeof receive) => {
+          receive = listener;
+          return () => {};
+        },
+      },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const composer = page.element("composer");
+      const failure = {
+        code: "turn_timeout",
+        message: "Turn execution timed out after 45.00 seconds.",
+        retryable: true,
+        retryAfterMs: null,
+      };
+      for (const nextDraft of ["", "New draft"]) {
+        composer.value = "Weather?";
+        composer.dispatch("input");
+        page.element("composer-form").dispatch("submit");
+        await vi.waitFor(() => expect(composer.value).toBe(""));
+        composer.value = nextDraft;
+        composer.dispatch("input");
+        finishSubmit({ ok: false, error: failure });
+        await vi.waitFor(() =>
+          expect(page.element("chat-status").textContent).toBe(failure.message),
+        );
+        expect(composer.value).toBe(nextDraft || "Weather?");
+      }
+      composer.value = "Weather?";
+      composer.dispatch("input");
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(composer.value).toBe(""));
+      // A deliberate repeat typed while sending is a new draft, even when its text matches.
+      composer.value = "Weather?";
+      composer.dispatch("input");
+      finishSubmit({
+        ok: true,
+        value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+      });
+      await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
+      expect(composer.value).toBe("Weather?");
+      receive({
+        schemaVersion: 1,
+        kind: "error",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        error: failure,
+      });
+      receive({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        outcome: "error",
+      });
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(page.element("send").disabled).toBe(false));
+      expect(page.element("chat-status").textContent).toBe(failure.message);
+      expect(page.element("chat-status").className).toContain("error");
+      expect(page.element("chat-progress").hidden).toBe(false);
+      expect(composer.value).toBe("Weather?");
+      expect(submit).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("reads, refreshes, copies and dismisses diagnostics while disconnected", async () => {
     const inspect = vi
       .fn<NativeApi["daemon"]["inspect"]>()
@@ -1421,6 +1524,12 @@ describe("renderer status view", () => {
       timeline.scrollTop = 200;
       firstDocument.element("composer").dispatch("input");
       expect(timeline.scrollTop).toBe(200);
+      timeline.dispatch("scroll");
+      expect(firstDocument.element("jump-latest").hidden).toBe(false);
+      firstDocument.element("jump-latest").click();
+      expect(timeline.scrollTop).toBe(1600);
+      expect(firstDocument.element("jump-latest").hidden).toBe(true);
+      expect(firstDocument.element("composer").focus).toHaveBeenCalled();
       timeline.scrollTop = 1200;
       firstDocument.element("composer").dispatch("input");
       expect(timeline.scrollTop).toBe(1600);
@@ -1469,7 +1578,7 @@ describe("renderer status view", () => {
         after: "event-one",
         limit: 200,
       });
-      expect(pagehide).toHaveBeenCalledTimes(2);
+      expect(pagehide.mock.calls.filter(([type]) => type === "pagehide")).toHaveLength(2);
       expect(JSON.stringify(reloadedDocument.findText())).not.toMatch(
         /secret|argument.*value|\/private/i,
       );
@@ -3017,6 +3126,7 @@ class FixtureDocument {
     "timeline",
     "conversation",
     "chat-progress",
+    "jump-latest",
     "chat-status",
     "chat-detail",
     "chat-update",

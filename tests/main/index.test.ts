@@ -1534,6 +1534,7 @@ class CaptureFixtureDocument {
     "timeline",
     "conversation",
     "chat-progress",
+    "jump-latest",
     "chat-status",
     "chat-detail",
     "chat-update",

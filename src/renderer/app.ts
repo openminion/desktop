@@ -1728,6 +1728,19 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     });
   });
 
+  const renderJumpToLatest = () => {
+    const { scrollHeight, clientHeight, scrollTop } = elements.conversation;
+    elements.jumpLatest.hidden =
+      scrollHeight - clientHeight - scrollTop <= 48 || !elements.commandMenu.hidden;
+  };
+  elements.conversation.addEventListener("scroll", renderJumpToLatest);
+  window.addEventListener("resize", renderJumpToLatest);
+  elements.jumpLatest.addEventListener("click", () => {
+    elements.conversation.scrollTop = elements.conversation.scrollHeight;
+    renderJumpToLatest();
+    elements.composer.focus();
+  });
+
   const renderWaitTime = () => {
     elements.chatElapsed.textContent =
       chat.active && chat.startedAt !== null ? waitingTime(chat.startedAt, Date.now()) : "";
@@ -1868,6 +1881,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     );
     renderObservation();
     renderCommandMenu();
+    renderJumpToLatest();
   };
 
   const showError = (error: ErrorV1) => {
@@ -1894,6 +1908,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     preserveGuidance = false,
   ) => {
     const refreshing = selected?.sessionId === session.sessionId;
+    const terminalState =
+      refreshing && terminalTraceId !== null && chat.terminalTraceId === terminalTraceId
+        ? chat
+        : null;
     if (!refreshing) hideCommandResult();
     const terminalGuidance =
       preserveGuidance &&
@@ -1984,6 +2002,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       label: recovered.session.isDraft
         ? "Send a message to start this task."
         : terminalLabel(recovered.events),
+      ...(terminalState ? { label: terminalState.label, error: terminalState.error } : {}),
     };
     const live = liveTurns.get(session.sessionId);
     if (live) {
@@ -2350,6 +2369,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     responseText = "";
     responseUsage = undefined;
     const sessionId = selected.sessionId;
+    if (elements.composer.value === draft) elements.composer.value = "";
+    drafts.delete(sessionId);
+    elements.composer.focus();
     liveTurns.set(sessionId, {
       state: chat,
       responseText: "",
@@ -2373,11 +2395,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     });
     const live = liveTurns.get(sessionId);
     if (live && result.ok) live.state = applySubmitResult(live.state, result.value);
-    if (!result.ok) liveTurns.delete(sessionId);
-    if (generation !== submissionGeneration) {
-      if (result.ok && drafts.get(sessionId) === draft) drafts.delete(sessionId);
+    if (!result.ok) {
+      liveTurns.delete(sessionId);
       if (selected?.sessionId === sessionId) {
-        if (result.ok && elements.composer.value === draft) elements.composer.value = "";
+        if (!elements.composer.value) elements.composer.value = draft;
+      } else if (!drafts.get(sessionId)) drafts.set(sessionId, draft);
+    }
+    if (generation !== submissionGeneration) {
+      if (selected?.sessionId === sessionId) {
         void selectSession(selected);
       }
       return;
@@ -2408,8 +2433,6 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         if (observationStatus) acceptGuidanceObservation(observationStatus);
       }
     }
-    if (elements.composer.value === draft) elements.composer.value = "";
-    drafts.delete(selected.sessionId);
     elements.includeCurrentView.checked = false;
     attachments = [];
     chat = applySubmitResult(chat, result.value);
@@ -2724,6 +2747,7 @@ function rendererElements(root: Document) {
     renameReset: required(root, "rename-reset"),
     timeline: required(root, "timeline"),
     conversation: required(root, "conversation"),
+    jumpLatest: required(root, "jump-latest"),
     chatProgress: required(root, "chat-progress"),
     chatStatus: required(root, "chat-status"),
     chatDetail: required(root, "chat-detail"),

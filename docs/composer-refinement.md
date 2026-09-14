@@ -100,3 +100,29 @@ framework or capture authority was introduced.
 The repeated OpenMinion workspace checks produced the same separate result:
 Ruff passed; `make lint` remained blocked at services 364 against baseline 363.
 The Desktop gates above passed independently.
+
+## Sending and Reading Follow-up
+
+September 13: clear the composer when a message is submitted, leaving it focused
+for the next draft. If task creation is still finishing, preserve text typed
+during that wait. A rejected submission restores the original draft only when
+no newer draft exists; an accepted submission never clears newly typed text,
+even if it repeats the submitted text. Sending remains unavailable during active
+work; this change adds no prompt queue or automatic retry.
+
+Keep a terminal turn's exact error and error styling while refreshing canonical
+history immediately after completion. This is current-view feedback, not a new
+durable error store. Reload and session switching still use the runtime's
+available history.
+
+Show Jump to latest when the reader is more than 48 pixels above the bottom of
+the conversation. It scrolls to the end and focuses the composer without
+changing the draft. Scroll, resize and chat updates refresh its visibility;
+the slash menu takes precedence when open. Reading earlier messages does not
+force a scroll to the latest reply.
+
+Validation is recorded in the Desktop parity execution record. Existing
+Enter/Shift+Enter, Stop, copy, Markdown, inline command results and responsive
+composer checks remain part of the package and native GUI suites. Full CLI/Focus
+parity, backend timeout tuning, guaranteed provider cancellation, prompt queues,
+and active-turn recovery after quitting remain separate work.
