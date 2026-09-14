@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Show compact message copy icons and local timestamps on hover or keyboard
+  focus, with copy confirmation and no conversation layout shift.
+
 - Show a spinner beside each running session, including background chats, until
   the turn finishes. Respect reduced-motion preferences.
 - Use Focus's public progress wording instead of raw brain phase labels and

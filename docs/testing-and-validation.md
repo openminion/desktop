@@ -222,3 +222,17 @@ The published-runtime GUI harness also compares a completed reply's duration
 and token footer to its public CLI transcript, reloads the renderer, and checks
 that the same footer is restored. Main-process tests cover both the current
 `stats` export and PyPI 0.0.19's `metadata.run_stats_json` representation.
+
+
+## Message Action UI Check
+
+```bash
+npm run build
+node_modules/.bin/electron tests/electron/message-actions.mjs
+```
+
+This runs the real renderer with explicit preview data. It checks the copy icon,
+local message time, hover and keyboard focus, stable layout at compact and normal
+sizes, and clipboard-error feedback. Preview deliberately denies clipboard
+access; successful copy and message-body selection are covered by renderer tests
+and the real-daemon PyPI campaign. It makes no provider calls.

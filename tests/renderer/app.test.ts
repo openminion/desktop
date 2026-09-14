@@ -9,6 +9,7 @@ import {
   captureStatusCopy,
   formatDesktopTurnUsage,
   initialChatState,
+  messageTime,
   waitingTime,
   listArtifacts,
   listSessions,
@@ -150,6 +151,14 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it("omits unknown message times and uses the local weekday and time for saved messages", () => {
+    expect(messageTime()).toBe("");
+    expect(messageTime("invalid")).toBe("");
+    const date = new Date(2026, 8, 13, 14, 2);
+    expect(messageTime(date.toISOString())).toBe(
+      date.toLocaleString(undefined, { weekday: "long", hour: "numeric", minute: "2-digit" }),
+    );
+  });
   it("copies each message body without its role or profile and reports failure", async () => {
     const copyText = vi.fn().mockResolvedValue({ ok: true, value: null });
     const api = {
@@ -188,6 +197,16 @@ describe("renderer status view", () => {
         .descendants()
         .filter((item) => item.className.includes("message-copy"));
       expect(buttons).toHaveLength(2);
+      const times = page
+        .element("timeline")
+        .descendants()
+        .filter((item) => item.className === "message-time");
+      expect(times).toHaveLength(2);
+      expect(
+        times.every(
+          (item) => !item.hidden && item.textContent === messageTime("2026-08-19T00:00:01Z"),
+        ),
+      ).toBe(true);
       buttons[0]!.click();
       await vi.waitFor(() => expect(buttons[0]!.textContent).toBe("Copied"));
       expect(copyText).toHaveBeenLastCalledWith("First line\nSecond line");

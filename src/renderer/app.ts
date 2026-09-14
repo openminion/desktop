@@ -3213,8 +3213,16 @@ type TimelineMessage = {
   node: HTMLElement;
   profile: HTMLElement | null;
   usage: HTMLElement | null;
+  timestamp: HTMLTimeElement;
 };
 const timelineMessages = new WeakMap<HTMLElement, TimelineMessage[]>();
+
+export function messageTime(createdAt?: string): string {
+  if (!createdAt) return "";
+  const date = new Date(createdAt);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleString(undefined, { weekday: "long", hour: "numeric", minute: "2-digit" });
+}
 
 function renderTimeline(
   root: Document,
@@ -3222,7 +3230,10 @@ function renderTimeline(
   conversation: HTMLElement,
   progress: HTMLElement,
   loading: boolean,
-  messages: ReadonlyArray<Pick<MessageV1, "role" | "body" | "profileName" | "usage">>,
+  messages: ReadonlyArray<
+    Pick<MessageV1, "role" | "body" | "profileName" | "usage"> &
+      Partial<Pick<MessageV1, "createdAt">>
+  >,
   turnUsageDisplay: TurnUsageDisplay,
   copyText: NativeApi["app"]["copyText"],
   automaticObservation: ObservationFrameFactV1 | null,
@@ -3253,6 +3264,12 @@ function renderTimeline(
         if (cached.usage.textContent !== usageText) cached.usage.textContent = usageText;
         cached.usage.hidden = !usageText;
       }
+      cached.timestamp.textContent = messageTime(message.createdAt);
+      cached.timestamp.dateTime = message.createdAt ?? "";
+      cached.timestamp.title = message.createdAt
+        ? new Date(message.createdAt).toLocaleString()
+        : "";
+      cached.timestamp.hidden = !cached.timestamp.textContent;
       next.push(cached);
       return cached.node;
     }
@@ -3282,11 +3299,15 @@ function renderTimeline(
       usage.hidden = !usageText;
       article.append(usage);
     }
+    const actions = root.createElement("div");
+    actions.className = "message-actions";
     const copy = root.createElement("button");
     copy.type = "button";
     copy.className = "quiet-button message-copy";
     copy.textContent = "Copy";
     copy.title = "Copy message";
+    copy.setAttribute("aria-label", "Copy message");
+    copy.setAttribute("aria-live", "polite");
     copy.addEventListener("click", async () => {
       copy.disabled = true;
       try {
@@ -3295,13 +3316,26 @@ function renderTimeline(
       } catch {
         copy.textContent = "Copy failed";
       }
+      copy.dataset.copyState = copy.textContent === "Copied" ? "copied" : "error";
+      copy.title = copy.textContent;
+      copy.setAttribute("aria-label", copy.textContent);
       setTimeout(() => {
         copy.textContent = "Copy";
+        copy.dataset.copyState = "";
+        copy.title = "Copy message";
+        copy.setAttribute("aria-label", "Copy message");
         copy.disabled = false;
       }, 1500);
     });
-    article.append(copy);
-    next.push({ key, node: article, profile, usage });
+    const timestamp = root.createElement("time");
+    timestamp.className = "message-time";
+    timestamp.textContent = messageTime(message.createdAt);
+    timestamp.dateTime = message.createdAt ?? "";
+    timestamp.title = message.createdAt ? new Date(message.createdAt).toLocaleString() : "";
+    timestamp.hidden = !timestamp.textContent;
+    actions.append(copy, timestamp);
+    article.append(actions);
+    next.push({ key, node: article, profile, usage, timestamp });
     return article;
   });
   if (automaticObservation) {

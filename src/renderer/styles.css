@@ -1099,14 +1099,102 @@ details[open] > summary .summary-chevron {
   overflow-wrap: anywhere;
 }
 
-.message-copy {
-  min-width: 72px;
+.message-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 28px;
   margin-top: 8px;
-  padding: 4px 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.message:hover .message-actions,
+.message:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.message-copy {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 4px;
   border-color: transparent;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 400;
+  font-size: 0;
+}
+
+.message-copy::before,
+.message-copy::after {
+  content: "";
+  position: absolute;
+  width: 11px;
+  height: 13px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+}
+
+.message-copy::before {
+  left: 6px;
+  top: 9px;
+}
+.message-copy::after {
+  left: 10px;
+  top: 5px;
+  border-left: 0;
+  border-bottom: 0;
+}
+
+.message-copy[data-copy-state="copied"]::before {
+  width: 14px;
+  height: 8px;
+  top: 8px;
+  border-top: 0;
+  border-right: 0;
+  border-radius: 0;
+  transform: rotate(-45deg);
+}
+
+.message-copy[data-copy-state="error"]::before {
+  content: "!";
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  left: 4px;
+  top: 4px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.message-copy[data-copy-state="copied"]::after,
+.message-copy[data-copy-state="error"]::after {
+  content: none;
+}
+
+.message-time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-actions {
+    transition: none;
+  }
 }
 
 .message-usage {
