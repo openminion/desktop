@@ -189,10 +189,12 @@ a matching speaker prefix out of the displayed answer and copied reply; saved
 transcripts remain unchanged. Progress uses a subtle working indicator, while
 successful completion leaves the composer quiet. Stop requests and errors remain
 visible; a stop request is not treated as confirmed cancellation.
-While a reply is running, an elapsed-time counter shows how long you have waited,
-and Stop replaces the send arrow. You can keep drafting. Stop stays pending until
-OpenMinion reports the outcome. The status area keeps its place when a reply ends,
-and history refreshes without clearing the conversation.
+While a reply is running, its status, details and elapsed time appear directly
+beneath your request and scroll with the conversation. Stop replaces the send
+arrow, and you can keep drafting. Stop stays pending until OpenMinion reports
+the outcome. Successful completion hides the progress row; errors remain visible
+with the request. The composer stays in place, and history refreshes without
+clearing the conversation.
 
 Type `/` or press **Command/Ctrl+K** to open the command menu. Arrow keys select,
 Tab completes, and Enter runs a command. Start with `/help`, `/new`, `/sessions`,

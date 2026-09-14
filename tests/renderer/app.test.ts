@@ -1541,6 +1541,13 @@ describe("renderer status view", () => {
       });
       expect(page.element("chat-detail").textContent).toBe("Loading the selected conversation");
       expect(page.element("chat-detail").hidden).toBe(false);
+      const progressIndex = page
+        .element("timeline")
+        .children.indexOf(page.element("chat-progress"));
+      expect(progressIndex).toBeGreaterThan(0);
+      expect(page.element("timeline").children[progressIndex - 1]?.className).toBe("message user");
+      expect(page.element("chat-progress").hidden).toBe(false);
+
       const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 16_000);
       page.element("composer").dispatch("input");
       expect(page.element("chat-update").textContent).toBe("Last update 16s ago");
@@ -1659,6 +1666,7 @@ describe("renderer status view", () => {
       expect(page.element("cancel").hidden).toBe(true);
       expect(page.element("send").hidden).toBe(false);
       expect(page.element("chat-elapsed").textContent).toBe("");
+      expect(page.element("chat-progress").hidden).toBe(true);
       expect(page.element("chat-status").textContent).toBe("");
 
       vi.mocked(api.sessions.load).mockResolvedValueOnce({
@@ -2891,6 +2899,7 @@ class FixtureDocument {
     "rename-reset",
     "timeline",
     "conversation",
+    "chat-progress",
     "chat-status",
     "chat-detail",
     "chat-update",

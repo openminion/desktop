@@ -1700,6 +1700,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       conversationLoading && !chat.active && !chat.label ? "Finishing…" : chat.label;
     elements.chatDetail.textContent = chat.detail;
     elements.chatDetail.hidden = !chat.detail;
+    elements.chatProgress.hidden = !elements.chatStatus.textContent && !chat.detail;
     elements.timeline.setAttribute("aria-busy", String(conversationLoading));
     elements.chatStatus.className = `chat-status${(chat.active || conversationLoading) && !chat.error ? " working" : ""}${chat.error ? " error" : ""}`;
     renderWaitTime();
@@ -1764,6 +1765,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       root,
       elements.timeline,
       elements.conversation,
+      elements.chatProgress,
       conversationLoading,
       [
         ...messages.slice(hiddenMessageCount),
@@ -2673,6 +2675,7 @@ function rendererElements(root: Document) {
     renameReset: required(root, "rename-reset"),
     timeline: required(root, "timeline"),
     conversation: required(root, "conversation"),
+    chatProgress: required(root, "chat-progress"),
     chatStatus: required(root, "chat-status"),
     chatDetail: required(root, "chat-detail"),
     chatUpdate: required(root, "chat-update"),
@@ -3089,6 +3092,7 @@ function renderTimeline(
   root: Document,
   timeline: HTMLElement,
   conversation: HTMLElement,
+  progress: HTMLElement,
   loading: boolean,
   messages: ReadonlyArray<Pick<MessageV1, "role" | "body" | "profileName" | "usage">>,
   turnUsageDisplay: TurnUsageDisplay,
@@ -3181,6 +3185,9 @@ function renderTimeline(
     empty.textContent = "What would you like to work on?";
     items.push(empty);
   }
+  const requestIndex = messages.findLastIndex((message) => message.role === "user");
+  if (requestIndex >= 0) items.splice(requestIndex + 1, 0, progress);
+  else items.push(progress);
   timelineMessages.set(timeline, next);
   for (const [index, item] of items.entries()) {
     const current = timeline.children[index];

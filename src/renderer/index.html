@@ -144,6 +144,16 @@
               <p class="timeline-empty">
                 What would you like to work on?
               </p>
+              <div id="chat-progress" class="chat-progress">
+                <div class="chat-status-line">
+                  <p id="chat-status" class="chat-status" role="status" aria-live="polite" aria-atomic="true">
+                    Choose or create a task to begin.
+                  </p>
+                  <span id="chat-elapsed" class="chat-elapsed" aria-hidden="true" title="Time since you sent this message"></span>
+                </div>
+                <p id="chat-detail" class="chat-detail" role="status" hidden></p>
+                <p id="chat-update" class="chat-detail" hidden></p>
+              </div>
             </div>
             <section id="command-panel" class="command-panel" hidden aria-live="polite" aria-labelledby="command-title">
               <header class="panel-heading">
@@ -175,14 +185,6 @@
               <p>Connect to OpenMinion to send. You can keep drafting.</p>
               <button id="show-connection" class="quiet-button" type="button">Connection details</button>
             </aside>
-            <div class="chat-status-line">
-              <p id="chat-status" class="chat-status" role="status" aria-live="polite" aria-atomic="true">
-              Choose or create a task to begin.
-              </p>
-              <span id="chat-elapsed" class="chat-elapsed" aria-hidden="true" title="Time since you sent this message"></span>
-            </div>
-            <p id="chat-detail" class="chat-detail" role="status" hidden></p>
-            <p id="chat-update" class="chat-detail" hidden></p>
           </div>
           <form id="composer-form" class="composer">
             <div id="command-menu" class="command-menu" role="listbox" aria-label="Commands" hidden></div>

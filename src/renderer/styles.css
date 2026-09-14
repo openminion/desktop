@@ -1145,12 +1145,16 @@ details[open] > summary .summary-chevron {
   margin-top: 12px;
 }
 
+.chat-progress {
+  flex-shrink: 0;
+}
+
 .chat-status-line {
   display: flex;
   align-items: baseline;
   gap: 12px;
   min-height: 28px;
-  padding: 4px var(--conversation-gutter);
+  padding: 4px 0;
   font-size: 12px;
 }
 
@@ -1164,7 +1168,7 @@ details[open] > summary .summary-chevron {
 }
 
 .chat-detail {
-  padding: 0 var(--conversation-gutter) 8px;
+  padding: 0 0 8px;
   color: var(--muted);
   font-size: 12px;
   white-space: pre-wrap;
@@ -1173,7 +1177,6 @@ details[open] > summary .summary-chevron {
 
 .chat-elapsed {
   flex-shrink: 0;
-  margin-left: auto;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1656,11 +1659,6 @@ code {
 
   .timeline-empty {
     font-size: 21px;
-  }
-
-  .chat-status-line {
-    padding-right: 16px;
-    padding-left: 16px;
   }
 
   .guidance-card,

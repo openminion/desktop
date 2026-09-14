@@ -711,6 +711,36 @@ async function check() {
     await waitFor(
       "!document.querySelector('#cancel').hidden && !document.querySelector('#cancel').disabled",
     );
+    const turnProgress = await evaluate(`(() => {
+      const progress = document.querySelector('#chat-progress');
+      const request = progress.previousElementSibling;
+      const status = document.querySelector('#chat-status').getBoundingClientRect();
+      const elapsed = document.querySelector('#chat-elapsed').getBoundingClientRect();
+      return {inChat:progress.parentElement.id === 'timeline', hidden:progress.hidden,
+        afterRequest:request?.classList.contains('user'),
+        gap:progress.getBoundingClientRect().top-request.getBoundingClientRect().bottom,
+        timerGap:elapsed.left-status.right,
+        composerTop:document.querySelector('#composer-form').getBoundingClientRect().top};
+    })()`);
+    assert.equal(turnProgress.inChat, true);
+    assert.equal(turnProgress.hidden, false);
+    assert.equal(turnProgress.afterRequest, true);
+    assert.ok(turnProgress.gap >= 0 && turnProgress.gap <= 32);
+    assert.ok(turnProgress.timerGap >= 0 && turnProgress.timerGap <= 16);
+    assert.equal(turnProgress.composerTop, idleComposerTop);
+    if (process.env.OPENMINION_E2E_ARTIFACTS) {
+      await evaluate(
+        "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+      await writeFile(
+        join(process.env.OPENMINION_E2E_ARTIFACTS, "progress-under-request.png"),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+    }
+    console.log(
+      "PASS: live turn progress and elapsed time follow the request; the composer stays fixed.",
+    );
+
     for (let attempt = 0; providerCalls === 0 && attempt < 100; attempt += 1)
       await new Promise((resolve) => setTimeout(resolve, 100));
     assert.ok(
