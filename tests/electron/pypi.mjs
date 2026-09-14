@@ -858,6 +858,28 @@ async function check() {
       "!document.querySelector('#cancel').hidden && !document.querySelector('#cancel').disabled",
     );
     assert.equal(await evaluate("document.querySelector('#composer').value"), "");
+    await waitFor(
+      "!!document.querySelector('.session-item.selected .session-spinner:not([hidden])')",
+    );
+    const sidebarActivity = await evaluate(`(() => {
+      const row = document.querySelector('.session-item.selected');
+      const spinner = row.querySelector('.session-spinner');
+      return {label:row.getAttribute('aria-label'), animation:getComputedStyle(spinner).animationName};
+    })()`);
+    assert.match(sidebarActivity.label, /Working/);
+    assert.equal(sidebarActivity.animation, "session-spin");
+    await evaluate(
+      "[...document.querySelectorAll('.session-item')].find(row => !row.classList.contains('selected')).click()",
+    );
+    await waitFor(
+      "!document.querySelector('.session-item.selected .session-spinner:not([hidden])') && !!document.querySelector('.session-item:not(.selected) .session-spinner:not([hidden])')",
+    );
+    await evaluate(
+      "document.querySelector('.session-spinner:not([hidden])').parentElement.click()",
+    );
+    await waitFor(
+      "!document.querySelector('#cancel').disabled && !!document.querySelector('.session-item.selected .session-spinner:not([hidden])')",
+    );
     await fill("Draft while waiting for the response");
     assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
     const turnProgress = await evaluate(`(() => {
@@ -896,6 +918,10 @@ async function check() {
       providerCalls > 0,
       "The real daemon must reach the local provider before cancellation",
     );
+    assert.equal(
+      await evaluate("document.querySelector('#chat-progress').textContent.includes('[act]')"),
+      false,
+    );
     assert.equal(providerAuthorizations[0], "Bearer e2e-edited-key");
     assert.equal(providerModels[0], "e2e-edited");
     const runningSettings = (await evaluate("window.openminion.profiles.read()")).value;
@@ -929,6 +955,10 @@ async function check() {
     assert.equal(await evaluate("document.querySelector('#cancel').disabled"), true);
     await waitFor(
       "document.querySelector('#cancel').hidden && ['', 'Stopped.', 'Something went wrong. Check the reply before trying again.'].includes(document.querySelector('#chat-status').textContent)",
+    );
+    await waitFor("!document.querySelector('.session-spinner:not([hidden])')");
+    console.log(
+      "PASS: session spinner follows the running task across chat switches and clears after completion; progress excludes raw brain diagnostics.",
     );
     const cancellationHistory = await evaluate(
       `window.openminion.sessions.events({sessionId:${JSON.stringify(cancellationSession)}})`,

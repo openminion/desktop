@@ -33,6 +33,9 @@ truth. Do not create a second copy of those owners in Desktop.
 
 Desktop main may install a pinned OpenMinion package and invoke its ordinary
 public lifecycle, session, transcript, task control, report, and turn operations through `CliClient`.
+`src/main/focus-status.ts` mirrors the pinned CLI public status wording for
+structured progress keys and tools. It never interprets raw diagnostic prose;
+keep its presentation tables aligned when updating the supported runtime.
 `src/renderer/tasks.ts` presents runtime task facts and the actions core reports;
 `src/shared/tasks.ts` describes the bounded task-control bridge.
 `src/shared/reports.ts` describes agent/tool inventories and canonical token output;

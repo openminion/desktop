@@ -594,6 +594,14 @@ describe("PyPI CLI client", () => {
     expect(events).toContainEqual(
       expect.objectContaining({ kind: "response", finalText: "Reply" }),
     );
+    expect(
+      events.filter((event) => event.kind === "progress" && event.progressKind === "status"),
+    ).toMatchObject([
+      { label: "Working on it...", detailText: null },
+      { label: "Thinking...", detailText: null },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("[act]");
+    expect(JSON.stringify(events)).not.toContain("private diagnostic");
     const recorded = fixture.requests[0]!;
     expect(recorded.body.input_text).toBe("literal $(touch nope) `secret`\nsecond line");
     expect(recorded.token).toBe("test-private-token");
@@ -738,6 +746,16 @@ async function executableFixture(mode = "normal") {
         request_id: "request-1",
         stream_schema_version: "openminion.turn-stream.v1",
       });
+      for (const data of [
+        {
+          status_key: "executing",
+          label: "Executing step...",
+          detail_text: "[act] budget finalization status retry",
+        },
+        { status_key: "planning", visibility: "internal", detail_text: "private diagnostic" },
+        { status_key: "analyzing", detail_code: "thinking", detail_text: "[act] started" },
+      ])
+        output("chunk", { trace_id: traceId, kind: "status", data, ts: now });
       complete = (cancelled) => {
         output("chunk", {
           trace_id: traceId,

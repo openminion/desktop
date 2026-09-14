@@ -263,6 +263,7 @@ describe("renderer status view", () => {
         composer.dispatch("input");
         page.element("composer-form").dispatch("submit");
         await vi.waitFor(() => expect(composer.value).toBe(""));
+        expect(page.sessionButtons()[0]!.children[0]!.hidden).toBe(false);
         composer.value = nextDraft;
         composer.dispatch("input");
         finishSubmit({ ok: false, error: failure });
@@ -270,6 +271,7 @@ describe("renderer status view", () => {
           expect(page.element("chat-status").textContent).toBe(failure.message),
         );
         expect(composer.value).toBe(nextDraft || "Weather?");
+        expect(page.sessionButtons()[0]!.children[0]!.hidden).toBe(true);
       }
       composer.value = "Weather?";
       composer.dispatch("input");
@@ -305,6 +307,7 @@ describe("renderer status view", () => {
       expect(page.element("chat-progress").hidden).toBe(false);
       expect(composer.value).toBe("Weather?");
       expect(submit).toHaveBeenCalledTimes(3);
+      expect(page.sessionButtons()[0]!.children[0]!.hidden).toBe(true);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -487,6 +490,88 @@ describe("renderer status view", () => {
       );
       expect(reloaded.names.size).toBe(0);
       expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "session-1" }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("tracks two running sidebar sessions independently and clears a background completion", async () => {
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Other" },
+    ];
+    let receive!: (event: TurnEventV1) => void;
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list: async () => ({ ok: true, value: { sessions, nextCursor: null, hasMore: false } }),
+        load: async ({ sessionId }: { sessionId: string }) => ({
+          ok: true,
+          value: {
+            session: sessions.find((session) => session.sessionId === sessionId),
+            messages: [],
+            nextMessageCursor: null,
+            messagesHasMore: false,
+          },
+        }),
+        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      },
+      turns: {
+        subscribe: (listener: typeof receive) => {
+          receive = listener;
+          return () => {};
+        },
+        submit: async ({ sessionId }: { sessionId: string }) => ({
+          ok: true,
+          value: { sessionId, traceId: sessionId, requestId: sessionId },
+        }),
+      },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      for (const index of [0, 1]) {
+        page.sessionButtons()[index]!.click();
+        await vi.waitFor(() => expect(page.element("send").hidden).toBe(false));
+        page.element("composer").value = `Request ${index}`;
+        page.element("composer").dispatch("input");
+        await vi.waitFor(() => expect(page.element("send").disabled).toBe(false));
+        page.element("composer-form").dispatch("submit");
+        await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
+      }
+      expect(page.sessionButtons().map((button) => button.children[0]!.hidden)).toEqual([
+        false,
+        false,
+      ]);
+      receive({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: "session-1",
+        traceId: "session-1",
+        outcome: "complete",
+      });
+      expect(page.sessionButtons().map((button) => button.children[0]!.hidden)).toEqual([
+        true,
+        false,
+      ]);
+      expect(page.element("current-title").textContent).toBe("Other");
+      expect(page.element("chat-status").textContent).toBe("Working…");
+      receive({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: "session-2",
+        traceId: "session-2",
+        outcome: "cancelled",
+      });
+      expect(page.sessionButtons().map((button) => button.children[0]!.hidden)).toEqual([
+        true,
+        true,
+      ]);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1764,6 +1849,17 @@ describe("renderer status view", () => {
       await vi.waitFor(() => expect(page.attachmentText()).toEqual([]));
       expect(submit).toHaveBeenCalledTimes(1);
       expect(page.findText()).toContain("Describe this image");
+      const runningSpinner = page.sessionButtons()[0]!.children[0]!;
+      expect(runningSpinner.hidden).toBe(false);
+      expect(page.sessionButtons()[1]!.children[0]!.hidden).toBe(true);
+      turnSubscription.listener?.({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: "session-1",
+        traceId: "stale-trace",
+        outcome: "complete",
+      });
+      expect(runningSpinner.hidden).toBe(false);
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "progress",
@@ -1775,6 +1871,8 @@ describe("renderer status view", () => {
         detailText: "Loading the selected conversation",
         createdAt: "2026-09-08T00:00:00Z",
       });
+      expect(page.sessionButtons()[0]!.children[0]).toBe(runningSpinner);
+      expect(runningSpinner.hidden).toBe(false);
       expect(page.element("chat-detail").textContent).toBe("Loading the selected conversation");
       expect(page.element("chat-detail").hidden).toBe(false);
       const progressIndex = page
@@ -1808,6 +1906,14 @@ describe("renderer status view", () => {
         text: "chunk",
         createdAt: "2026-09-08T00:00:01Z",
       });
+      expect(page.findText()).toContain("First chunk");
+      page.sessionButtons()[1]!.click();
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Other"));
+      expect(page.sessionButtons()[0]!.children[0]!.hidden).toBe(false);
+      expect(page.sessionButtons()[1]!.children[0]!.hidden).toBe(true);
+      page.sessionButtons()[0]!.click();
+      expect(page.findText()).toContain("Describe this image");
+      await vi.waitFor(() => expect(page.element("chat-detail").hidden).toBe(true));
       expect(page.findText()).toContain("First chunk");
       turnSubscription.listener?.({
         schemaVersion: 1,
@@ -1862,6 +1968,7 @@ describe("renderer status view", () => {
       expect(page.element("cancel").disabled).toBe(true);
       expect(page.element("send").hidden).toBe(true);
       expect(page.element("chat-status").textContent).toBe("Requesting stop…");
+      expect(page.sessionButtons()[0]!.children[0]!.hidden).toBe(false);
       page.element("cancel").click();
       expect(api.turns.cancel).toHaveBeenCalledTimes(1);
       let finishHistoryRefresh!: () => void;
@@ -1885,6 +1992,7 @@ describe("renderer status view", () => {
       expect(page.findText()).not.toContain("What would you like to work on?");
       expect(page.element("chat-status").textContent).not.toBe("Loading conversation…");
       expect(page.element("chat-status").textContent).toBe("Finishing…");
+      expect(page.sessionButtons()[0]!.children[0]!.hidden).toBe(true);
       page.element("composer").value = "Draft while history refreshes";
       page.element("composer").dispatch("input");
       expect(page.element("send").disabled).toBe(true);

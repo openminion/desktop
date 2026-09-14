@@ -1,11 +1,18 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Show a spinner beside each running session, including background chats, until
+  the turn finishes. Respect reduced-motion preferences.
+- Use Focus's public progress wording instead of raw brain phase labels and
+  diagnostic details such as `[act]`. Internal progress stays out of chat.
+- Preserve the pending request when returning to a running chat, and ignore
+  stale completion events when deciding whether to refresh the conversation.
 
 - Added Copy beneath each user message and assistant reply, with brief success
   or failure feedback. Copy preserves message text and Markdown without role or

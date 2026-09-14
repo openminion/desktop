@@ -1,3 +1,4 @@
+import { publicStatusText } from "./focus-status.js";
 import { randomUUID } from "node:crypto";
 import type { ReportValue } from "../shared/reports.js";
 import type { RuntimeTask, TaskControlValue } from "../shared/tasks.js";
@@ -867,18 +868,21 @@ export class CliClient {
                   throw new Error("Invalid stream identity");
                 if (row.event === "chunk") {
                   const detail = requireRecord(data.data);
-                  if (data.kind === "status")
-                    emit({
-                      schemaVersion: 1,
-                      kind: "progress",
-                      progressKind: "status",
-                      sessionId,
-                      traceId: active.identity.traceId,
-                      statusKey: requireString(detail.status_key),
-                      label: optionalString(detail.label ?? null),
-                      detailText: optionalString(detail.detail_text ?? null),
-                      createdAt: requireString(data.ts),
-                    });
+                  if (data.kind === "status") {
+                    const label = publicStatusText(detail);
+                    if (label !== null)
+                      emit({
+                        schemaVersion: 1,
+                        kind: "progress",
+                        progressKind: "status",
+                        sessionId,
+                        traceId: active.identity.traceId,
+                        statusKey: requireString(detail.status_key),
+                        label,
+                        detailText: null,
+                        createdAt: requireString(data.ts),
+                      });
+                  }
                   if (data.kind === "final_text")
                     emit({
                       schemaVersion: 1,

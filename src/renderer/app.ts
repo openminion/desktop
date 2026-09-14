@@ -649,6 +649,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     string,
     {
       state: ChatState;
+      messages: MessageV1[];
+      submittedText: string;
       responseText: string;
       responseUsage?: InferenceUsageV1;
       activity: ActivityItem[];
@@ -1905,18 +1907,34 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderChat();
   };
 
-  const renderSessionList = () =>
+  const sessionSpinners = new Map<string, HTMLElement>();
+  const updateSessionActivity = () => {
+    for (const [sessionId, spinner] of sessionSpinners) {
+      const active = liveTurns.get(sessionId)?.state.active === true;
+      spinner.hidden = !active;
+      spinner.parentElement?.setAttribute(
+        "aria-label",
+        `${spinner.parentElement.title}${active ? " · Working" : ""}`,
+      );
+    }
+  };
+  const renderSessionList = () => {
+    sessionSpinners.clear();
     renderSessions(
       root,
       elements.sessionList,
       sessions,
       selected?.sessionId ?? null,
       taskName,
+      sessionSpinners,
       (id) => {
         const next = sessions.find((item) => item.sessionId === id);
         if (next) void selectSession(next);
       },
     );
+
+    updateSessionActivity();
+  };
 
   const selectSession = async (
     session: SessionSummaryV1,
@@ -1961,19 +1979,20 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     selected = session;
     conversationLoading = true;
     if (!refreshing) {
-      messages = [];
-      submittedText = null;
-      responseText = "";
-      responseUsage = undefined;
+      const live = liveTurns.get(session.sessionId);
+      messages = live?.messages ?? [];
+      submittedText = live?.submittedText ?? null;
+      responseText = live?.responseText ?? "";
+      responseUsage = live?.responseUsage;
       hiddenMessageCount = 0;
       capturePending = Boolean(captureApi);
       artifacts = [];
       artifactView = null;
       artifactLabel = "Loading artifacts…";
       fileLabel = "Choose a local file to import.";
-      activity = [];
+      activity = live?.activity ?? [];
       deciding.clear();
-      chat = {
+      chat = live?.state ?? {
         ...initialChatState(),
         sessionId: session.sessionId,
         terminalTraceId,
@@ -2023,8 +2042,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const live = liveTurns.get(session.sessionId);
     if (live) {
       chat = live.state;
-      // Accepted user text is already present in authoritative history after switching.
-      submittedText = null;
+      // The CLI may not persist the accepted request until the turn finishes.
+      messages = live.messages;
+      submittedText = live.submittedText;
       responseText = live.responseText;
       responseUsage = live.responseUsage;
       for (const item of live.activity) activity = applyActivityEvent(activity, item);
@@ -2123,6 +2143,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const unsubscribe = api.turns.subscribe((event) => {
+    const matchesSelectedTurn =
+      selected?.sessionId === event.sessionId && chat.traceId === event.traceId;
     const live = liveTurns.get(event.sessionId);
     if (live) {
       const matchesTurn = live.state.traceId === event.traceId;
@@ -2140,6 +2162,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         responseUsage = live.responseUsage;
       }
       if (event.kind === "done" && matchesTurn) liveTurns.delete(event.sessionId);
+      updateSessionActivity();
     }
     acceptGuidanceTurnEvent(event);
     if (
@@ -2150,7 +2173,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     chat = applyTurnEvent(chat, event);
     renderChat();
-    if (event.kind === "done" && selected?.sessionId === event.sessionId) {
+    if (event.kind === "done" && matchesSelectedTurn && selected) {
       void selectSession(selected, event.traceId, true);
     }
   });
@@ -2390,10 +2413,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.composer.focus();
     liveTurns.set(sessionId, {
       state: chat,
+      messages,
+      submittedText: message,
       responseText: "",
       responseUsage: undefined,
       activity: [],
     });
+    updateSessionActivity();
     releaseFileGrants(api, fileGrants);
     fileGrants = [];
     fileLabel = "File grants released for this turn.";
@@ -2413,6 +2439,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (live && result.ok) live.state = applySubmitResult(live.state, result.value);
     if (!result.ok) {
       liveTurns.delete(sessionId);
+      updateSessionActivity();
       if (selected?.sessionId === sessionId) {
         if (!elements.composer.value) elements.composer.value = draft;
       } else if (!drafts.get(sessionId)) drafts.set(sessionId, draft);
@@ -2700,6 +2727,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           error: result.error,
         };
     if (result.ok && result.value.terminal) liveTurns.delete(sessionId);
+    updateSessionActivity();
     if (selected?.sessionId === sessionId && chat.traceId === traceId) {
       chat = current.state;
       renderChat();
@@ -3152,6 +3180,7 @@ function renderSessions(
   sessions: SessionSummaryV1[],
   selectedId: string | null,
   taskName: (session: SessionSummaryV1) => string,
+  spinners: Map<string, HTMLElement>,
   select: (sessionId: string) => void,
 ): void {
   const items: HTMLElement[] = sessions.map((session) => {
@@ -3160,6 +3189,12 @@ function renderSessions(
     button.className = `session-item${session.sessionId === selectedId ? " selected" : ""}`;
     button.textContent = `${taskName(session)}${session.status === "closed" ? " · Closed" : ""}`;
     button.title = button.textContent;
+    const spinner = root.createElement("span");
+    spinner.className = "session-spinner";
+    spinner.hidden = true;
+    spinner.setAttribute("aria-hidden", "true");
+    button.append(spinner);
+    spinners.set(session.sessionId, spinner);
     button.setAttribute("aria-current", session.sessionId === selectedId ? "true" : "false");
     button.addEventListener("click", () => select(session.sessionId));
     return button;
