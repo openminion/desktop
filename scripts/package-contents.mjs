@@ -42,7 +42,7 @@ for (const applicationDirectory of applicationDirectories) {
     throw new Error(`packaged application archive was not found: ${archive}`);
   }
 
-  const entries = listPackage(archive);
+  const entries = listPackage(archive).map((entry) => entry.replaceAll("\\", "/"));
   const unexpected = entries.filter((entry) => !allowedRoots.has(entry.split("/")[1]));
   if (unexpected.length > 0) {
     throw new Error(
