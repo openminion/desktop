@@ -32,6 +32,7 @@ const config: ForgeConfig = {
       platforms: ["linux"],
       config: {
         options: {
+          bin: "OpenMinion",
           homepage: "https://www.openminion.com",
           maintainer: "OpenMinion Contributors",
         },
