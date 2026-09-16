@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-09-13
+Last updated: 2026-09-15
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -32,17 +32,20 @@ npm run hooks:run
 
 Hosted CI also runs actionlint against `.github/workflows/`.
 
-## macOS Package Smoke
+## Native Package Smoke
 
 ```bash
-npm run package
+npm run make
 ```
 
-This produces an unsigned development application. It does not prove signing,
-notarization, installation, updating, rollback, or release readiness.
+This produces and inspects the current host's unsigned development artifacts:
+DMG and ZIP on macOS, ZIP on Windows, and DEB and ZIP on Linux. Native packaging
+automation uses the same command. It does not prove signing, notarization,
+installation, updating, rollback, runtime certification, or release readiness.
 
 The command rejects an application archive containing repository-only files,
-development dependencies, local `.openminion` state, source, or tests.
+development dependencies, local `.openminion` state, source, or tests. It also
+fails when a platform's expected artifact formats are missing.
 
 ## Desktop Storage
 

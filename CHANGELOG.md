@@ -1,11 +1,14 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Enable inspected unsigned developer artifacts for macOS, Windows, and Linux,
+  using the OpenMinion logo on each platform.
 
 - Refine message actions with smaller copy icons, a square borderless click
   target, and tighter timestamp spacing.

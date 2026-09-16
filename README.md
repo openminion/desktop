@@ -60,7 +60,8 @@ and should be treated as a scam.
 | --- | --- |
 | Application | OpenMinion Desktop |
 | Current line | Development alpha |
-| Current platform | macOS development and unsigned packaging |
+| Current runtime profile | macOS development |
+| Native package targets | macOS, Windows, and Linux |
 | Runtime | Node.js 24, npm 11, and Electron |
 | Managed core | Pinned `openminion==0.0.19` from PyPI |
 | Best fit | Local chat, saved sessions, task controls, and visible-context preview |
@@ -73,10 +74,13 @@ npm start
 npm run ci-check
 npm run hooks:run
 npm run package
+npm run make
 ```
 
 `npm start` runs the source-development app. `npm run package` builds and
-inspects an unsigned local macOS application; it is not a public release.
+inspects the native application directory. `npm run make` also creates and
+inspects the native unsigned artifacts: DMG and ZIP on macOS, ZIP on Windows,
+and DEB and ZIP on Linux. These are development artifacts, not public releases.
 
 ## What OpenMinion Desktop Provides
 
@@ -107,8 +111,8 @@ inspects an unsigned local macOS application; it is not a public release.
 - Python 3.11 for the temporary PyPI-based runtime installation path
 - network access on first launch or when the pinned OpenMinion version changes
 
-The normal checks also run on Linux in CI, but Linux and Windows desktop
-packages are not currently certified.
+Native packaging can produce unsigned artifacts on macOS, Windows, and Linux.
+Windows and Linux runtime behavior is not yet certified.
 
 ## Quick Start
 
@@ -204,8 +208,8 @@ npm run ci-check
 
 Use focused tests while iterating. Run `npm run ci-check` before opening a pull
 request. That command also verifies the required public repository files,
-local links, portable paths, and documented npm commands. Use `npm run package`
-for the unsigned macOS packaging gate.
+local links, portable paths, and documented npm commands. Use `npm run make`
+for the native unsigned packaging gate.
 
 ## Docs and Release
 

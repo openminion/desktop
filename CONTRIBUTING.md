@@ -74,11 +74,16 @@ and `build`. Prefer a scope that names the affected owner, such as `main`,
 
 ## Optional integration checks
 
-Run the native capture test on a macOS session with Screen Recording
-permission:
+Build and inspect the current host's unsigned artifacts when packaging, runtime
+assets, or Forge configuration changes:
 
 ```bash
-npm run package
+npm run make
+```
+
+Run the native capture test on a macOS session with Screen Recording permission:
+
+```bash
 OPENMINION_ODC_NATIVE_CAPTURE=1 npm test -- tests/main/capture-native.test.ts
 ```
 
