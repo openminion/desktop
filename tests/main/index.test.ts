@@ -1436,8 +1436,8 @@ describe("desktop main boundary", () => {
     const webPreferences = recorded.options.webPreferences as Record<string, unknown>;
     expect(created).toBe(recorded);
     expect(recorded.loadedUrl).toBe("openminion://app/");
-    expect(recorded.options.icon).toMatch(/renderer\/logo\.png$/);
-    expect(webPreferences.preload).toMatch(/preload\/index\.cjs$/);
+    expect(recorded.options.icon).toMatch(/renderer[\\/]logo\.png$/);
+    expect(webPreferences.preload).toMatch(/preload[\\/]index\.cjs$/);
     expect(webPreferences).toMatchObject({
       contextIsolation: true,
       nodeIntegration: false,

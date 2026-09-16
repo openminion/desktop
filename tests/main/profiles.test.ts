@@ -113,7 +113,7 @@ describe("profile settings", () => {
     expect(written.storage).toEqual(config.storage);
     expect(written.runtime.ipc_token).toBe(config.runtime.ipc_token);
     expect(written.runtime.env.MINIMAX_API_KEY).toBe("new-secret");
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 
   it("keeps the original config when CLI setup fails and removes its private candidate", async () => {
@@ -189,8 +189,10 @@ describe("profile settings", () => {
     expect(written.system.runtime).toEqual(written.runtime);
     expect(written.storage).toEqual(config.storage);
     expect(written.runtime.ipc_token).toBe("private-daemon-token");
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
-    expect((await stat(`${path}.backup`)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      expect((await stat(`${path}.backup`)).mode & 0o777).toBe(0o600);
+    }
     expect(JSON.stringify(run.mock.calls)).not.toContain("private-");
     expect(JSON.parse(await readFile(`${path}.backup`, "utf8"))).toEqual(config);
   });

@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
@@ -15,7 +15,7 @@ afterEach(async () => {
 describe("PyPI CLI client", () => {
   it("reads authenticated inventories and excludes private discovery fields", async () => {
     const fixture = await executableFixture();
-    const client = new CliClient(() => ({ executable: fixture.executable, args: [] }));
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
     expect(await client.readReport({ kind: "agents" })).toEqual({
       ok: true,
       value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
@@ -576,7 +576,7 @@ describe("PyPI CLI client", () => {
   it("streams through the authenticated API and acknowledges displayed replies", async () => {
     const fixture = await executableFixture();
     const events: TurnEventV1[] = [];
-    const client = new CliClient(() => ({ executable: fixture.executable, args: [] }));
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
     const created = await client.create({});
     if (!created.ok) throw new Error("Draft not created");
     const sessionId = created.value.sessionId;
@@ -617,7 +617,7 @@ describe("PyPI CLI client", () => {
 
   it("preserves the saved agent and surfaces canonical stream errors", async () => {
     const fixture = await executableFixture("error");
-    const client = new CliClient(() => ({ executable: fixture.executable, args: [] }));
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
     const events: TurnEventV1[] = [];
     expect(
       await client.submit({ sessionId: "saved", message: "Follow up" }, (event) =>
@@ -639,7 +639,7 @@ describe("PyPI CLI client", () => {
 
   it("rejects cross-session stream identity and never exposes child stderr", async () => {
     const fixture = await executableFixture("wrong-session");
-    const client = new CliClient(() => ({ executable: fixture.executable, args: [] }));
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
     const created = await client.create({});
     if (!created.ok) throw new Error("Draft not created");
     const emit = vi.fn();
@@ -659,7 +659,7 @@ describe("PyPI CLI client", () => {
 
   it("cancels through the ordinary authenticated daemon endpoint and fences duplicate sends", async () => {
     const fixture = await executableFixture("wait");
-    const client = new CliClient(() => ({ executable: fixture.executable, args: [] }));
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
     const created = await client.create({});
     if (!created.ok) throw new Error("Draft not created");
     const sessionId = created.value.sessionId;
@@ -819,6 +819,5 @@ else if (args[0] === 'export') output({type:'message',id:'reply',role:'outbound'
 else process.exit(1);
 `,
   );
-  await chmod(executable, 0o755);
-  return { root, executable, requests };
+  return { root, executable: process.execPath, args: [executable], requests };
 }

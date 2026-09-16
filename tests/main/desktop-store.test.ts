@@ -41,7 +41,8 @@ describe("Desktop SQLite storage", () => {
     stores.pop()!.close();
     store = open(path);
     expect(store.load(legacy)).toEqual({ ok: true, value: [] });
-    expect(statSync(join(path, "desktop.sqlite")).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect(statSync(join(path, "desktop.sqlite")).mode & 0o777).toBe(0o600);
   });
 
   it("records legacy runtime and browser locations without moving profiles or virtualenvs", () => {
