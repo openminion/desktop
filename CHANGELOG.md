@@ -11,6 +11,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
   installed-runtime pins and pre-launch candidate discard, with startup and
   preparation enforcement and native same-chat hold/control checks.
 
+- Use compact, consistent sidebar actions for daemon diagnostics, runtime
+  updates, reconnection, and Settings, with quieter borders and update grouping.
+
 - Read stable runtime metadata from the OpenMinion repo's public `main` branch;
   metadata PR publication does not force installation or restart active work.
 - Add compatible runtime update checks and explicit, verified PyPI staging;

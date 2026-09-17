@@ -884,11 +884,25 @@ h2 {
   padding: 2px 10px 12px;
 }
 
-.runtime-detail #retry {
-  min-height: 32px;
-  margin-top: 12px;
-  padding: 5px 10px;
+.runtime-detail .quiet-button {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border-color: transparent;
+  border-radius: 6px;
   font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.runtime-detail .quiet-button:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--surface-raised);
+}
+
+.runtime-detail #retry {
+  margin-top: 6px;
 }
 
 .connection-help {
@@ -905,6 +919,19 @@ h2 {
 
 .connection-help p {
   margin-top: 8px;
+}
+
+.runtime-update-options input {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  margin: 4px 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 12px;
 }
 
 .summary-chevron {
@@ -1807,6 +1834,12 @@ code {
 
 .settings-button {
   margin: 4px 0;
+  min-height: 32px;
+  padding: 6px 10px;
+  border-color: transparent;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
   text-align: left;
 }
 .settings-dialog {
@@ -2045,11 +2078,20 @@ code {
 }
 
 .daemon-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-block: 10px;
+  display: grid;
+  gap: 2px;
+  margin-block: 6px;
 }
+
+.runtime-detail .settings-note {
+  margin: 10px 0 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .diagnostics-dialog {
   width: min(900px, calc(100vw - 40px));
   height: min(640px, calc(100dvh - 40px));

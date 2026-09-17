@@ -53,7 +53,7 @@ credential-free echo config, assigns an authenticated loopback daemon endpoint,
 and starts the daemon. Later launches reuse the environment while its version
 matches the pin.
 
-Open connection details to **Check for updates**. When a certified compatible
+Open connection details to **Check updates**. When a certified compatible
 PyPI record is available, **Prepare update** installs it separately; quit and
 reopen Desktop to activate it before daemon startup. Checks also run at startup
 and every 24 hours, without installing automatically. The public GitHub feeds
@@ -70,7 +70,7 @@ another update channel and never upgrades a running app.
 
 ### Hold And Pin Runtime Upgrades
 
-Connection details also provide **Pause upgrades**, **Resume upgrades**,
+Expand **Update options** in connection details for **Pause upgrades**, **Resume upgrades**,
 **Pin installed runtime**, **Set version pin**, **Remove pin**, and
 **Discard prepared update**. A pause survives quit/reopen and blocks both
 preparation and startup activation, including an already-prepared update.
