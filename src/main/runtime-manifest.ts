@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { clean, compare, parse, satisfies, valid, validRange } from "@renovatebot/pep440";
+import type { RuntimePin } from "../shared/contracts.js";
 
 export type RuntimeSource = "pypi" | "binary";
 export type RuntimeArtifact = {
@@ -256,6 +257,9 @@ export async function checkRuntimeManifest(options: {
   arch?: string;
   installedVersion: string;
   installedDigest?: string;
+  pin?: RuntimePin | null;
+  targetVersion?: string;
+  includeInstalled?: boolean;
   signal?: AbortSignal;
 }): Promise<RuntimeOffer | null> {
   const signal = options.signal
@@ -271,6 +275,14 @@ export async function checkRuntimeManifest(options: {
     compare(right.runtime_version, left.runtime_version),
   );
   for (const reference of references) {
+    if (options.targetVersion && reference.runtime_version !== options.targetVersion) continue;
+    if (
+      options.pin &&
+      (reference.runtime_version !== options.pin.version ||
+        reference.manifest_url !== options.pin.manifestUrl ||
+        options.source !== options.pin.source)
+    )
+      continue;
     if (compare(reference.runtime_version, options.installedVersion) < 0) continue;
     const bytes = await metadataBytes(reference.manifest_url, signal);
     if (createHash("sha256").update(bytes).digest("hex") !== reference.manifest_sha256)
@@ -304,8 +316,10 @@ export async function checkRuntimeManifest(options: {
               item.arch === (options.arch ?? process.arch),
           );
     if (!selected) continue;
+    if (options.pin && selected.sha256 !== options.pin.sha256) continue;
     if (
       compare(record.runtime_version, options.installedVersion) === 0 &&
+      !options.includeInstalled &&
       (!options.installedDigest || selected.sha256 === options.installedDigest)
     )
       return null;

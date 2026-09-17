@@ -126,7 +126,14 @@
               <div class="daemon-actions">
                 <button id="check-runtime-update" class="quiet-button" type="button">Check for updates</button>
                 <button id="stage-runtime-update" class="quiet-button" type="button" hidden>Prepare update</button>
+                <button id="pause-runtime-update" class="quiet-button" type="button">Pause upgrades</button>
+                <button id="discard-runtime-update" class="quiet-button" type="button" hidden>Discard prepared update</button>
+                <button id="pin-installed-runtime" class="quiet-button" type="button">Pin installed runtime</button>
+                <button id="unpin-runtime" class="quiet-button" type="button" hidden>Remove pin</button>
               </div>
+              <label for="runtime-pin-version">Exact published runtime version</label>
+              <input id="runtime-pin-version" type="text" placeholder="0.0.21" autocomplete="off" />
+              <button id="pin-runtime-version" class="quiet-button" type="button">Set version pin</button>
               <details class="connection-help">
                 <summary>Technical details</summary>
                 <dl class="runtime-facts">

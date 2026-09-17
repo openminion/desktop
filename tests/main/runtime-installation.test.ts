@@ -15,6 +15,29 @@ const roots: string[] = [];
 const stores: DesktopStore[] = [];
 const wheel = Buffer.from("verified wheel bytes");
 
+it("blocks paused or wrong-identity candidates before downloading or invoking Python", async () => {
+  const { root, store } = await fixture();
+  const download = vi.fn();
+  vi.stubGlobal("fetch", download);
+  const command = vi.fn<RunCommand>();
+  const installer = new OpenMinionInstallation({
+    runtimeRoot: join(root, "runtime"),
+    store,
+    runCommand: command,
+  });
+  store.setRuntimePolicy(true, null);
+  await expect(installer.stage(offer())).rejects.toThrow("runtime_updates_paused");
+  store.setRuntimePolicy(false, {
+    source: "pypi",
+    version: "1.0.0",
+    manifestUrl: "other-record",
+    sha256: offer().artifact.sha256,
+  });
+  await expect(installer.stage(offer())).rejects.toThrow("runtime_pin_mismatch");
+  expect(download).not.toHaveBeenCalled();
+  expect(command).not.toHaveBeenCalled();
+});
+
 it("cancels a blocked download without invoking Python or writing pending state", async () => {
   const { root, store } = await fixture();
   const controller = new AbortController();

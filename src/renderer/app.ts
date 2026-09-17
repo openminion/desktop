@@ -2077,7 +2077,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         "The installed runtime is incompatible with this Desktop version. Check for a compatible update before connecting.",
       available: `Runtime ${status.availableVersion} is available. Your current runtime stays in use.`,
       staging: "Preparing the update without interrupting your work…",
-      pending: `Runtime ${status.availableVersion} is prepared for a later startup. Quit and reopen Desktop; an external daemon must be stopped separately.`,
+      pending: `Runtime ${status.availableVersion} is prepared for a later eligible startup. Pause and pin controls still apply; an external daemon must be stopped separately.`,
       check_failed: "Could not check for updates. Your installed runtime is unchanged.",
       recovery_required:
         "A runtime update was interrupted after launch began. Recovery needs review; Desktop will not downgrade your data automatically.",
@@ -2086,7 +2086,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const installed = status.installedVersion
       ? `Installed: OpenMinion ${status.installedVersion} (${status.source}). `
       : "";
-    elements.runtimeUpdateStatus.textContent = installed + copy[status.phase];
+    const policy = `${status.paused ? "Upgrades are paused, including prepared updates. " : ""}${status.pinnedVersion ? `Pinned to ${status.pinnedVersion}. ` : ""}`;
+    elements.runtimeUpdateStatus.textContent = installed + policy + copy[status.phase];
     elements.checkRuntimeUpdate.disabled = [
       "checking",
       "staging",
@@ -2095,7 +2096,21 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       "unmanaged",
     ].includes(status.phase);
     elements.stageRuntimeUpdate.hidden = status.phase !== "available";
-    elements.stageRuntimeUpdate.disabled = status.phase !== "available";
+    elements.stageRuntimeUpdate.disabled = status.phase !== "available" || status.paused;
+    const busy = ["checking", "staging", "recovery_required", "unmanaged"].includes(status.phase);
+    elements.pauseRuntimeUpdate.textContent = status.paused ? "Resume upgrades" : "Pause upgrades";
+    elements.pauseRuntimeUpdate.dataset.action = status.paused ? "resume" : "pause";
+    elements.pauseRuntimeUpdate.disabled = ["recovery_required", "unmanaged"].includes(
+      status.phase,
+    );
+    elements.discardRuntimeUpdate.hidden = !["pending", "staging"].includes(status.phase);
+    elements.discardRuntimeUpdate.disabled = ["recovery_required", "unmanaged"].includes(
+      status.phase,
+    );
+    elements.pinInstalledRuntime.disabled = busy || !status.installedVersion;
+    elements.pinRuntimeVersion.disabled = busy || !status.installedVersion;
+    elements.unpinRuntime.hidden = !status.pinnedVersion;
+    elements.unpinRuntime.disabled = busy;
   };
   elements.checkRuntimeUpdate.addEventListener("click", async () => {
     elements.checkRuntimeUpdate.disabled = true;
@@ -2109,6 +2124,31 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderRuntimeUpdate(result.ok ? result.value : await api.runtime.status());
     if (!result.ok) elements.runtimeUpdateStatus.textContent = result.error.message;
   });
+  const controlRuntime = async (input: Parameters<NativeApi["runtime"]["control"]>[0]) => {
+    const result = await api.runtime.control(input);
+    renderRuntimeUpdate(result.ok ? result.value : await api.runtime.status());
+    if (!result.ok) elements.runtimeUpdateStatus.textContent = result.error.message;
+  };
+  elements.pauseRuntimeUpdate.addEventListener(
+    "click",
+    () =>
+      void controlRuntime({
+        action: elements.pauseRuntimeUpdate.dataset.action === "resume" ? "resume" : "pause",
+      }),
+  );
+  elements.discardRuntimeUpdate.addEventListener(
+    "click",
+    () => void controlRuntime({ action: "discard" }),
+  );
+  elements.pinInstalledRuntime.addEventListener(
+    "click",
+    () => void controlRuntime({ action: "pin-installed" }),
+  );
+  elements.unpinRuntime.addEventListener("click", () => void controlRuntime({ action: "unpin" }));
+  elements.pinRuntimeVersion.addEventListener(
+    "click",
+    () => void controlRuntime({ action: "pin", version: elements.runtimePinVersion.value.trim() }),
+  );
   let runtimeStatusTimer: ReturnType<typeof setInterval> | null = null;
   let runtimeStatusLoading = false;
   const refreshRuntimeStatus = async () => {
@@ -2839,6 +2879,12 @@ function rendererElements(root: Document) {
     runtimeUpdateStatus: required(root, "runtime-update-status"),
     checkRuntimeUpdate: required(root, "check-runtime-update") as HTMLButtonElement,
     stageRuntimeUpdate: required(root, "stage-runtime-update") as HTMLButtonElement,
+    pauseRuntimeUpdate: required(root, "pause-runtime-update") as HTMLButtonElement,
+    discardRuntimeUpdate: required(root, "discard-runtime-update") as HTMLButtonElement,
+    pinInstalledRuntime: required(root, "pin-installed-runtime") as HTMLButtonElement,
+    unpinRuntime: required(root, "unpin-runtime") as HTMLButtonElement,
+    runtimePinVersion: required(root, "runtime-pin-version") as HTMLInputElement,
+    pinRuntimeVersion: required(root, "pin-runtime-version") as HTMLButtonElement,
     connectionDetails: required(root, "connection-details") as HTMLDetailsElement,
     recovery: required(root, "recovery"),
     daemonVersion: required(root, "daemon-version"),

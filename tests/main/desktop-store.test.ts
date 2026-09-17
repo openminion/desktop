@@ -120,7 +120,7 @@ describe("Desktop SQLite storage", () => {
     const future = root();
     const db = new DatabaseSync(join(future, "desktop.sqlite"));
     db.exec(
-      "PRAGMA user_version = 3; CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('keep');",
+      "PRAGMA user_version = 4; CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('keep');",
     );
     db.close();
     const before = readFileSync(join(future, "desktop.sqlite"));
@@ -161,6 +161,76 @@ describe("Desktop SQLite storage", () => {
       active: candidate,
       pending: null,
       launchIntent: null,
+      paused: false,
+      pin: null,
+    });
+  });
+
+  it("persists holds and exact identities, discards only pending state, and refuses launch-time edits", () => {
+    const path = root();
+    let store = open(path);
+    const candidate = {
+      source: "pypi" as const,
+      version: "1.0.0",
+      executable: "/private/runtime/openminion",
+      sha256: "a".repeat(64),
+      manifestUrl: "immutable",
+      desktopMinVersion: "0.0.0",
+      desktopMaxVersionExclusive: "2.0.0",
+    };
+    store.stageRuntime(candidate);
+    store.setRuntimePolicy(true, candidate);
+    stores.pop()!.close();
+    store = open(path);
+    expect(store.runtimeState()).toMatchObject({
+      paused: true,
+      pin: candidate,
+      pending: candidate,
+    });
+    expect(() => store.beginRuntimeLaunch()).toThrow("runtime_updates_paused");
+    store.discardRuntime();
+    expect(store.runtimeState()).toMatchObject({ active: null, pending: null, paused: true });
+    store.setRuntimePolicy(false, candidate);
+    for (const change of [
+      { version: "2.0.0" },
+      { manifestUrl: "other-revision" },
+      { sha256: "b".repeat(64) },
+      { source: "binary" as const },
+    ]) {
+      expect(() => store.stageRuntime({ ...candidate, ...change })).toThrow("runtime_pin_mismatch");
+    }
+    store.stageRuntime(candidate);
+    store.beginRuntimeLaunch();
+    expect(() => store.discardRuntime()).toThrow("runtime_recovery_required");
+    expect(() => store.setRuntimePolicy(true, null)).toThrow("runtime_recovery_required");
+    store.completeRuntimeLaunch();
+    store.discardRuntime();
+    expect(store.runtimeState().active).toEqual(candidate);
+  });
+
+  it("migrates schema two while retaining a prepared candidate and launch intent", () => {
+    const path = root();
+    const store = open(path);
+    const before = store.runtimeState();
+    stores.pop()!.close();
+    const db = new DatabaseSync(join(path, "desktop.sqlite"));
+    db.exec("PRAGMA user_version = 2");
+    const { paused, pin, ...legacy } = before;
+    expect(paused).toBe(false);
+    expect(pin).toBeNull();
+    db.prepare("UPDATE installation SET runtime_state = ?").run(
+      JSON.stringify({
+        ...legacy,
+        pending: { version: "keep" },
+        launchIntent: { version: "recover" },
+      }),
+    );
+    db.close();
+    expect(open(path).runtimeState()).toMatchObject({
+      paused: false,
+      pin: null,
+      pending: { version: "keep" },
+      launchIntent: { version: "recover" },
     });
   });
 
@@ -181,6 +251,8 @@ describe("Desktop SQLite storage", () => {
       pending: null,
       previous: null,
       launchIntent: null,
+      paused: false,
+      pin: null,
     });
     expect(store.load([])).toEqual({ ok: true, value: [{ sessionId: "keep", title: "Existing" }] });
   });

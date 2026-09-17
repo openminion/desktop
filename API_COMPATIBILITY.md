@@ -83,6 +83,14 @@ still owns profiles, credentials, transcripts and execution state. See
 
 ## Runtime Updates
 
+The narrow `runtime.control` bridge accepts pause/resume, discard, installed-pin,
+remove-pin and exact stable-version pin actions. Main resolves record/artifact
+identities; renderer-provided URLs, paths, hashes and commands are rejected.
+Policy persists in Desktop's SQLite schema three; older clients must refuse
+that schema instead of silently ignoring a hold. Preparation and startup
+activation both enforce pause and exact identity. Recovery-required state is
+not cleared by policy controls, and no action forces a downgrade or live restart.
+
 The fixed `runtime.status`, `runtime.check`, and `runtime.stage` bridge accepts
 no executable, URL, version, root, or shell command from the renderer. Main
 checks the public GitHub stable feed asynchronously at startup and every 24 hours.

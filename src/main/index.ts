@@ -69,6 +69,9 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.runtimeStage, (event) =>
     !isAppInvocation(event) ? forbiddenResult() : supervisor.stageRuntime(),
   );
+  ipcMain.handle(IPC_CHANNELS.runtimeControl, (event, input: unknown) =>
+    !isAppInvocation(event) ? forbiddenResult() : supervisor.controlRuntime(input),
+  );
   ipcMain.handle(IPC_CHANNELS.chatNamesLoad, (event, input: unknown) =>
     !isAppInvocation(event)
       ? forbiddenResult()

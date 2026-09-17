@@ -111,6 +111,12 @@ export class OpenMinionInstallation {
       throw new Error("runtime_root_unavailable");
     if (this.#options.store.runtimeState().launchIntent)
       throw new Error("runtime_recovery_required");
+    this.#options.store.assertRuntimeAllowed({
+      source: offer.record.distribution,
+      version: offer.record.runtime_version,
+      manifestUrl: offer.reference.manifest_url,
+      sha256: offer.artifact.sha256,
+    });
     // Standalone launchers remain prototype inputs until foreground/native qualification.
     if (offer.record.distribution !== "pypi" || !offer.record.pypi)
       throw new Error("binary_runtime_not_qualified");

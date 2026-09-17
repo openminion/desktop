@@ -288,6 +288,7 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.runtimeStatus,
       IPC_CHANNELS.runtimeCheck,
       IPC_CHANNELS.runtimeStage,
+      IPC_CHANNELS.runtimeControl,
       IPC_CHANNELS.chatNamesLoad,
       IPC_CHANNELS.chatNamesSave,
       IPC_CHANNELS.tasksControl,
@@ -353,6 +354,7 @@ describe("desktop main boundary", () => {
     });
     expect(client.controlTasks).toHaveBeenCalledWith({ sessionId: "session-1", action: "list" });
     for (const channel of [
+      IPC_CHANNELS.runtimeControl,
       IPC_CHANNELS.daemonInspect,
       IPC_CHANNELS.chatNamesLoad,
       IPC_CHANNELS.chatNamesSave,
@@ -1475,6 +1477,7 @@ class CaptureFixtureElement {
   title = "";
   type = "";
   style: Record<string, string> = {};
+  dataset: Record<string, string> = {};
   scrollTop = 0;
   scrollHeight = 0;
   children: CaptureFixtureElement[] = [];
@@ -1531,6 +1534,12 @@ class CaptureFixtureDocument {
     "runtime-update-status",
     "check-runtime-update",
     "stage-runtime-update",
+    "pause-runtime-update",
+    "discard-runtime-update",
+    "pin-installed-runtime",
+    "unpin-runtime",
+    "runtime-pin-version",
+    "pin-runtime-version",
     "connection-details",
     "recovery",
     "daemon-version",

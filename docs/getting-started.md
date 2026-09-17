@@ -68,6 +68,30 @@ discoverable. Records with no certified Desktop compatibility are skipped.
 The main-to-dev back-merge keeps development metadata synchronized; it is not
 another update channel and never upgrades a running app.
 
+### Hold And Pin Runtime Upgrades
+
+Connection details also provide **Pause upgrades**, **Resume upgrades**,
+**Pin installed runtime**, **Set version pin**, **Remove pin**, and
+**Discard prepared update**. A pause survives quit/reopen and blocks both
+preparation and startup activation, including an already-prepared update.
+Checks can still report availability while paused. Resume removes the pause,
+not the pin; remove a pin separately to return to latest-compatible discovery.
+
+A version pin resolves an exact compatible stable record from the public feed
+and binds its source, immutable record URL and artifact SHA-256. Missing,
+withdrawn, uncertified or older-than-installed targets are rejected without
+fallback. Pinning does not install anything; check and explicitly prepare the
+selected update afterwards. Pinning the installed runtime requires an existing
+verified managed artifact identity; legacy installations can be paused or use
+the developer executable override instead.
+
+Discard cancels in-flight preparation or clears the pending candidate before
+launch, never the active executable or conversations. Completed candidate files
+are retained; this action is not a filesystem cleanup or data rollback.
+After durable launch intent exists, policy edits/discard require recovery
+review. An incompatible active runtime remains incompatible while paused or
+pinned; these controls never bypass compatibility or downgrade protection.
+
 Desktop never stops an external or replaced daemon to apply an update. A
 recovery-required message means candidate launch began but did not complete;
 do not downgrade the runtime against those data roots without review.

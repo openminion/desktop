@@ -17,6 +17,7 @@ const api: NativeApi = {
     status: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeStatus),
     check: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeCheck),
     stage: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeStage),
+    control: (input) => ipcRenderer.invoke(IPC_CHANNELS.runtimeControl, input),
   },
   chatNames: {
     load: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesLoad, input),

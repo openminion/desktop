@@ -1,7 +1,7 @@
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { ChatName, ClientResult } from "../shared/contracts.js";
+import type { ChatName, ClientResult, RuntimePin } from "../shared/contracts.js";
 import { failure } from "./openminion-client.js";
 
 export type InstalledRuntime = {
@@ -20,6 +20,8 @@ export type RuntimeState = {
   pending: InstalledRuntime | null;
   previous: InstalledRuntime | null;
   launchIntent: InstalledRuntime | null;
+  paused: boolean;
+  pin: RuntimePin | null;
 };
 
 export class DesktopStore {
@@ -35,7 +37,7 @@ export class DesktopStore {
     this.database = new DatabaseSync(path);
     try {
       const version = this.database.prepare("PRAGMA user_version").get()!.user_version;
-      if (version !== 0 && version !== 1 && version !== 2) {
+      if (version !== 0 && version !== 1 && version !== 2 && version !== 3) {
         throw new Error(
           "Desktop data was created by a newer version. Install the newer app to open it.",
         );
@@ -84,6 +86,11 @@ export class DesktopStore {
         );
         this.database.exec("PRAGMA user_version = 2; COMMIT");
       }
+      if (version < 3) {
+        this.database.exec("BEGIN IMMEDIATE");
+        this.writeRuntimeState({ ...this.runtimeState(), paused: false, pin: null });
+        this.database.exec("PRAGMA user_version = 3; COMMIT");
+      }
       const installation = this.database
         .prepare("SELECT runtime_home, browser_home FROM installation WHERE id = 1")
         .get()!;
@@ -105,6 +112,7 @@ export class DesktopStore {
   stageRuntime(candidate: InstalledRuntime): void {
     const state = this.runtimeState();
     if (state.launchIntent) throw new Error("runtime_recovery_required");
+    this.assertRuntimeAllowed(candidate);
     this.writeRuntimeState({ ...state, pending: candidate });
   }
 
@@ -112,8 +120,38 @@ export class DesktopStore {
     const state = this.runtimeState();
     if (state.launchIntent) throw new Error("runtime_recovery_required");
     if (!state.pending) throw new Error("runtime_candidate_unavailable");
+    this.assertRuntimeAllowed(state.pending);
     this.writeRuntimeState({ ...state, launchIntent: state.pending });
     return state.pending;
+  }
+
+  runtimeAllowed(candidate: RuntimePin): boolean {
+    const { paused, pin } = this.runtimeState();
+    return (
+      !paused &&
+      (!pin ||
+        (candidate.source === pin.source &&
+          candidate.version === pin.version &&
+          candidate.manifestUrl === pin.manifestUrl &&
+          candidate.sha256 === pin.sha256))
+    );
+  }
+
+  assertRuntimeAllowed(candidate: RuntimePin): void {
+    if (this.runtimeState().paused) throw new Error("runtime_updates_paused");
+    if (!this.runtimeAllowed(candidate)) throw new Error("runtime_pin_mismatch");
+  }
+
+  setRuntimePolicy(paused: boolean, pin: RuntimePin | null): void {
+    const state = this.runtimeState();
+    if (state.launchIntent) throw new Error("runtime_recovery_required");
+    this.writeRuntimeState({ ...state, paused, pin });
+  }
+
+  discardRuntime(): void {
+    const state = this.runtimeState();
+    if (state.launchIntent) throw new Error("runtime_recovery_required");
+    this.writeRuntimeState({ ...state, pending: null });
   }
 
   completeRuntimeLaunch(): void {

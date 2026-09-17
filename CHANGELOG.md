@@ -7,6 +7,10 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Add persistent runtime upgrade pause/resume, exact published artifact pins,
+  installed-runtime pins and pre-launch candidate discard, with startup and
+  preparation enforcement and native same-chat hold/control checks.
+
 - Read stable runtime metadata from the OpenMinion repo's public `main` branch;
   metadata PR publication does not force installation or restart active work.
 - Add compatible runtime update checks and explicit, verified PyPI staging;

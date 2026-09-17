@@ -1,6 +1,10 @@
 import { Profiles } from "./profiles.js";
 import { failure, failureFrom } from "./openminion-client.js";
-import type { ClientResult, RuntimeUpdateStatus } from "../shared/contracts.js";
+import type {
+  ClientResult,
+  RuntimeControlInput,
+  RuntimeUpdateStatus,
+} from "../shared/contracts.js";
 import { checkRuntimeManifest, desktopCompatible, type RuntimeOffer } from "./runtime-manifest.js";
 import type { ProfileSettings } from "../shared/profiles.js";
 import type { DaemonStatus } from "../shared/contracts.js";
@@ -67,6 +71,8 @@ export class DaemonSupervisor {
   #checkController: AbortController | null = null;
   #stagePromise: Promise<ClientResult<RuntimeUpdateStatus>> | null = null;
   #stageController: AbortController | null = null;
+  #controlPromise: Promise<ClientResult<RuntimeUpdateStatus>> | null = null;
+  #controlController: AbortController | null = null;
   #closing = false;
   #updateTimer: ReturnType<typeof setInterval> | null = null;
   #chatConnected = false;
@@ -172,6 +178,8 @@ export class DaemonSupervisor {
       source: unmanaged ? "unmanaged" : (state?.source ?? "pypi"),
       installedVersion: this.#installedVersion,
       availableVersion: state?.pending?.version ?? this.#offer?.record.runtime_version ?? null,
+      paused: state?.paused ?? false,
+      pinnedVersion: state?.pin?.version ?? null,
       phase,
     };
   }
@@ -180,6 +188,7 @@ export class DaemonSupervisor {
     if (this.#checkPromise) return this.#checkPromise;
     if (
       this.#closing ||
+      this.#controlPromise ||
       this.#options.openminionExecutable ||
       !this.#options.store ||
       !this.#installedVersion ||
@@ -198,6 +207,7 @@ export class DaemonSupervisor {
       desktopVersion: this.#options.desktopVersion ?? "0.0.0",
       installedVersion: this.#installedVersion,
       installedDigest: state.active?.sha256,
+      pin: state.pin,
       signal: this.#checkController.signal,
     })
       .then((offer) => {
@@ -219,6 +229,10 @@ export class DaemonSupervisor {
 
   stageRuntime(): Promise<ClientResult<RuntimeUpdateStatus>> {
     if (this.#stagePromise) return this.#stagePromise;
+    if (this.#options.store?.runtimeState().paused)
+      return Promise.resolve(
+        failure("runtime_updates_paused", "Resume upgrades before preparing an update."),
+      );
     if (!this.#options.exclusiveRuntime) {
       return Promise.resolve(
         failure(
@@ -229,6 +243,7 @@ export class DaemonSupervisor {
     }
     if (
       this.#closing ||
+      this.#controlPromise ||
       !this.#offer ||
       this.#checkPromise ||
       this.#options.openminionExecutable ||
@@ -258,6 +273,114 @@ export class DaemonSupervisor {
         this.#stageController = null;
       });
     return this.#stagePromise;
+  }
+
+  controlRuntime(input: unknown): Promise<ClientResult<RuntimeUpdateStatus>> {
+    if (this.#controlPromise || this.#startPromise || this.#closing)
+      return Promise.resolve(failure("runtime_busy", "Wait for the current runtime operation."));
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      return Promise.resolve(failure("invalid_input", "Invalid runtime control."));
+    const value = input as Record<string, unknown>;
+    if (
+      !Object.keys(value).every(
+        (key) => key === "action" || (value.action === "pin" && key === "version"),
+      ) ||
+      typeof value.action !== "string" ||
+      !["pause", "resume", "discard", "unpin", "pin-installed", "pin"].includes(value.action) ||
+      (value.action === "pin" &&
+        (typeof value.version !== "string" ||
+          !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value.version)))
+    )
+      return Promise.resolve(failure("invalid_input", "Choose an exact stable runtime version."));
+    if (
+      !this.#options.store ||
+      this.#options.openminionExecutable ||
+      !this.#options.exclusiveRuntime
+    )
+      return Promise.resolve(
+        failure("runtime_unmanaged", "Runtime controls require Desktop's private installation."),
+      );
+    this.#controlController = new AbortController();
+    this.#controlPromise = this.#controlRuntime(value as RuntimeControlInput)
+      .catch(() =>
+        failure(
+          "runtime_control_failed",
+          "The runtime control could not be applied. No runtime was launched.",
+        ),
+      )
+      .finally(() => {
+        this.#controlPromise = null;
+        this.#controlController = null;
+      });
+    return this.#controlPromise;
+  }
+
+  async #controlRuntime(input: RuntimeControlInput): Promise<ClientResult<RuntimeUpdateStatus>> {
+    const store = this.#options.store!;
+    const state = store.runtimeState();
+    if (state.launchIntent)
+      return failure(
+        "runtime_recovery_required",
+        "Recovery needs review before changing runtime policy.",
+      );
+    if (input.action === "pause" || input.action === "discard") {
+      if (input.action === "pause") store.setRuntimePolicy(true, state.pin);
+      this.#stageController?.abort();
+      if (this.#stagePromise) await this.#stagePromise;
+      if (this.#closing) return failure("runtime_busy", "Desktop is closing.");
+      if (input.action === "discard") store.discardRuntime();
+    } else {
+      if (this.#stagePromise)
+        return failure("runtime_busy", "Finish or discard preparation before changing the pin.");
+      this.#checkController?.abort();
+      if (this.#checkPromise) await this.#checkPromise;
+      if (this.#closing) return failure("runtime_busy", "Desktop is closing.");
+      if (input.action === "resume") store.setRuntimePolicy(false, state.pin);
+      else if (input.action === "unpin") store.setRuntimePolicy(state.paused, null);
+      else if (input.action === "pin-installed") {
+        if (!state.active)
+          return failure(
+            "runtime_identity_unverified",
+            "This legacy installation has no verified artifact identity. Use a developer executable or pin a published candidate.",
+          );
+        store.setRuntimePolicy(state.paused, {
+          source: state.active.source,
+          version: state.active.version,
+          manifestUrl: state.active.manifestUrl,
+          sha256: state.active.sha256,
+        });
+      } else if (input.action === "pin") {
+        if (!this.#installedVersion)
+          return failure(
+            "runtime_unavailable",
+            "Connect the installed runtime before selecting a pin.",
+          );
+        const offer = await checkRuntimeManifest({
+          source: state.source,
+          desktopVersion: this.#options.desktopVersion ?? "0.0.0",
+          installedVersion: this.#installedVersion,
+          targetVersion: input.version,
+          includeInstalled: true,
+          signal: this.#controlController!.signal,
+        });
+        if (this.#closing || this.#controlController!.signal.aborted)
+          return failure("runtime_busy", "Desktop is closing.");
+        if (!offer)
+          return failure(
+            "runtime_pin_unavailable",
+            "That exact compatible published runtime is unavailable. No fallback or downgrade was selected.",
+          );
+        store.setRuntimePolicy(state.paused, {
+          source: offer.record.distribution,
+          version: offer.record.runtime_version,
+          manifestUrl: offer.reference.manifest_url,
+          sha256: offer.artifact.sha256,
+        });
+      }
+    }
+    this.#offer = null;
+    this.#updatePhase = "unchecked";
+    return { ok: true, value: this.runtimeStatus() };
   }
 
   startUpdateChecks(): void {
@@ -338,8 +461,10 @@ export class DaemonSupervisor {
       this.#updateTimer = null;
       this.#checkController?.abort();
       this.#stageController?.abort();
+      this.#controlController?.abort();
       if (this.#checkPromise) await this.#checkPromise;
       if (this.#stagePromise) await this.#stagePromise;
+      if (this.#controlPromise) await this.#controlPromise;
     }
     if (this.lifecycle.current === "stopped") return { stopped: false };
     if (this.#startPromise) await this.#startPromise;
@@ -411,6 +536,7 @@ export class DaemonSupervisor {
   }
 
   async #start(): Promise<DaemonStatus> {
+    if (this.#controlPromise) await this.#controlPromise;
     const startupActivationAllowed = this.#startAttempts === 0;
     this.#startAttempts += 1;
     this.lifecycle.move("probing");
@@ -436,6 +562,7 @@ export class DaemonSupervisor {
           startupActivationAllowed &&
           this.#options.exclusiveRuntime &&
           !this.#options.openminionExecutable &&
+          this.#options.store!.runtimeAllowed(state.pending) &&
           compatible(state.pending),
       );
       if (!activeCompatible && !canActivate) throw new Error("runtime_incompatible");

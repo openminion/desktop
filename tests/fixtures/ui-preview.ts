@@ -198,17 +198,30 @@ const profileSettings = {
 const previewNames = new Map<string, string>();
 const api: NativeApi = {
   runtime: {
+    control: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Runtime controls are unavailable in previews.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
     status: async () => ({
       source: "unmanaged",
       installedVersion: null,
       availableVersion: null,
       phase: "unmanaged",
+      paused: false,
+      pinnedVersion: null,
     }),
     check: async () => ({
       source: "unmanaged",
       installedVersion: null,
       availableVersion: null,
       phase: "unmanaged",
+      paused: false,
+      pinnedVersion: null,
     }),
     stage: async () => ({
       ok: false,

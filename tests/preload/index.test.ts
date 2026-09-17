@@ -43,13 +43,15 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
-    expect(Object.keys(api.runtime)).toEqual(["status", "check", "stage"]);
+    expect(Object.keys(api.runtime)).toEqual(["status", "check", "stage", "control"]);
     await api.runtime.status();
     await api.runtime.check();
     await api.runtime.stage();
+    await api.runtime.control({ action: "pause" });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStatus);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeCheck);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStage);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeControl, { action: "pause" });
     expect(Object.keys(api.chatNames)).toEqual(["load", "save"]);
     await api.chatNames.load([]);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.chatNamesLoad, []);

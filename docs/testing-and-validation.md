@@ -75,7 +75,7 @@ The optional `--testpypi-final` mode rehearses an exact final TestPyPI wheel
 against the managed installer pin in isolated roots, resolving ordinary pip
 dependencies from production PyPI. It uses a fixed TestPyPI metadata origin
 and checks its wheel host; it never routes a TestPyPI record through the public
-reader or publishes compatibility bounds. All five private lifecycle phases
+reader or publishes compatibility bounds. All seven private lifecycle phases
 still run. Replace the example version with the final version under test;
 public upgrade acceptance must later use the official production record and
 exact shipped Desktop revision.
@@ -84,6 +84,16 @@ Use `--pypi-final` only after the target production version exists to replay
 the same private phases against its official wheel. The two index flags are
 mutually exclusive. Set `TMPDIR` to an umbrella workspace scratch directory
 so isolated native state and retained failure evidence remain there.
+
+The seven phases are stage, hold, activate, reuse, controls, intent and recovery.
+The hold phase reopens the old runtime with a prepared update paused and sends
+a new reply in the retained chat before explicitly resuming. Controls pin the
+verified active artifact, reject a changed digest, pause/discard a prepared
+reference, resume without removing the pin, and send another same-chat reply.
+Unit/bridge/renderer checks separately cover exact public-version selection,
+unavailable/withdrawn targets, cancellation, startup pin/hold enforcement,
+schema-two migration, untrusted IPC and launch-intent refusal. Private native
+bounds are still not public packaged-app compatibility certification.
 
 Python 3.11 is required. Windows uses `py -3.11` and `Scripts` executables;
 POSIX uses `python3.11` and `bin`. Native Windows/Linux and real published-feed

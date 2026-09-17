@@ -130,6 +130,73 @@ describe("runtime manifest boundary", () => {
 });
 
 describe("runtime selection", () => {
+  it("honors exact version, immutable record and artifact pins without falling back", async () => {
+    const pinned = record("1.0.0");
+    const newest = record("2.0.0");
+    const fetch = vi.fn(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url === runtimeFeedUrl("pypi") ? feed([reference(newest), reference(pinned)]) : pinned,
+          ),
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const pin = {
+      source: "pypi" as const,
+      version: pinned.runtime_version,
+      manifestUrl: manifestUrl(),
+      sha256: pinned.pypi!.sha256,
+    };
+    expect((await checkRuntimeManifest({ ...options, pin }))?.record.runtime_version).toBe("1.0.0");
+    expect(fetch).not.toHaveBeenCalledWith(manifestUrl("2.0.0"), expect.anything());
+    expect(
+      await checkRuntimeManifest({
+        ...options,
+        pin: { ...pin, manifestUrl: manifestUrl("1.0.0", "withdrawn") },
+      }),
+    ).toBeNull();
+    expect(
+      await checkRuntimeManifest({ ...options, pin: { ...pin, sha256: "c".repeat(64) } }),
+    ).toBeNull();
+    expect(
+      await checkRuntimeManifest({ ...options, targetVersion: "3.0.0", includeInstalled: true }),
+    ).toBeNull();
+    expect(
+      await checkRuntimeManifest({
+        ...options,
+        installedVersion: "2.0.0",
+        targetVersion: "1.0.0",
+        includeInstalled: true,
+      }),
+    ).toBeNull();
+    expect(
+      (
+        await checkRuntimeManifest({
+          ...options,
+          installedVersion: "1.0.0",
+          targetVersion: "1.0.0",
+          includeInstalled: true,
+        })
+      )?.record.runtime_version,
+    ).toBe("1.0.0");
+  });
+
+  it("never lets a pin certify an incompatible record", async () => {
+    const item = { ...record(), desktop_compatibility: null };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (url: string) =>
+          new Response(
+            JSON.stringify(url === runtimeFeedUrl("pypi") ? feed([reference(item)]) : item),
+          ),
+      ),
+    );
+    expect(
+      await checkRuntimeManifest({ ...options, targetVersion: "1.0.0", includeInstalled: true }),
+    ).toBeNull();
+  });
   it("orders Python versions numerically, not lexically", async () => {
     const old = record("1.9.0");
     const latest = record("1.10.0");

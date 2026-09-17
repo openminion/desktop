@@ -41,12 +41,16 @@ function mount(api: NativeApi, root: Document): Promise<void> {
       installedVersion: "0.0.19",
       availableVersion: null,
       phase: "unchecked",
+      paused: false,
+      pinnedVersion: null,
     }),
     check: async () => ({
       source: "pypi",
       installedVersion: "0.0.19",
       availableVersion: null,
       phase: "current",
+      paused: false,
+      pinnedVersion: null,
     }),
     stage: async () => ({
       ok: true,
@@ -55,8 +59,11 @@ function mount(api: NativeApi, root: Document): Promise<void> {
         installedVersion: "0.0.19",
         availableVersion: null,
         phase: "current",
+        paused: false,
+        pinnedVersion: null,
       },
     }),
+    control: vi.fn(),
   };
   return mountRenderer(api, root);
 }
@@ -78,6 +85,54 @@ function namesApi(): NativeApi["chatNames"] {
 }
 
 describe("renderer computer observation", () => {
+  it("projects paused/pinned preparation and dispatches narrow runtime controls", async () => {
+    const page = new FixtureDocument();
+    const current = {
+      source: "pypi" as const,
+      installedVersion: "0.0.21",
+      availableVersion: "0.0.22",
+      phase: "pending" as const,
+      paused: true,
+      pinnedVersion: "0.0.21",
+    };
+    const control = vi.fn<NativeApi["runtime"]["control"]>(async () => ({
+      ok: true as const,
+      value: current,
+    }));
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: { status: async () => status({ state: "running", reachable: true }) },
+      turns: { subscribe: () => () => {} },
+      runtime: { status: async () => current, check: vi.fn(), stage: vi.fn(), control },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      await mount(api, page.asDocument());
+      expect(page.element("runtime-update-status").textContent).toContain(
+        "Upgrades are paused, including prepared updates",
+      );
+      expect(page.element("runtime-update-status").textContent).toContain("Pinned to 0.0.21");
+      expect(page.element("pause-runtime-update").textContent).toBe("Resume upgrades");
+      expect(page.element("stage-runtime-update").disabled).toBe(true);
+      expect(page.element("discard-runtime-update").hidden).toBe(false);
+      page.element("pause-runtime-update").click();
+      page.element("discard-runtime-update").click();
+      page.element("unpin-runtime").click();
+      page.element("pin-installed-runtime").click();
+      page.element("runtime-pin-version").value = " 0.0.22 ";
+      page.element("pin-runtime-version").click();
+      expect(control.mock.calls.map(([input]) => input)).toEqual([
+        { action: "resume" },
+        { action: "discard" },
+        { action: "unpin" },
+        { action: "pin-installed" },
+        { action: "pin", version: "0.0.22" },
+      ]);
+      await Promise.resolve();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it.each(["available", "check_failed"] as const)(
     "refreshes automatic update completion while details stay open (%s)",
     async (phase) => {
@@ -87,6 +142,8 @@ describe("renderer computer observation", () => {
         installedVersion: "0.0.19",
         availableVersion: null,
         phase: "checking",
+        paused: false,
+        pinnedVersion: null,
       };
       const runtimeStatus = vi.fn(async () => current);
       const hide: Array<() => void> = [];
@@ -3325,6 +3382,12 @@ class FixtureDocument {
     "runtime-update-status",
     "check-runtime-update",
     "stage-runtime-update",
+    "pause-runtime-update",
+    "discard-runtime-update",
+    "pin-installed-runtime",
+    "unpin-runtime",
+    "runtime-pin-version",
+    "pin-runtime-version",
     "connection-details",
     "recovery",
     "daemon-version",

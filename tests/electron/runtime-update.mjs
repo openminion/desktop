@@ -28,7 +28,7 @@ if (process.versions.electron) {
   const root = await mkdtemp(join(tmpdir(), "desktop-runtime-update-"));
   try {
     const { default: electron } = await import("electron");
-    for (const phase of ["stage", "activate", "reuse", "intent", "recovery"]) {
+    for (const phase of ["stage", "hold", "activate", "reuse", "controls", "intent", "recovery"]) {
       const environment = { ...process.env, OPENMINION_UPDATE_TEST_ROOT: root };
       delete environment.ELECTRON_RUN_AS_NODE;
       delete environment.OPENMINION_EXECUTABLE;
@@ -44,7 +44,7 @@ if (process.versions.electron) {
       process.stdout.write(result.stdout);
     }
     console.log(
-      `PASS: native private ${metadataOrigin} ${OPENMINION_VERSION} → ${version} staging/startup/reuse, retained echo conversation and interrupted-intent recovery. Not public-feed/packaged-app certification.`,
+      `PASS: native private ${metadataOrigin} ${OPENMINION_VERSION} → ${version} staging/pause/startup/reuse/pin/discard, retained echo conversation and interrupted-intent recovery. Not public-feed/packaged-app certification.`,
     );
     await rm(root, { recursive: true, force: true });
   } catch (error) {
@@ -77,7 +77,7 @@ async function checkPhase() {
       assert.equal((await supervisor.start()).state, "ready");
       assert.equal(
         supervisor.runtimeStatus().installedVersion,
-        phase === "stage" ? OPENMINION_VERSION : version,
+        phase === "stage" || phase === "hold" ? OPENMINION_VERSION : version,
       );
       if (phase === "stage") {
         const created = await supervisor.client.create({
@@ -132,6 +132,16 @@ async function checkPhase() {
         assert.equal(store.runtimeState().pending.version, version);
         assert.equal(supervisor.runtimeStatus().installedVersion, OPENMINION_VERSION);
         await send(supervisor, sessionId, "old runtime remains available during preparation");
+        assert.equal((await supervisor.controlRuntime({ action: "pause" })).ok, true);
+        assert.equal(store.runtimeState().paused, true);
+      } else if (phase === "hold") {
+        assert.equal(store.runtimeState().active, null);
+        assert.equal(store.runtimeState().pending.version, version);
+        assert.equal(store.runtimeState().launchIntent, null);
+        assert.equal(supervisor.runtimeStatus().paused, true);
+        const sessionId = await readFile(join(root, "acceptance-session.txt"), "utf8");
+        await send(supervisor, sessionId, "paused upgrade keeps the old runtime and chat usable");
+        assert.equal((await supervisor.controlRuntime({ action: "resume" })).ok, true);
       } else {
         assert.equal(store.runtimeState().active.version, version);
         assert.equal(store.runtimeState().launchIntent, null);
@@ -142,6 +152,22 @@ async function checkPhase() {
           retained.value.messages.some((item) => item.body.includes("runtime lifecycle check")),
         );
         await send(supervisor, sessionId, `runtime lifecycle check after ${phase}`);
+        if (phase === "controls") {
+          assert.equal((await supervisor.controlRuntime({ action: "pin-installed" })).ok, true);
+          assert.equal(store.runtimeState().pin.version, version);
+          assert.throws(
+            () => store.stageRuntime({ ...store.runtimeState().active, sha256: "f".repeat(64) }),
+            /runtime_pin_mismatch/,
+          );
+          store.stageRuntime(store.runtimeState().active);
+          assert.equal((await supervisor.controlRuntime({ action: "pause" })).ok, true);
+          assert.equal((await supervisor.controlRuntime({ action: "discard" })).ok, true);
+          assert.equal(store.runtimeState().pending, null);
+          assert.equal(store.runtimeState().active.version, version);
+          assert.equal((await supervisor.controlRuntime({ action: "resume" })).ok, true);
+          assert.equal(store.runtimeState().pin.version, version);
+          await send(supervisor, sessionId, "pin and discard preserve the active runtime and chat");
+        }
       }
     }
     const command = supervisor.getCommandContext();

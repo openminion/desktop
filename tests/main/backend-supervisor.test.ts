@@ -278,12 +278,14 @@ describe("DaemonSupervisor", () => {
   });
 
   it.each([
-    [true, false],
-    [false, false],
-    [true, true],
+    [true, false, undefined],
+    [false, false, undefined],
+    [true, true, undefined],
+    [true, false, "pause"],
+    [true, false, "pin"],
   ])(
     "persists intent before candidate launch and accepts it only after health (%s)",
-    async (healthy, incompatibleActive) => {
+    async (healthy, incompatibleActive, hold) => {
       const root = await temporaryRoot();
       const store = new DesktopStore(root);
       cleanup.push(async () => store.close());
@@ -313,6 +315,14 @@ describe("DaemonSupervisor", () => {
         store.completeRuntimeLaunch();
       }
       store.stageRuntime(candidate);
+      if (hold === "pause") store.setRuntimePolicy(true, null);
+      if (hold === "pin")
+        store.setRuntimePolicy(false, {
+          source: "pypi",
+          version: "0.0.19",
+          manifestUrl: "legacy",
+          sha256: "b".repeat(64),
+        });
       let reachable = false;
       const command = vi.fn<RunCommand>(async (_executable, args) => {
         if (args.length === 1) return result(0, "0.0.19");
@@ -328,8 +338,10 @@ describe("DaemonSupervisor", () => {
         configPath: join(root, "agents.json"),
         runCommand: command,
         spawnDaemon: (executable) => {
-          expect(executable).toBe(join(root, "candidate/openminiond"));
-          expect(store.runtimeState().launchIntent).toEqual(candidate);
+          expect(executable).toBe(
+            hold ? join(legacyRoot, "openminiond") : join(root, "candidate/openminiond"),
+          );
+          expect(store.runtimeState().launchIntent).toEqual(hold ? null : candidate);
           reachable = true;
           return fakeDaemon(() => {
             reachable = false;
@@ -338,8 +350,9 @@ describe("DaemonSupervisor", () => {
       });
       const status = await supervisor.start();
       expect(status.state).toBe(healthy ? "ready" : "degraded");
-      expect(store.runtimeState().active).toEqual(healthy ? candidate : null);
+      expect(store.runtimeState().active).toEqual(healthy && !hold ? candidate : null);
       expect(store.runtimeState().launchIntent).toEqual(healthy ? null : candidate);
+      if (hold) expect(store.runtimeState().pending).toEqual(candidate);
       await supervisor.stop();
       if (!healthy) {
         expect(await supervisor.start()).toMatchObject({
@@ -349,6 +362,135 @@ describe("DaemonSupervisor", () => {
       }
     },
   );
+
+  it("validates private controls, persists exact pins, and refuses unavailable targets without fallback", async () => {
+    const root = await temporaryRoot();
+    const store = new DesktopStore(root);
+    cleanup.push(async () => store.close());
+    vi.spyOn(OpenMinionInstallation.prototype, "ensure").mockResolvedValue({
+      path: join(root, "openminion"),
+      version: "0.0.19",
+    });
+    const check = vi.spyOn(manifests, "checkRuntimeManifest").mockResolvedValue(null);
+    const supervisor = new DaemonSupervisor({
+      store,
+      exclusiveRuntime: true,
+      runtimeRoot: join(root, "runtime"),
+      runCommand: async () => result(0, JSON.stringify({ reachable: true })),
+    });
+    await supervisor.start();
+    for (const input of [
+      null,
+      [],
+      { action: "force" },
+      { action: "pause", url: "https://evil.example" },
+      { action: "pin", version: "1.0.0rc1" },
+    ]) {
+      expect(await supervisor.controlRuntime(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_input" },
+      });
+    }
+    expect(await supervisor.controlRuntime({ action: "pin-installed" })).toMatchObject({
+      ok: false,
+      error: { code: "runtime_identity_unverified" },
+    });
+    expect(await supervisor.controlRuntime({ action: "pause" })).toMatchObject({
+      ok: true,
+      value: { paused: true },
+    });
+    expect(await supervisor.stageRuntime()).toMatchObject({
+      ok: false,
+      error: { code: "runtime_updates_paused" },
+    });
+    await supervisor.checkRuntime();
+    expect(check).toHaveBeenCalled();
+    expect(await supervisor.controlRuntime({ action: "pin", version: "1.0.0" })).toMatchObject({
+      ok: false,
+      error: { code: "runtime_pin_unavailable" },
+    });
+    check.mockResolvedValue({
+      record: { distribution: "pypi", runtime_version: "1.0.0" },
+      reference: { manifest_url: "immutable" },
+      artifact: { sha256: "a".repeat(64) },
+    } as manifests.RuntimeOffer);
+    expect(await supervisor.controlRuntime({ action: "pin", version: "1.0.0" })).toMatchObject({
+      ok: true,
+      value: { paused: true, pinnedVersion: "1.0.0" },
+    });
+    expect(store.runtimeState().pin).toEqual({
+      source: "pypi",
+      version: "1.0.0",
+      manifestUrl: "immutable",
+      sha256: "a".repeat(64),
+    });
+    expect(await supervisor.controlRuntime({ action: "resume" })).toMatchObject({
+      ok: true,
+      value: { paused: false, pinnedVersion: "1.0.0" },
+    });
+    await supervisor.checkRuntime();
+    expect(check).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pin: store.runtimeState().pin }),
+    );
+    expect(await supervisor.controlRuntime({ action: "unpin" })).toMatchObject({
+      ok: true,
+      value: { pinnedVersion: null },
+    });
+    await supervisor.stop(true);
+    const unmanaged = new DaemonSupervisor({
+      store,
+      openminionExecutable: "external",
+      exclusiveRuntime: true,
+    });
+    expect(await unmanaged.controlRuntime({ action: "pause" })).toMatchObject({
+      ok: false,
+      error: { code: "runtime_unmanaged" },
+    });
+    await unmanaged.stop(true);
+  });
+
+  it("pauses or discards an in-flight preparation and fences its late store write", async () => {
+    for (const action of ["pause", "discard"] as const) {
+      const root = await temporaryRoot();
+      const store = new DesktopStore(root);
+      cleanup.push(async () => store.close());
+      vi.spyOn(OpenMinionInstallation.prototype, "ensure").mockResolvedValue({
+        path: join(root, "openminion"),
+        version: "0.0.19",
+      });
+      vi.spyOn(manifests, "checkRuntimeManifest").mockResolvedValue({
+        record: { runtime_version: "1.0.0" },
+      } as manifests.RuntimeOffer);
+      let signal!: AbortSignal;
+      vi.spyOn(OpenMinionInstallation.prototype, "stage").mockImplementation(
+        (_offer, controller) =>
+          new Promise((_resolve, reject) => {
+            signal = controller!;
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          }),
+      );
+      const supervisor = new DaemonSupervisor({
+        store,
+        exclusiveRuntime: true,
+        runtimeRoot: join(root, "runtime"),
+        runCommand: async () => result(0, JSON.stringify({ reachable: true })),
+      });
+      await supervisor.start();
+      await supervisor.checkRuntime();
+      const preparation = supervisor.stageRuntime();
+      expect((await supervisor.controlRuntime({ action })).ok).toBe(true);
+      expect(signal.aborted).toBe(true);
+      expect((await preparation).ok).toBe(false);
+      expect(store.runtimeState()).toMatchObject({
+        paused: action === "pause",
+        pending: null,
+        launchIntent: null,
+        active: null,
+      });
+      await supervisor.stop(true);
+      vi.restoreAllMocks();
+    }
+  });
 
   it("discovers replacements for an incompatible active runtime without starting it", async () => {
     const root = await temporaryRoot();
