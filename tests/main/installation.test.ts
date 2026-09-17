@@ -16,6 +16,60 @@ afterEach(async () => {
 });
 
 describe("OpenMinionInstallation", () => {
+  it("uses the Windows 3.11 launcher and native Scripts executables", async () => {
+    const root = await temporaryRoot();
+    const environment = join(root, "python");
+    const python = join(environment, "Scripts", "python.exe");
+    const executable = join(environment, "Scripts", "openminion.exe");
+    const runCommand = vi.fn<RunCommand>(async (command) => {
+      if (command === "py") {
+        await mkdir(join(environment, "Scripts"), { recursive: true });
+        await writeFile(python, "");
+      } else if (command === python) await writeFile(executable, "");
+      return result(0, command === executable ? OPENMINION_VERSION : "");
+    });
+    const installation = new OpenMinionInstallation({
+      runtimeRoot: root,
+      platform: "win32",
+      runCommand,
+    });
+    await expect(installation.ensure()).resolves.toEqual({
+      path: executable,
+      version: OPENMINION_VERSION,
+    });
+    expect(runCommand).toHaveBeenCalledWith("py", ["-3.11", "-m", "venv", environment], 60_000);
+    expect(runCommand).toHaveBeenCalledWith(
+      python,
+      expect.arrayContaining([`openminion==${OPENMINION_VERSION}`]),
+      300_000,
+    );
+    runCommand.mockClear();
+    await installation.ensure();
+    expect(runCommand).toHaveBeenCalledExactlyOnceWith(executable, ["--version"], 30_000);
+  });
+
+  it.each([null, 1])(
+    "fails clearly when Python cannot create the environment (%s)",
+    async (exitCode) => {
+      const root = await temporaryRoot();
+      const runCommand = vi.fn<RunCommand>(async () => result(exitCode));
+      await expect(
+        new OpenMinionInstallation({ runtimeRoot: root, runCommand }).ensure(),
+      ).rejects.toThrow("python_environment_failed");
+      expect(runCommand).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("does not probe a runtime after pip fails", async () => {
+    const root = await temporaryRoot();
+    await mkdir(join(root, "python", "bin"), { recursive: true });
+    await writeFile(join(root, "python", "bin", "python"), "");
+    const runCommand = vi.fn<RunCommand>(async () => result(1));
+    await expect(
+      new OpenMinionInstallation({ runtimeRoot: root, runCommand }).ensure(),
+    ).rejects.toThrow("openminion_install_failed");
+    expect(runCommand).toHaveBeenCalledTimes(1);
+  });
   it("creates an isolated environment and installs the pinned PyPI package", async () => {
     const root = await temporaryRoot();
     const environmentRoot = join(root, "python");

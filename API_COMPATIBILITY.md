@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-09-13
+Last updated: 2026-09-17
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -18,7 +18,10 @@ in [README.md](README.md), [SUPPORT.md](SUPPORT.md), and `docs/`.
 
 The Desktop main process owns installation and lifecycle. It currently installs
 the pinned `openminion==0.0.19` PyPI package into app-managed storage and calls
-the ordinary `config init` and `daemon start/status/stop/logs` commands. OpenMinion
+the ordinary `config init` and `daemon status/logs` commands. Main starts the
+public `openminiond serve` entrypoint as a foreground child and retains its
+process handle. It signals that child only after rechecking the PID and canonical
+config/data paths; external or replaced daemons are never stopped. OpenMinion
 remains the owner of sessions, messages, approvals, policy, artifacts, and agent
 execution. Desktop owns presentation, local attachment grants, capture
 lifecycle, and operating-system integration.
@@ -77,6 +80,25 @@ removes the local label. Existing browser-stored labels migrate once, atomically
 The database also records the installation's runtime and browser paths. Core
 still owns profiles, credentials, transcripts and execution state. See
 [Desktop Data](docs/getting-started.md#desktop-data) for locations and upgrade behavior.
+
+## Runtime Updates
+
+The fixed `runtime.status`, `runtime.check`, and `runtime.stage` bridge accepts
+no executable, URL, version, root, or shell command from the renderer. Main
+checks the public GitHub stable feed asynchronously at startup and every 24 hours.
+Manifest records pin full metadata commits and their SHA-256 digests. Only
+compatible promoted records are eligible; no source fallback or downgrade occurs.
+
+Explicit **Prepare update** verifies the official wheel's size and hash and
+installs it in a separate environment. Activation occurs on the first startup
+attempt only, under the app-instance lock, with private, non-adopted roots and
+no live daemon. SQLite records launch intent before candidate execution against
+live data. Failed/interrupted launch leaves a recovery marker instead of an
+automatic older-runtime restart. Developer executable overrides are unmanaged.
+
+Publication and compatibility certification remain pending. Missing feeds fail
+as update checks without changing the installed pin. Binary installation and
+selection remain unavailable until standalone foreground/native/trust qualification.
 
 ## Reports And Transcript Export
 

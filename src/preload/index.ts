@@ -13,6 +13,11 @@ let activeObservationListener: ((_event: unknown, payload: unknown) => void) | n
 const textEncoder = new TextEncoder();
 
 const api: NativeApi = {
+  runtime: {
+    status: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeStatus),
+    check: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeCheck),
+    stage: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeStage),
+  },
   chatNames: {
     load: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesLoad, input),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesSave, input),

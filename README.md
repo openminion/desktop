@@ -91,6 +91,9 @@ and DEB and ZIP on Linux. These are development artifacts, not public releases.
 - preview approvals, attachments, artifacts, and screen context in the UI fixture
 - select a screen or window for local preview when native permission is available
 - install, version-check, start, monitor, and stop an app-owned OpenMinion daemon
+- check compatible runtime metadata and explicitly prepare a separate PyPI
+  installation for startup-only activation; public feed deployment and
+  compatibility certification remain pending
 
 ## What OpenMinion Desktop Does Not Provide
 

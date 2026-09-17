@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { OPENMINION_VERSION, runCommand } from "../../dist/src/main/installation.js";
+import {
+  OPENMINION_VERSION,
+  pythonEnvironment,
+  runCommand,
+} from "../../dist/src/main/installation.js";
 
 if (process.versions.electron) {
   void runDesktop();
@@ -15,7 +19,7 @@ if (process.versions.electron) {
 
 async function verifyManagedLifecycle() {
   const root = await mkdtemp(join(tmpdir(), "openminion-managed-install-"));
-  const executable = join(root, "runtime", "python", "bin", "openminion");
+  const { executable } = pythonEnvironment(join(root, "runtime", "python"));
   const args = commandRoots(root);
   try {
     await launchDesktop(root);
@@ -32,7 +36,8 @@ async function verifyManagedLifecycle() {
     const config = JSON.parse(await readFile(join(root, "agents.json"), "utf8"));
     assert.equal(config.runtime.ipc_host, "127.0.0.1");
     assert.match(config.runtime.ipc_token, /^[A-Za-z0-9_-]{43}$/);
-    assert.equal((await stat(join(root, "agents.json"))).mode & 0o777, 0o600);
+    if (process.platform !== "win32")
+      assert.equal((await stat(join(root, "agents.json"))).mode & 0o777, 0o600);
     console.log(
       `PASS: Desktop installed OpenMinion ${OPENMINION_VERSION}, reused it, and stopped each app-owned daemon on quit.`,
     );

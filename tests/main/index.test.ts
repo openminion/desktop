@@ -285,6 +285,9 @@ describe("desktop main boundary", () => {
     );
     expect(observation.connectTurnOwner).toHaveBeenCalledOnce();
     expect([...mocks.ipcHandlers.keys()]).toEqual([
+      IPC_CHANNELS.runtimeStatus,
+      IPC_CHANNELS.runtimeCheck,
+      IPC_CHANNELS.runtimeStage,
       IPC_CHANNELS.chatNamesLoad,
       IPC_CHANNELS.chatNamesSave,
       IPC_CHANNELS.tasksControl,
@@ -1152,6 +1155,7 @@ describe("desktop main boundary", () => {
     };
     const supervisor = {
       start: vi.fn().mockResolvedValue({ state: "ready" }),
+      startUpdateChecks: vi.fn(),
       client: {},
     };
     const window = (await desktop.launchDesktop(supervisor as never)) as any;
@@ -1323,6 +1327,12 @@ describe("desktop main boundary", () => {
         errorCode: null,
       }),
       retry: vi.fn(),
+      runtimeStatus: vi.fn().mockReturnValue({
+        source: "pypi",
+        installedVersion: "0.0.19",
+        availableVersion: null,
+        phase: "unchecked",
+      }),
       client,
     };
     const media = { pick: vi.fn(), release: vi.fn() };
@@ -1430,6 +1440,7 @@ describe("desktop main boundary", () => {
   it("creates a sandboxed local-only window and starts the daemon client", async () => {
     const supervisor = {
       start: vi.fn().mockResolvedValue({ state: "ready" }),
+      startUpdateChecks: vi.fn(),
     };
     const created = await desktop.createWindow(supervisor as never, {} as never);
     const recorded = mocks.windows.at(-1)!;
@@ -1517,6 +1528,9 @@ class CaptureFixtureDocument {
     "close-diagnostics",
     "show-daemon-status",
     "show-daemon-logs",
+    "runtime-update-status",
+    "check-runtime-update",
+    "stage-runtime-update",
     "connection-details",
     "recovery",
     "daemon-version",

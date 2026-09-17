@@ -28,7 +28,7 @@ try {
     void app
       .whenReady()
       .then(async () => {
-        const supervisor = createDesktopSupervisor(store.runtimeHome);
+        const supervisor = createDesktopSupervisor(store.runtimeHome, store);
         registerQuitLifecycle(app, supervisor);
         await launchDesktop(supervisor, store);
       })

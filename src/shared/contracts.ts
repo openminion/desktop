@@ -600,7 +600,29 @@ export type CaptureEventV1 =
 
 export type ChatName = { sessionId: string; title: string };
 
+export type RuntimeUpdateStatus = {
+  source: "pypi" | "binary" | "unmanaged";
+  installedVersion: string | null;
+  availableVersion: string | null;
+  phase:
+    | "unchecked"
+    | "checking"
+    | "current"
+    | "incompatible"
+    | "available"
+    | "staging"
+    | "pending"
+    | "check_failed"
+    | "recovery_required"
+    | "unmanaged";
+};
+
 export type NativeApi = {
+  runtime: {
+    status(): Promise<RuntimeUpdateStatus>;
+    check(): Promise<RuntimeUpdateStatus>;
+    stage(): Promise<ClientResult<RuntimeUpdateStatus>>;
+  };
   chatNames: {
     load(legacyNames: ChatName[]): Promise<ClientResult<ChatName[]>>;
     save(input: { sessionId: string; title: string | null }): Promise<ClientResult<null>>;
@@ -686,6 +708,9 @@ export type NativeApi = {
 export const PROTOCOL_SCHEME = "openminion";
 export const PROTOCOL_HOST = "app";
 export const IPC_CHANNELS = {
+  runtimeStatus: "desktop:runtime:status",
+  runtimeCheck: "desktop:runtime:check",
+  runtimeStage: "desktop:runtime:stage",
   chatNamesLoad: "desktop:chat-names:load",
   chatNamesSave: "desktop:chat-names:save",
   reportsRead: "openminion:reports:read",

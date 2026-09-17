@@ -1,14 +1,21 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
+import type { ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DaemonSupervisor } from "../../src/main/backend-supervisor.js";
 import type { CommandResult, RunCommand } from "../../src/main/installation.js";
+import { DesktopStore } from "../../src/main/desktop-store.js";
+import { OpenMinionInstallation } from "../../src/main/installation.js";
+import * as manifests from "../../src/main/runtime-manifest.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 const integrationExecutable = process.env.OPENMINION_EXECUTABLE;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   while (cleanup.length > 0) await cleanup.pop()?.();
 });
 
@@ -26,7 +33,7 @@ describe("DaemonSupervisor", () => {
         return result(0, "Initialized config\n");
       }
       if (args.at(-1) === "--json") {
-        return result(reachable ? 0 : 1, JSON.stringify({ reachable }));
+        return result(reachable ? 0 : 1, JSON.stringify(daemonPayload(reachable, root)));
       }
       if (args.at(-1) === "start") {
         reachable = true;
@@ -45,14 +52,20 @@ describe("DaemonSupervisor", () => {
       dataRoot: join(root, "data"),
       configPath: join(root, "agents.json"),
       runCommand,
+      spawnDaemon: vi.fn(() => {
+        reachable = true;
+        return fakeDaemon(() => {
+          reachable = false;
+        });
+      }),
     });
 
     expect(await supervisor.start()).toMatchObject({
       state: "running",
       reachable: true,
-      daemonVersion: "0.0.19",
+      daemonVersion: null,
       protocol: null,
-      capabilities: ["sessions", "turns.text", "turns.cancel"],
+      capabilities: [],
     });
     expect(supervisor.startAttempts).toBe(1);
     expect(await supervisor.status()).toMatchObject({ state: "running", reachable: true });
@@ -142,7 +155,7 @@ describe("DaemonSupervisor", () => {
     runCommand.mockClear();
     expect(await supervisor.inspect("status")).toEqual({
       ok: true,
-      value: { text: "daemon status: stopped" },
+      value: { text: "daemon status: running" },
     });
     expect(runCommand).toHaveBeenCalledExactlyOnceWith(
       executable,
@@ -162,7 +175,7 @@ describe("DaemonSupervisor", () => {
     });
   });
 
-  it("does not start a second daemon when the app-owned daemon is already reachable", async () => {
+  it("never starts or stops an external already-reachable daemon", async () => {
     const root = await temporaryRoot();
     const executable = await fakeExecutable(root);
     const runCommand = vi.fn<RunCommand>(async (_command, args) => {
@@ -179,31 +192,26 @@ describe("DaemonSupervisor", () => {
 
     expect(await supervisor.start()).toMatchObject({ state: "running" });
     expect(runCommand.mock.calls.some(([, args]) => args.at(-1) === "start")).toBe(false);
-    await supervisor.stop();
+    expect(await supervisor.stop()).toEqual({ stopped: false });
+    expect(runCommand.mock.calls.some(([, args]) => args.at(-1) === "stop")).toBe(false);
   });
 
-  it("can stop an unhealthy startup and keeps a failed stop visible", async () => {
+  it("does not create or stop a daemon when startup identity is unknown", async () => {
     const root = await temporaryRoot();
     const executable = await fakeExecutable(root);
-    let stopFailed = true;
     const runCommand = vi.fn<RunCommand>(async (_command, args) => {
       if (args.length === 1) return result(0, "0.0.19");
       if (args.at(-1) === "--json") return result(1, JSON.stringify({ reachable: false }));
-      if (args.at(-1) === "stop") return result(stopFailed ? 1 : 0);
       return result(1);
     });
     const supervisor = new DaemonSupervisor({ openminionExecutable: executable, runCommand });
     expect(await supervisor.start()).toMatchObject({
       state: "degraded",
-      errorCode: "daemon_start_failed",
+      errorCode: "daemon_ownership_unverified",
     });
     expect(await supervisor.stop()).toEqual({ stopped: false });
-    expect(supervisor.snapshot()).toMatchObject({
-      state: "degraded",
-      errorCode: "daemon_stop_failed",
-    });
-    stopFailed = false;
-    expect(await supervisor.stop()).toEqual({ stopped: true });
+    expect(supervisor.snapshot()).toMatchObject({ state: "stopped" });
+    expect(runCommand.mock.calls.some(([, args]) => args.at(-1) === "stop")).toBe(false);
   });
 
   it("reports bounded installation and daemon status failures", async () => {
@@ -231,6 +239,270 @@ describe("DaemonSupervisor", () => {
     });
     await malformed.stop();
   });
+
+  it("never signals a replaced process or writes profiles after ownership is lost", async () => {
+    const root = await temporaryRoot();
+    const executable = await fakeExecutable(root);
+    await writeFile(join(root, "agents.json"), '{"runtime":{}}');
+    let reachable = false;
+    let pid = 1234;
+    const daemon = fakeDaemon(() => {
+      reachable = false;
+    });
+    const command = vi.fn<RunCommand>(async (_executable, args) =>
+      args.length === 1
+        ? result(0, "0.0.19")
+        : result(reachable ? 0 : 1, JSON.stringify(daemonPayload(reachable, root, pid))),
+    );
+    const supervisor = new DaemonSupervisor({
+      openminionExecutable: executable,
+      homeRoot: root,
+      dataRoot: join(root, "data"),
+      configPath: join(root, "agents.json"),
+      runCommand: command,
+      spawnDaemon: () => {
+        reachable = true;
+        return daemon;
+      },
+    });
+    await supervisor.start();
+    pid = 5678;
+    const save = vi.fn();
+    expect(await supervisor.applyProfiles(save)).toMatchObject({
+      ok: false,
+      error: { code: "runtime_external" },
+    });
+    expect(save).not.toHaveBeenCalled();
+    expect(await supervisor.stop()).toEqual({ stopped: false });
+    expect(daemon.kill).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [true, false],
+    [false, false],
+    [true, true],
+  ])(
+    "persists intent before candidate launch and accepts it only after health (%s)",
+    async (healthy, incompatibleActive) => {
+      const root = await temporaryRoot();
+      const store = new DesktopStore(root);
+      cleanup.push(async () => store.close());
+      const legacyRoot = join(root, "runtime/python/bin");
+      await mkdir(legacyRoot, { recursive: true });
+      await writeFile(join(legacyRoot, "python"), "");
+      await writeFile(join(legacyRoot, "openminion"), "");
+      await writeFile(join(root, "agents.json"), '{"runtime":{}}');
+      const candidate = {
+        source: "pypi" as const,
+        version: "1.0.0",
+        executable: join(root, "candidate/openminion"),
+        sha256: "a".repeat(64),
+        manifestUrl: "immutable",
+        desktopMinVersion: "0.0.0",
+        desktopMaxVersionExclusive: "2.0.0",
+      };
+      if (incompatibleActive) {
+        store.stageRuntime({
+          ...candidate,
+          version: "0.0.19",
+          executable: join(legacyRoot, "openminion"),
+          desktopMinVersion: "1.0.0",
+          desktopMaxVersionExclusive: "2.0.0",
+        });
+        store.beginRuntimeLaunch();
+        store.completeRuntimeLaunch();
+      }
+      store.stageRuntime(candidate);
+      let reachable = false;
+      const command = vi.fn<RunCommand>(async (_executable, args) => {
+        if (args.length === 1) return result(0, "0.0.19");
+        if (args.includes("sessions")) return healthy ? result(0, "[]") : result(1);
+        return result(reachable ? 0 : 1, JSON.stringify(daemonPayload(reachable, root)));
+      });
+      const supervisor = new DaemonSupervisor({
+        runtimeRoot: join(root, "runtime"),
+        store,
+        exclusiveRuntime: true,
+        homeRoot: root,
+        dataRoot: join(root, "data"),
+        configPath: join(root, "agents.json"),
+        runCommand: command,
+        spawnDaemon: (executable) => {
+          expect(executable).toBe(join(root, "candidate/openminiond"));
+          expect(store.runtimeState().launchIntent).toEqual(candidate);
+          reachable = true;
+          return fakeDaemon(() => {
+            reachable = false;
+          });
+        },
+      });
+      const status = await supervisor.start();
+      expect(status.state).toBe(healthy ? "ready" : "degraded");
+      expect(store.runtimeState().active).toEqual(healthy ? candidate : null);
+      expect(store.runtimeState().launchIntent).toEqual(healthy ? null : candidate);
+      await supervisor.stop();
+      if (!healthy) {
+        expect(await supervisor.start()).toMatchObject({
+          state: "degraded",
+          errorCode: "runtime_recovery_required",
+        });
+      }
+    },
+  );
+
+  it("discovers replacements for an incompatible active runtime without starting it", async () => {
+    const root = await temporaryRoot();
+    const store = new DesktopStore(root);
+    cleanup.push(async () => store.close());
+    const executable = await fakeExecutable(root);
+    store.stageRuntime({
+      source: "pypi",
+      version: "1.0.0",
+      executable,
+      sha256: "a".repeat(64),
+      manifestUrl: "immutable",
+      desktopMinVersion: "1.0.0",
+      desktopMaxVersionExclusive: "2.0.0",
+    });
+    store.beginRuntimeLaunch();
+    store.completeRuntimeLaunch();
+    const command = vi.fn<RunCommand>(async () => result(0, "1.0.0"));
+    const spawn = vi.fn();
+    const check = vi.spyOn(manifests, "checkRuntimeManifest").mockResolvedValue(null);
+    const supervisor = new DaemonSupervisor({
+      store,
+      runtimeRoot: join(root, "runtime"),
+      exclusiveRuntime: true,
+      desktopVersion: "2.0.0",
+      runCommand: command,
+      spawnDaemon: spawn,
+    });
+    expect(await supervisor.start()).toMatchObject({
+      state: "degraded",
+      errorCode: "runtime_incompatible",
+    });
+    expect(command).toHaveBeenCalledExactlyOnceWith(executable, ["--version"], 30_000);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(await supervisor.checkRuntime()).toMatchObject({
+      installedVersion: "1.0.0",
+      phase: "incompatible",
+    });
+    expect(check).toHaveBeenCalledOnce();
+    await supervisor.stop(true);
+  });
+
+  it("consumes a staged offer, rejects shared roots, and cancels staging on shutdown", async () => {
+    const root = await temporaryRoot();
+    const store = new DesktopStore(root);
+    cleanup.push(async () => store.close());
+    vi.spyOn(OpenMinionInstallation.prototype, "ensure").mockResolvedValue({
+      path: join(root, "openminion"),
+      version: "0.0.19",
+    });
+    vi.spyOn(manifests, "checkRuntimeManifest").mockResolvedValue({
+      record: { runtime_version: "1.0.0" },
+    } as manifests.RuntimeOffer);
+    const options = {
+      store,
+      runtimeRoot: join(root, "runtime"),
+      runCommand: async () => result(0, JSON.stringify({ reachable: true })),
+    };
+    const shared = new DaemonSupervisor(options);
+    await shared.start();
+    await shared.checkRuntime();
+    expect(await shared.stageRuntime()).toMatchObject({
+      ok: false,
+      error: { code: "runtime_shared_roots" },
+    });
+    await shared.stop(true);
+    const supervisor = new DaemonSupervisor({ ...options, exclusiveRuntime: true });
+    await supervisor.start();
+    await supervisor.checkRuntime();
+    const candidate = {
+      source: "pypi" as const,
+      version: "1.0.0",
+      executable: join(root, "candidate/openminion"),
+      sha256: "a".repeat(64),
+      manifestUrl: "immutable",
+      desktopMinVersion: "0.0.0",
+      desktopMaxVersionExclusive: "2.0.0",
+    };
+    const stage = vi
+      .spyOn(OpenMinionInstallation.prototype, "stage")
+      .mockImplementation(async () => {
+        store.stageRuntime(candidate);
+        return candidate;
+      });
+    expect((await supervisor.stageRuntime()).ok).toBe(true);
+    expect((await supervisor.stageRuntime()).ok).toBe(false);
+    expect(stage).toHaveBeenCalledOnce();
+    expect(store.runtimeState().pending).toEqual(candidate);
+    await supervisor.stop(true);
+    const cancelRoot = await temporaryRoot();
+    const cancelStore = new DesktopStore(cancelRoot);
+    cleanup.push(async () => cancelStore.close());
+    const cancelling = new DaemonSupervisor({
+      ...options,
+      store: cancelStore,
+      exclusiveRuntime: true,
+    });
+    await cancelling.start();
+    await cancelling.checkRuntime();
+    stage.mockImplementation(
+      (_offer, signal) =>
+        new Promise((_resolve, reject) =>
+          signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }),
+        ),
+    );
+    const staging = cancelling.stageRuntime();
+    await cancelling.stop(true);
+    expect((await staging).ok).toBe(false);
+    expect(cancelStore.runtimeState().pending).toBeNull();
+  });
+
+  it("fences checks during startup shutdown and preserves checks on ordinary restarts", async () => {
+    const root = await temporaryRoot();
+    const store = new DesktopStore(root);
+    cleanup.push(async () => store.close());
+    let finish!: (value: { path: string; version: string }) => void;
+    vi.spyOn(OpenMinionInstallation.prototype, "ensure").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const check = vi.spyOn(manifests, "checkRuntimeManifest").mockResolvedValue(null);
+    const supervisor = new DaemonSupervisor({
+      store,
+      runtimeRoot: join(root, "runtime"),
+      runCommand: async () => result(0, JSON.stringify({ reachable: true })),
+    });
+    const startup = supervisor.start().then(() => supervisor.startUpdateChecks());
+    const stopping = supervisor.stop(true);
+    finish({ path: join(root, "openminion"), version: "0.0.19" });
+    await startup;
+    await stopping;
+    supervisor.startUpdateChecks();
+    await supervisor.checkRuntime();
+    expect(check).not.toHaveBeenCalled();
+    vi.spyOn(OpenMinionInstallation.prototype, "ensure").mockResolvedValue({
+      path: join(root, "openminion"),
+      version: "0.0.19",
+    });
+    const restarted = new DaemonSupervisor({
+      store,
+      runtimeRoot: join(root, "runtime"),
+      runCommand: async () => result(0, JSON.stringify({ reachable: true })),
+    });
+    await restarted.start();
+    restarted.startUpdateChecks();
+    await restarted.checkRuntime();
+    await restarted.stop();
+    await restarted.start();
+    await restarted.checkRuntime();
+    expect(check).toHaveBeenCalledTimes(2);
+    await restarted.stop(true);
+  });
 });
 
 it.skipIf(!integrationExecutable)(
@@ -249,7 +521,7 @@ it.skipIf(!integrationExecutable)(
     expect(await supervisor.start()).toMatchObject({
       state: "running",
       reachable: true,
-      daemonVersion: "0.0.19",
+      daemonVersion: null,
     });
     expect(await supervisor.status()).toMatchObject({ state: "running", reachable: true });
     expect(await supervisor.stop()).toEqual({ stopped: true });
@@ -261,8 +533,36 @@ function result(exitCode: number | null, stdout = "", stderr = ""): CommandResul
   return { exitCode, stdout, stderr };
 }
 
+function daemonPayload(reachable: boolean, root: string, pid = 1234) {
+  return {
+    reachable,
+    pid: reachable ? pid : null,
+    pid_alive: reachable,
+    lifecycle: reachable ? "running" : "stopped",
+    endpoint_status: reachable ? "ok" : "unreachable",
+    remote_config_path: reachable ? join(realpathSync(root), "agents.json") : "",
+    remote_data_root: reachable ? join(realpathSync(root), "data") : "",
+  };
+}
+
+function fakeDaemon(onKill: () => void): ChildProcess {
+  const daemon = Object.assign(new EventEmitter(), {
+    pid: 1234,
+    exitCode: null as number | null,
+    signalCode: null as NodeJS.Signals | null,
+    kill: vi.fn(() => {
+      onKill();
+      daemon.signalCode = "SIGTERM";
+      daemon.emit("exit", null, "SIGTERM");
+      return true;
+    }),
+  });
+  return daemon as unknown as ChildProcess;
+}
+
 async function temporaryRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "openminion-desktop-lifecycle-"));
+  await mkdir(join(root, "data"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   return root;
 }

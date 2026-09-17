@@ -1,7 +1,7 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-09-13
+Last updated: 2026-09-17
 
 Purpose: provide the package-local bootstrap and first-run path for the
 OpenMinion Desktop source repository.
@@ -53,14 +53,36 @@ credential-free echo config, assigns an authenticated loopback daemon endpoint,
 and starts the daemon. Later launches reuse the environment while its version
 matches the pin.
 
+Open connection details to **Check for updates**. When a certified compatible
+PyPI record is available, **Prepare update** installs it separately; quit and
+reopen Desktop to activate it before daemon startup. Checks also run at startup
+and every 24 hours, without installing automatically. The public GitHub feeds
+are deployed but initially empty, so checks currently offer no update and leave
+the pinned runtime unchanged. Missing or uncertified records do not authorize
+installation. Binary runtime selection is not enabled.
+
+Desktop reads `releases/runtime/v1/pypi/channels/stable.json` from the public
+OpenMinion repo's `main` branch, not `dev` or a separate manifest branch.
+Release publication prepares a metadata PR; protected merge makes its feed
+discoverable. Records with no certified Desktop compatibility are skipped.
+The main-to-dev back-merge keeps development metadata synchronized; it is not
+another update channel and never upgrades a running app.
+
+Desktop never stops an external or replaced daemon to apply an update. A
+recovery-required message means candidate launch began but did not complete;
+do not downgrade the runtime against those data roots without review.
+
 For source development, bypass the managed installation with:
 
 ```bash
 OPENMINION_EXECUTABLE=/path/to/openminion npm start
 ```
 
-The executable must provide the ordinary `config init` and `daemon
-start/status/stop` commands. No Desktop-specific OpenMinion command is required.
+The executable must provide the ordinary `config init` and `daemon status`
+commands, with a sibling public `openminiond` entrypoint for an app-owned
+foreground launch. A pre-existing daemon can be used but is not stopped by
+Desktop; profile writes are rejected without verified app ownership. No
+Desktop-specific OpenMinion command is required.
 
 The real app supports text messages, saved history, task closing, and turn
 cancellation through the ordinary CLI/API. New installations open **Welcome to

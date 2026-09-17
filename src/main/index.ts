@@ -60,6 +60,15 @@ export function registerIpcHandlers(
   observation = new ObservationService(capture, media),
   store?: DesktopStore,
 ): void {
+  ipcMain.handle(IPC_CHANNELS.runtimeStatus, (event) =>
+    !isAppInvocation(event) ? forbiddenResult() : supervisor.runtimeStatus(),
+  );
+  ipcMain.handle(IPC_CHANNELS.runtimeCheck, (event) =>
+    !isAppInvocation(event) ? forbiddenResult() : supervisor.checkRuntime(),
+  );
+  ipcMain.handle(IPC_CHANNELS.runtimeStage, (event) =>
+    !isAppInvocation(event) ? forbiddenResult() : supervisor.stageRuntime(),
+  );
   ipcMain.handle(IPC_CHANNELS.chatNamesLoad, (event, input: unknown) =>
     !isAppInvocation(event)
       ? forbiddenResult()
@@ -819,7 +828,7 @@ export async function createWindow(
   });
   await window.loadURL("openminion://app/");
   loaded = true;
-  void supervisor.start();
+  void supervisor.start().then(() => supervisor.startUpdateChecks());
   return window;
 }
 
@@ -917,7 +926,7 @@ export function registerQuitLifecycle(
     stopping = true;
     void closeObservation()
       .then(() => Promise.allSettled([closeFiles(), closeCapture()]))
-      .then(() => supervisor.stop())
+      .then(() => supervisor.stop(true))
       .finally(() => {
         readyToQuit = true;
         appInstance.quit();
@@ -929,12 +938,18 @@ let activeFileGrants: FileGrantService | null = null;
 let activeCapture: CaptureService | null = null;
 let activeObservation: ObservationService | null = null;
 
-export function createDesktopSupervisor(userDataRoot: string): DaemonSupervisor {
+export function createDesktopSupervisor(
+  userDataRoot: string,
+  store?: DesktopStore,
+): DaemonSupervisor {
   return new DaemonSupervisor({
     runtimeRoot: join(userDataRoot, "runtime"),
     homeRoot: userDataRoot,
     dataRoot: join(userDataRoot, "data"),
     configPath: join(userDataRoot, "agents.json"),
     openminionExecutable: process.env.OPENMINION_EXECUTABLE,
+    store,
+    desktopVersion: app.getVersion(),
+    exclusiveRuntime: store !== undefined && userDataRoot === app.getPath("userData"),
   });
 }

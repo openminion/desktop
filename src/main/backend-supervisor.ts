@@ -1,10 +1,14 @@
 import { Profiles } from "./profiles.js";
 import { failure, failureFrom } from "./openminion-client.js";
-import type { ClientResult } from "../shared/contracts.js";
+import type { ClientResult, RuntimeUpdateStatus } from "../shared/contracts.js";
+import { checkRuntimeManifest, desktopCompatible, type RuntimeOffer } from "./runtime-manifest.js";
 import type { ProfileSettings } from "../shared/profiles.js";
 import type { DaemonStatus } from "../shared/contracts.js";
 import { randomBytes } from "node:crypto";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { dirname, join } from "node:path";
 import { access, chmod, readFile, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { createServer } from "node:net";
 import { LifecycleState } from "./lifecycle-state.js";
 import {
@@ -20,10 +24,22 @@ export type DaemonSupervisorOptions = OpenMinionInstallationOptions & {
   configPath?: string;
   homeRoot?: string;
   dataRoot?: string;
+  spawnDaemon?: (
+    executable: string,
+    args: readonly string[],
+    options: SpawnOptions,
+  ) => ChildProcess;
+  exclusiveRuntime?: boolean;
 };
 
 type DaemonCliStatus = {
   reachable: boolean;
+  pid?: number | null;
+  pid_alive?: boolean;
+  lifecycle?: string;
+  endpoint_status?: string;
+  remote_config_path?: string;
+  remote_data_root?: string;
 };
 
 export type OpenMinionCommandContext = {
@@ -34,20 +50,31 @@ export type OpenMinionCommandContext = {
 export class DaemonSupervisor {
   readonly profiles: Profiles | null;
   readonly lifecycle = new LifecycleState();
-  readonly client = new CliClient(() => this.getCommandContext());
+  readonly client: CliClient;
   readonly #options: DaemonSupervisorOptions;
   readonly #installation: OpenMinionInstallation;
   readonly #runCommand: RunCommand;
   #executable: string | null = null;
   #daemonVersion: string | null = null;
   #errorCode: string | null = null;
-  #daemonStarted = false;
+  #daemon: ChildProcess | null = null;
   #startPromise: Promise<DaemonStatus> | null = null;
   #startAttempts = 0;
+  #installedVersion: string | null = null;
+  #offer: RuntimeOffer | null = null;
+  #updatePhase: RuntimeUpdateStatus["phase"] = "unchecked";
+  #checkPromise: Promise<RuntimeUpdateStatus> | null = null;
+  #checkController: AbortController | null = null;
+  #stagePromise: Promise<ClientResult<RuntimeUpdateStatus>> | null = null;
+  #stageController: AbortController | null = null;
+  #closing = false;
+  #updateTimer: ReturnType<typeof setInterval> | null = null;
+  #chatConnected = false;
 
   constructor(options: DaemonSupervisorOptions) {
     this.#options = options;
     this.#runCommand = options.runCommand ?? runCommand;
+    this.client = new CliClient(() => this.getCommandContext(), this.#runCommand);
     this.#installation = new OpenMinionInstallation(options);
     this.profiles =
       options.configPath && options.homeRoot && options.dataRoot
@@ -85,11 +112,26 @@ export class DaemonSupervisor {
   ): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus }>> {
     if (!this.profiles || !this.#executable)
       return failure("settings_unavailable", "Connect to OpenMinion before editing profiles.");
+    const ownedDaemon = this.#daemon;
+    let owned = false;
+    if (ownedDaemon) {
+      try {
+        owned = this.#owns(await this.#daemonStatus(), ownedDaemon);
+      } catch {
+        owned = false;
+      }
+    }
+    if (!owned)
+      return failure(
+        "runtime_external",
+        "This daemon is managed outside Desktop. Stop it before applying profile changes.",
+      );
     if (this.#startPromise || !this.client.beginConfiguration())
       return failure("settings_busy", "Wait for running chats to finish before applying settings.");
     try {
       const settings = await save(this.profiles, this.#executable);
-      const needsStop = this.#daemonStarted;
+      const needsStop =
+        this.#daemon !== null && this.#daemon.exitCode === null && this.#daemon.signalCode === null;
       const stopped = await this.stop();
       if (needsStop && !stopped.stopped)
         return failure(
@@ -109,6 +151,133 @@ export class DaemonSupervisor {
     return this.#startAttempts;
   }
 
+  runtimeStatus(): RuntimeUpdateStatus {
+    const state = this.#options.store?.runtimeState();
+    const unmanaged = Boolean(this.#options.openminionExecutable);
+    let phase = this.#updatePhase;
+    if (
+      (phase === "current" || phase === "unchecked") &&
+      state?.active &&
+      !desktopCompatible(
+        this.#options.desktopVersion ?? "0.0.0",
+        state.active.desktopMinVersion,
+        state.active.desktopMaxVersionExclusive,
+      )
+    )
+      phase = "incompatible";
+    if (state?.pending) phase = "pending";
+    if (state?.launchIntent) phase = "recovery_required";
+    if (unmanaged) phase = "unmanaged";
+    return {
+      source: unmanaged ? "unmanaged" : (state?.source ?? "pypi"),
+      installedVersion: this.#installedVersion,
+      availableVersion: state?.pending?.version ?? this.#offer?.record.runtime_version ?? null,
+      phase,
+    };
+  }
+
+  checkRuntime(): Promise<RuntimeUpdateStatus> {
+    if (this.#checkPromise) return this.#checkPromise;
+    if (
+      this.#closing ||
+      this.#options.openminionExecutable ||
+      !this.#options.store ||
+      !this.#installedVersion ||
+      this.#options.store.runtimeState().pending ||
+      this.#options.store.runtimeState().launchIntent ||
+      this.#stagePromise
+    ) {
+      return Promise.resolve(this.runtimeStatus());
+    }
+    this.#offer = null;
+    this.#checkController = new AbortController();
+    this.#updatePhase = "checking";
+    const state = this.#options.store.runtimeState();
+    this.#checkPromise = checkRuntimeManifest({
+      source: state.source,
+      desktopVersion: this.#options.desktopVersion ?? "0.0.0",
+      installedVersion: this.#installedVersion,
+      installedDigest: state.active?.sha256,
+      signal: this.#checkController.signal,
+    })
+      .then((offer) => {
+        this.#offer = offer;
+        this.#updatePhase = offer ? "available" : "current";
+        return this.runtimeStatus();
+      })
+      .catch(() => {
+        // Network/metadata failures do not affect the active installation or replay work.
+        this.#updatePhase = "check_failed";
+        return this.runtimeStatus();
+      })
+      .finally(() => {
+        this.#checkPromise = null;
+        this.#checkController = null;
+      });
+    return this.#checkPromise;
+  }
+
+  stageRuntime(): Promise<ClientResult<RuntimeUpdateStatus>> {
+    if (this.#stagePromise) return this.#stagePromise;
+    if (!this.#options.exclusiveRuntime) {
+      return Promise.resolve(
+        failure(
+          "runtime_shared_roots",
+          "Runtime updates require Desktop's private installation. This adopted runtime must be updated outside Desktop.",
+        ),
+      );
+    }
+    if (
+      this.#closing ||
+      !this.#offer ||
+      this.#checkPromise ||
+      this.#options.openminionExecutable ||
+      this.#options.store?.runtimeState().pending
+    ) {
+      return Promise.resolve(
+        failure("runtime_candidate_unavailable", "Check for a compatible update first."),
+      );
+    }
+    this.#updatePhase = "staging";
+    this.#stageController = new AbortController();
+    this.#stagePromise = this.#installation
+      .stage(this.#offer, this.#stageController.signal)
+      .then(() => {
+        this.#offer = null;
+        return { ok: true as const, value: this.runtimeStatus() };
+      })
+      .catch(() => {
+        this.#updatePhase = "available";
+        return failure(
+          "runtime_stage_failed",
+          "The update could not be prepared. Your current runtime is unchanged.",
+        );
+      })
+      .finally(() => {
+        this.#stagePromise = null;
+        this.#stageController = null;
+      });
+    return this.#stagePromise;
+  }
+
+  startUpdateChecks(): void {
+    if (
+      this.#closing ||
+      !this.#options.store ||
+      this.#options.openminionExecutable ||
+      this.#updateTimer
+    )
+      return;
+    void this.checkRuntime();
+    this.#updateTimer = setInterval(
+      () => {
+        void this.checkRuntime();
+      },
+      24 * 60 * 60_000,
+    );
+    this.#updateTimer.unref();
+  }
+
   async start(): Promise<DaemonStatus> {
     if (this.lifecycle.current === "running") return this.status();
     if (this.#startPromise) return this.#startPromise;
@@ -123,6 +292,8 @@ export class DaemonSupervisor {
     try {
       const status = await this.#daemonStatus();
       if (!status.reachable) throw new Error("daemon_unavailable");
+      if (this.#daemon && !this.#owns(status, this.#daemon))
+        throw new Error("daemon_ownership_unverified");
       this.#errorCode = null;
     } catch (error) {
       this.#errorCode = normalizeErrorCode(error, "daemon_status_failed");
@@ -160,22 +331,60 @@ export class DaemonSupervisor {
     return this.lifecycle.current === "running" ? this.status() : this.start();
   }
 
-  async stop(): Promise<{ stopped: boolean }> {
+  async stop(shutdown = false): Promise<{ stopped: boolean }> {
+    if (shutdown) {
+      this.#closing = true;
+      if (this.#updateTimer) clearInterval(this.#updateTimer);
+      this.#updateTimer = null;
+      this.#checkController?.abort();
+      this.#stageController?.abort();
+      if (this.#checkPromise) await this.#checkPromise;
+      if (this.#stagePromise) await this.#stagePromise;
+    }
     if (this.lifecycle.current === "stopped") return { stopped: false };
     if (this.#startPromise) await this.#startPromise;
     if (this.lifecycle.current !== "stopping") this.lifecycle.move("stopping");
 
     let stopped = false;
-    if (this.#daemonStarted && this.#executable) {
-      const result = await this.#runOpenMinion(["daemon", "stop"]);
-      stopped = result.exitCode === 0;
+    const daemon = this.#daemon;
+    if (daemon && daemon.exitCode === null && daemon.signalCode === null) {
+      let current: DaemonCliStatus;
+      try {
+        current = await this.#daemonStatus();
+      } catch {
+        this.#errorCode = "daemon_ownership_unverified";
+        this.lifecycle.move("degraded");
+        return { stopped: false };
+      }
+      if (!this.#owns(current, daemon)) {
+        this.#errorCode = "daemon_ownership_unverified";
+        this.lifecycle.move("degraded");
+        return { stopped: false };
+      }
+      stopped = await new Promise<boolean>((resolve) => {
+        const exited = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        const timer = setTimeout(() => {
+          daemon.removeListener("exit", exited);
+          resolve(false);
+        }, 10_000);
+        daemon.once("exit", exited);
+        if (!daemon.kill("SIGTERM")) {
+          clearTimeout(timer);
+          daemon.removeListener("exit", exited);
+          resolve(false);
+        }
+      });
       if (!stopped) {
         this.#errorCode = "daemon_stop_failed";
         this.lifecycle.move("degraded");
         return { stopped: false };
       }
     }
-    this.#daemonStarted = false;
+    this.#daemon = null;
+    this.#chatConnected = false;
     this.#errorCode = null;
     this.lifecycle.move("stopped");
     return { stopped };
@@ -183,13 +392,15 @@ export class DaemonSupervisor {
 
   snapshot(): DaemonStatus {
     return {
-      state: this.lifecycle.current,
+      state:
+        this.lifecycle.current === "running" && this.#chatConnected
+          ? "ready"
+          : this.lifecycle.current,
       reachable: this.lifecycle.current === "running",
       daemonVersion: this.#daemonVersion,
       protocol: null,
       configId: null,
-      capabilities:
-        this.lifecycle.current === "running" ? ["sessions", "turns.text", "turns.cancel"] : [],
+      capabilities: [],
       errorCode: this.#errorCode,
     };
   }
@@ -200,27 +411,112 @@ export class DaemonSupervisor {
   }
 
   async #start(): Promise<DaemonStatus> {
+    const startupActivationAllowed = this.#startAttempts === 0;
     this.#startAttempts += 1;
     this.lifecycle.move("probing");
     this.#errorCode = null;
     try {
       this.lifecycle.move("starting");
-      const installed = await this.#installation.ensure();
+      let installed = await this.#installation.ensure();
       this.#executable = installed.path;
-      this.#daemonVersion = installed.version;
+      this.#installedVersion = installed.version;
+      // Public status currently does not report the running runtime version.
+      this.#daemonVersion = null;
+      const state = this.#options.store?.runtimeState();
+      const compatible = (runtime: NonNullable<typeof state>["active"]) =>
+        !runtime ||
+        desktopCompatible(
+          this.#options.desktopVersion ?? "0.0.0",
+          runtime.desktopMinVersion,
+          runtime.desktopMaxVersionExclusive,
+        );
+      const activeCompatible = compatible(state?.active ?? null);
+      const canActivate = Boolean(
+        state?.pending &&
+          startupActivationAllowed &&
+          this.#options.exclusiveRuntime &&
+          !this.#options.openminionExecutable &&
+          compatible(state.pending),
+      );
+      if (!activeCompatible && !canActivate) throw new Error("runtime_incompatible");
+      if (
+        !activeCompatible &&
+        (!this.#options.configPath || !(await pathExists(this.#options.configPath)))
+      )
+        throw new Error("runtime_incompatible");
       await this.#ensureConfig();
 
       const current = await this.#daemonStatus();
+      if (!activeCompatible && current.reachable) throw new Error("runtime_incompatible");
+      let launchingUpdate = false;
       if (!current.reachable) {
-        this.#daemonStarted = true;
-        const started = await this.#runOpenMinion(["daemon", "start"]);
-        if (started.exitCode !== 0) throw new Error("daemon_start_failed");
+        if (
+          current.pid_alive !== false ||
+          current.lifecycle !== "stopped" ||
+          current.endpoint_status !== "unreachable"
+        )
+          throw new Error("daemon_ownership_unverified");
+        if (!this.#options.configPath || !this.#options.homeRoot || !this.#options.dataRoot)
+          throw new Error("daemon_roots_unavailable");
+        const store = this.#options.store;
+        const pending = store?.runtimeState().pending;
+        if (store && pending && canActivate) {
+          // Persist BEFORE the candidate executes against live configuration or data.
+          const candidate = store.beginRuntimeLaunch();
+          installed = { path: candidate.executable, version: candidate.version };
+          this.#executable = candidate.executable;
+          launchingUpdate = true;
+        }
+        const executable = join(
+          dirname(installed.path),
+          process.platform === "win32" ? "openminiond.exe" : "openminiond",
+        );
+        const daemon = (this.#options.spawnDaemon ?? spawn)(
+          executable,
+          ["serve", "--config", this.#options.configPath],
+          {
+            shell: false,
+            stdio: "ignore",
+            env: {
+              ...process.env,
+              OPENMINION_HOME: this.#options.homeRoot,
+              OPENMINION_DATA_ROOT: this.#options.dataRoot,
+            },
+          },
+        );
+        this.#daemon = daemon;
+        let spawnError = false;
+        daemon.once("error", () => {
+          spawnError = true;
+        });
+        const deadline = Date.now() + 10_000;
+        while (true) {
+          const ready = await this.#daemonStatus();
+          if (ready.reachable && this.#owns(ready, daemon)) break;
+          if (
+            spawnError ||
+            daemon.exitCode !== null ||
+            daemon.signalCode !== null ||
+            Date.now() >= deadline
+          )
+            throw new Error("daemon_start_failed");
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
       }
       const ready = await this.#daemonStatus();
       if (!ready.reachable) throw new Error("daemon_unavailable");
+      if (this.#daemon && !this.#owns(ready, this.#daemon))
+        throw new Error("daemon_ownership_unverified");
 
-      this.#daemonStarted = true;
       this.lifecycle.move("running");
+      // A completed, schema-validated public request proves the chat transport;
+      // reachability alone does not fabricate runtime version/capabilities.
+      this.#chatConnected = (await this.client.list({})).ok;
+      if (launchingUpdate) {
+        if (!this.#chatConnected) throw new Error("runtime_health_failed");
+        this.#options.store!.completeRuntimeLaunch();
+        this.#installedVersion = installed.version;
+      }
     } catch (error) {
       this.#errorCode = normalizeErrorCode(error, "daemon_start_failed");
       if (this.lifecycle.current !== "degraded") this.lifecycle.move("degraded");
@@ -239,7 +535,24 @@ export class DaemonSupervisor {
     if (typeof reachable !== "boolean" || result.exitCode !== (reachable ? 0 : 1)) {
       throw new Error("invalid_daemon_status");
     }
-    return { reachable };
+    return payload as DaemonCliStatus;
+  }
+
+  #owns(status: DaemonCliStatus, daemon: ChildProcess): boolean {
+    if (!this.#options.configPath || !this.#options.dataRoot) return false;
+    try {
+      return (
+        daemon.exitCode === null &&
+        daemon.signalCode === null &&
+        daemon.pid !== undefined &&
+        status.pid === daemon.pid &&
+        status.pid_alive === true &&
+        status.remote_config_path === realpathSync(this.#options.configPath) &&
+        status.remote_data_root === realpathSync(this.#options.dataRoot)
+      );
+    } catch {
+      return false;
+    }
   }
 
   async #ensureConfig(): Promise<void> {

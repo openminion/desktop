@@ -35,6 +35,29 @@ import type {
 
 function mount(api: NativeApi, root: Document): Promise<void> {
   api.chatNames ??= namesApi();
+  api.runtime ??= {
+    status: async () => ({
+      source: "pypi",
+      installedVersion: "0.0.19",
+      availableVersion: null,
+      phase: "unchecked",
+    }),
+    check: async () => ({
+      source: "pypi",
+      installedVersion: "0.0.19",
+      availableVersion: null,
+      phase: "current",
+    }),
+    stage: async () => ({
+      ok: true,
+      value: {
+        source: "pypi",
+        installedVersion: "0.0.19",
+        availableVersion: null,
+        phase: "current",
+      },
+    }),
+  };
   return mountRenderer(api, root);
 }
 
@@ -55,6 +78,57 @@ function namesApi(): NativeApi["chatNames"] {
 }
 
 describe("renderer computer observation", () => {
+  it.each(["available", "check_failed"] as const)(
+    "refreshes automatic update completion while details stay open (%s)",
+    async (phase) => {
+      const page = new FixtureDocument();
+      let current: Awaited<ReturnType<NativeApi["runtime"]["status"]>> = {
+        source: "pypi",
+        installedVersion: "0.0.19",
+        availableVersion: null,
+        phase: "checking",
+      };
+      const runtimeStatus = vi.fn(async () => current);
+      const hide: Array<() => void> = [];
+      const api = {
+        app: { info: async () => ({ shellVersion: "test" }) },
+        daemon: { status: async () => status({ state: "running", reachable: true }) },
+        turns: { subscribe: () => () => {} },
+        runtime: { status: runtimeStatus, check: vi.fn(), stage: vi.fn() },
+      } as unknown as NativeApi;
+      vi.useFakeTimers();
+      vi.stubGlobal("window", {
+        addEventListener(type: string, listener: () => void) {
+          if (type === "pagehide") hide.push(listener);
+        },
+      });
+      try {
+        await mount(api, page.asDocument());
+        page.element("connection-details").open = true;
+        page.element("connection-details").dispatch("toggle");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(page.element("check-runtime-update").disabled).toBe(true);
+        expect(page.element("runtime-update-status").textContent).toContain(
+          "Installed: OpenMinion 0.0.19 (pypi)",
+        );
+        current = { ...current, availableVersion: phase === "available" ? "1.0.0" : null, phase };
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(page.element("check-runtime-update").disabled).toBe(false);
+        expect(page.element("runtime-update-status").textContent).toContain(
+          phase === "available" ? "1.0.0 is available" : "Could not check",
+        );
+        expect(page.element("stage-runtime-update").hidden).toBe(phase !== "available");
+        hide[0]!();
+        const count = runtimeStatus.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(4_000);
+        expect(runtimeStatus).toHaveBeenCalledTimes(count);
+        expect(api.runtime.check).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
   it("validates percentage regions and uses safe lifecycle copy", () => {
     expect(captureRegionFromPercentages(["10", "20", "40", "50"])).toEqual({
       xBps: 1000,
@@ -3248,6 +3322,9 @@ class FixtureDocument {
     "close-diagnostics",
     "show-daemon-status",
     "show-daemon-logs",
+    "runtime-update-status",
+    "check-runtime-update",
+    "stage-runtime-update",
     "connection-details",
     "recovery",
     "daemon-version",

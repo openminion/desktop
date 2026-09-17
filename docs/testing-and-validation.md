@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-09-15
+Last updated: 2026-09-17
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -48,6 +48,46 @@ development dependencies, local `.openminion` state, source, or tests. It also
 fails when a platform's expected artifact formats are missing.
 
 ## Desktop Storage
+
+Runtime contract, verified staging and launch-intent checks:
+
+```bash
+npm test -- tests/main/runtime-manifest.test.ts tests/main/runtime-installation.test.ts tests/main/backend-supervisor.test.ts tests/main/desktop-store.test.ts
+```
+
+These fixtures are not public-feed or native update certification. Run the real
+managed PyPI first-install/reuse/owned-quit check separately after building:
+
+```bash
+node tests/electron/managed-install.mjs
+node tests/electron/runtime-update.mjs
+node tests/electron/runtime-update.mjs --testpypi-final 0.0.21
+node tests/electron/runtime-update.mjs --pypi-final 0.0.21
+```
+
+The private update harness uses main-only test fixtures and isolated roots to
+stage official PyPI 0.0.20 beside 0.0.19, keep the old daemon usable, activate on
+the next startup, retain an echo conversation and refuse interrupted-intent
+restart. Its fixture bounds are not published compatibility certification;
+it does not qualify a public feed or a packaged application.
+
+The optional `--testpypi-final` mode rehearses an exact final TestPyPI wheel
+against the managed installer pin in isolated roots, resolving ordinary pip
+dependencies from production PyPI. It uses a fixed TestPyPI metadata origin
+and checks its wheel host; it never routes a TestPyPI record through the public
+reader or publishes compatibility bounds. All five private lifecycle phases
+still run. Replace the example version with the final version under test;
+public upgrade acceptance must later use the official production record and
+exact shipped Desktop revision.
+
+Use `--pypi-final` only after the target production version exists to replay
+the same private phases against its official wheel. The two index flags are
+mutually exclusive. Set `TMPDIR` to an umbrella workspace scratch directory
+so isolated native state and retained failure evidence remain there.
+
+Python 3.11 is required. Windows uses `py -3.11` and `Scripts` executables;
+POSIX uses `python3.11` and `bin`. Native Windows/Linux and real published-feed
+update acceptance remain separate pending gates.
 
 After building, run the native migration and restart check:
 

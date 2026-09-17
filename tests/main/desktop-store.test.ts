@@ -120,7 +120,7 @@ describe("Desktop SQLite storage", () => {
     const future = root();
     const db = new DatabaseSync(join(future, "desktop.sqlite"));
     db.exec(
-      "PRAGMA user_version = 2; CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('keep');",
+      "PRAGMA user_version = 3; CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('keep');",
     );
     db.close();
     const before = readFileSync(join(future, "desktop.sqlite"));
@@ -130,5 +130,58 @@ describe("Desktop SQLite storage", () => {
     writeFileSync(join(corrupt, "desktop.sqlite"), "not a database");
     expect(() => open(corrupt)).toThrow();
     expect(readFileSync(join(corrupt, "desktop.sqlite"), "utf8")).toBe("not a database");
+  });
+
+  it("preserves a durable launch intent after a crash instead of automatically downgrading", () => {
+    const path = root();
+    let store = open(path);
+    const candidate = {
+      source: "pypi" as const,
+      version: "1.0.0",
+      executable: "/private/runtime/python/bin/openminion",
+      sha256: "a".repeat(64),
+      manifestUrl: "immutable",
+      desktopMinVersion: "0.0.0",
+      desktopMaxVersionExclusive: "2.0.0",
+    };
+    store.stageRuntime(candidate);
+    expect(store.runtimeState()).toMatchObject({
+      source: "pypi",
+      active: null,
+      pending: candidate,
+    });
+    expect(store.beginRuntimeLaunch()).toEqual(candidate);
+    stores.pop()!.close();
+    store = open(path);
+    expect(store.runtimeState().launchIntent).toEqual(candidate);
+    expect(() => store.beginRuntimeLaunch()).toThrow("runtime_recovery_required");
+    expect(() => store.stageRuntime(candidate)).toThrow("runtime_recovery_required");
+    store.completeRuntimeLaunch();
+    expect(store.runtimeState()).toMatchObject({
+      active: candidate,
+      pending: null,
+      launchIntent: null,
+    });
+  });
+
+  it("migrates schema one without moving installations or upgrading the runtime", () => {
+    const path = root();
+    const db = new DatabaseSync(join(path, "desktop.sqlite"));
+    db.exec(
+      "CREATE TABLE installation (id INTEGER PRIMARY KEY, runtime_home TEXT, browser_home TEXT, names_imported INTEGER); CREATE TABLE chat_names (session_id TEXT PRIMARY KEY, title TEXT); PRAGMA user_version = 1",
+    );
+    db.prepare("INSERT INTO installation VALUES (1, ?, ?, 1)").run(path, join(path, "browser"));
+    db.exec("INSERT INTO chat_names VALUES ('keep', 'Existing')");
+    db.close();
+    const store = open(path);
+    expect(store.runtimeState()).toEqual({
+      source: "pypi",
+      channel: "stable",
+      active: null,
+      pending: null,
+      previous: null,
+      launchIntent: null,
+    });
+    expect(store.load([])).toEqual({ ok: true, value: [{ sessionId: "keep", title: "Existing" }] });
   });
 });

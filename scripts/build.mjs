@@ -17,6 +17,17 @@ execFileSync(
   { cwd: repositoryRoot, stdio: "inherit" },
 );
 
+// Bundle the Python-version parser; packaged apps do not ship development dependencies.
+await build({
+  entryPoints: ["src/main/runtime-manifest.ts"],
+  absWorkingDir: repositoryRoot,
+  outfile: join(outputRoot, "src/main/runtime-manifest.js"),
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node24",
+});
+
 // Sandboxed Electron preloads require a single CommonJS file, including shared contracts.
 await build({
   entryPoints: ["src/preload/index.ts", "src/preload/capture.ts"],

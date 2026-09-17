@@ -4,6 +4,24 @@ import { DatabaseSync } from "node:sqlite";
 import type { ChatName, ClientResult } from "../shared/contracts.js";
 import { failure } from "./openminion-client.js";
 
+export type InstalledRuntime = {
+  source: "pypi" | "binary";
+  version: string;
+  executable: string;
+  sha256: string;
+  manifestUrl: string;
+  desktopMinVersion: string;
+  desktopMaxVersionExclusive: string;
+};
+export type RuntimeState = {
+  source: "pypi" | "binary";
+  channel: "stable";
+  active: InstalledRuntime | null;
+  pending: InstalledRuntime | null;
+  previous: InstalledRuntime | null;
+  launchIntent: InstalledRuntime | null;
+};
+
 export class DesktopStore {
   private readonly database: DatabaseSync;
   readonly runtimeHome: string;
@@ -17,7 +35,7 @@ export class DesktopStore {
     this.database = new DatabaseSync(path);
     try {
       const version = this.database.prepare("PRAGMA user_version").get()!.user_version;
-      if (version !== 0 && version !== 1) {
+      if (version !== 0 && version !== 1 && version !== 2) {
         throw new Error(
           "Desktop data was created by a newer version. Install the newer app to open it.",
         );
@@ -51,6 +69,21 @@ export class DesktopStore {
           .run(runtimeHome, browserHome);
         this.database.exec("COMMIT");
       }
+      if (version === 0 || version === 1) {
+        this.database.exec("BEGIN IMMEDIATE");
+        this.database.exec("ALTER TABLE installation ADD COLUMN runtime_state TEXT");
+        this.database.prepare("UPDATE installation SET runtime_state = ? WHERE id = 1").run(
+          JSON.stringify({
+            source: "pypi",
+            channel: "stable",
+            active: null,
+            pending: null,
+            previous: null,
+            launchIntent: null,
+          }),
+        );
+        this.database.exec("PRAGMA user_version = 2; COMMIT");
+      }
       const installation = this.database
         .prepare("SELECT runtime_home, browser_home FROM installation WHERE id = 1")
         .get()!;
@@ -60,6 +93,46 @@ export class DesktopStore {
       this.database.close();
       throw error;
     }
+  }
+
+  runtimeState(): RuntimeState {
+    return JSON.parse(
+      this.database.prepare("SELECT runtime_state FROM installation WHERE id = 1").get()!
+        .runtime_state as string,
+    ) as RuntimeState;
+  }
+
+  stageRuntime(candidate: InstalledRuntime): void {
+    const state = this.runtimeState();
+    if (state.launchIntent) throw new Error("runtime_recovery_required");
+    this.writeRuntimeState({ ...state, pending: candidate });
+  }
+
+  beginRuntimeLaunch(): InstalledRuntime {
+    const state = this.runtimeState();
+    if (state.launchIntent) throw new Error("runtime_recovery_required");
+    if (!state.pending) throw new Error("runtime_candidate_unavailable");
+    this.writeRuntimeState({ ...state, launchIntent: state.pending });
+    return state.pending;
+  }
+
+  completeRuntimeLaunch(): void {
+    const state = this.runtimeState();
+    if (!state.launchIntent) throw new Error("runtime_launch_intent_missing");
+    this.writeRuntimeState({
+      ...state,
+      source: state.launchIntent.source,
+      previous: state.active,
+      active: state.launchIntent,
+      pending: null,
+      launchIntent: null,
+    });
+  }
+
+  private writeRuntimeState(state: RuntimeState): void {
+    this.database
+      .prepare("UPDATE installation SET runtime_state = ? WHERE id = 1")
+      .run(JSON.stringify(state));
   }
 
   load(input: unknown): ClientResult<ChatName[]> {

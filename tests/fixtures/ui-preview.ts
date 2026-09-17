@@ -197,6 +197,29 @@ const profileSettings = {
 };
 const previewNames = new Map<string, string>();
 const api: NativeApi = {
+  runtime: {
+    status: async () => ({
+      source: "unmanaged",
+      installedVersion: null,
+      availableVersion: null,
+      phase: "unmanaged",
+    }),
+    check: async () => ({
+      source: "unmanaged",
+      installedVersion: null,
+      availableVersion: null,
+      phase: "unmanaged",
+    }),
+    stage: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Runtime installation is unavailable in previews.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
+  },
   chatNames: {
     load: async () => ({
       ok: true,

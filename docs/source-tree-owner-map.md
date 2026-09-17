@@ -1,7 +1,7 @@
 # OpenMinion Desktop Source Tree Owner Map
 
 Status: active
-Last updated: 2026-09-09
+Last updated: 2026-09-17
 
 Purpose: give contributors a package-local owner map without turning internal
 TypeScript modules into supported third-party APIs.
@@ -47,6 +47,12 @@ credentials remain main-only facts.
 and admits one app instance per Desktop root. `src/main/desktop-store.ts` owns
 SQLite schema versioning, legacy chat-name import and Desktop presentation data.
 It records existing runtime locations without moving core-owned files.
+
+`src/main/runtime-manifest.ts` owns bounded JSON parsing, PEP 440 ordering and
+compatible offer selection. The installer owns verified wheel staging; the
+supervisor owns notification-only checks and first-startup activation. The
+existing SQLite store owns pending identity and durable launch intent. There is
+no second updater service or runtime database.
 
 Cross-process changes must preserve the main/preload/renderer authority split
 and update focused tests plus [API_COMPATIBILITY.md](../API_COMPATIBILITY.md)

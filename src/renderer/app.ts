@@ -25,6 +25,7 @@ import type {
   NativeApi,
   ObservationFrameFactV1,
   ObservationStatusV1,
+  RuntimeUpdateStatus,
   SessionEventV1,
   SessionSummaryV1,
   ToolProgressV1,
@@ -2067,10 +2068,72 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   };
 
+  const renderRuntimeUpdate = (status: RuntimeUpdateStatus) => {
+    const copy: Record<RuntimeUpdateStatus["phase"], string> = {
+      unchecked: "Runtime updates have not been checked.",
+      checking: "Checking for a compatible runtime…",
+      current: "No compatible runtime update is available.",
+      incompatible:
+        "The installed runtime is incompatible with this Desktop version. Check for a compatible update before connecting.",
+      available: `Runtime ${status.availableVersion} is available. Your current runtime stays in use.`,
+      staging: "Preparing the update without interrupting your work…",
+      pending: `Runtime ${status.availableVersion} is prepared for a later startup. Quit and reopen Desktop; an external daemon must be stopped separately.`,
+      check_failed: "Could not check for updates. Your installed runtime is unchanged.",
+      recovery_required:
+        "A runtime update was interrupted after launch began. Recovery needs review; Desktop will not downgrade your data automatically.",
+      unmanaged: "Runtime is managed outside Desktop. Updates are not applied here.",
+    };
+    const installed = status.installedVersion
+      ? `Installed: OpenMinion ${status.installedVersion} (${status.source}). `
+      : "";
+    elements.runtimeUpdateStatus.textContent = installed + copy[status.phase];
+    elements.checkRuntimeUpdate.disabled = [
+      "checking",
+      "staging",
+      "pending",
+      "recovery_required",
+      "unmanaged",
+    ].includes(status.phase);
+    elements.stageRuntimeUpdate.hidden = status.phase !== "available";
+    elements.stageRuntimeUpdate.disabled = status.phase !== "available";
+  };
+  elements.checkRuntimeUpdate.addEventListener("click", async () => {
+    elements.checkRuntimeUpdate.disabled = true;
+    elements.runtimeUpdateStatus.textContent = "Checking for a compatible runtime…";
+    renderRuntimeUpdate(await api.runtime.check());
+  });
+  elements.stageRuntimeUpdate.addEventListener("click", async () => {
+    elements.stageRuntimeUpdate.disabled = true;
+    elements.runtimeUpdateStatus.textContent = "Preparing the update…";
+    const result = await api.runtime.stage();
+    renderRuntimeUpdate(result.ok ? result.value : await api.runtime.status());
+    if (!result.ok) elements.runtimeUpdateStatus.textContent = result.error.message;
+  });
+  let runtimeStatusTimer: ReturnType<typeof setInterval> | null = null;
+  let runtimeStatusLoading = false;
+  const refreshRuntimeStatus = async () => {
+    if (runtimeStatusLoading) return;
+    runtimeStatusLoading = true;
+    try {
+      renderRuntimeUpdate(await api.runtime.status());
+    } finally {
+      runtimeStatusLoading = false;
+    }
+  };
+  elements.connectionDetails.addEventListener("toggle", () => {
+    if (runtimeStatusTimer !== null) clearInterval(runtimeStatusTimer);
+    runtimeStatusTimer = null;
+    if (elements.connectionDetails.open) {
+      void refreshRuntimeStatus();
+      // Project automatic check completion only while connection details are visible.
+      runtimeStatusTimer = setInterval(() => void refreshRuntimeStatus(), 2_000);
+    }
+  });
+
   const renderStatus = (status: DaemonStatus) => {
     const view = statusView(status);
     daemonReady = status.state === "ready" || status.capabilities.includes("turns.text");
-    richContextReady = status.state === "ready";
+    richContextReady = status.state === "ready" && status.protocol !== null;
     if (!selected) {
       chat = {
         ...chat,
@@ -2107,6 +2170,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       await loadSessions();
     }
     await profiles?.checkSetup();
+    renderRuntimeUpdate(await api.runtime.status());
   };
 
   const acceptGuidanceTurnEvent = (event: TurnEventV1) => {
@@ -2212,6 +2276,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       observationGeneration += 1;
       clearGuidance();
       if (waitTimer !== null) clearInterval(waitTimer);
+      if (runtimeStatusTimer !== null) clearInterval(runtimeStatusTimer);
       capturePending = false;
       captureMessage = null;
       unsubscribe();
@@ -2771,6 +2836,9 @@ function rendererElements(root: Document) {
     closeDiagnostics: required(root, "close-diagnostics"),
     showDaemonStatus: required(root, "show-daemon-status") as HTMLButtonElement,
     showDaemonLogs: required(root, "show-daemon-logs") as HTMLButtonElement,
+    runtimeUpdateStatus: required(root, "runtime-update-status"),
+    checkRuntimeUpdate: required(root, "check-runtime-update") as HTMLButtonElement,
+    stageRuntimeUpdate: required(root, "stage-runtime-update") as HTMLButtonElement,
     connectionDetails: required(root, "connection-details") as HTMLDetailsElement,
     recovery: required(root, "recovery"),
     daemonVersion: required(root, "daemon-version"),

@@ -1,11 +1,21 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-15
+Last updated: 2026-09-18
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Read stable runtime metadata from the OpenMinion repo's public `main` branch;
+  metadata PR publication does not force installation or restart active work.
+- Add compatible runtime update checks and explicit, verified PyPI staging;
+  retain the fixed pin until certified public metadata exists. Interrupted
+  candidate launch requires recovery review instead of an automatic downgrade.
+- Use Windows Python 3.11 launcher and native `Scripts` paths; Windows native
+  lifecycle acceptance remains pending.
+- Supervise the public foreground daemon with a child-process handle. Recheck
+  canonical roots and PID before stopping; never stop an external or replaced daemon.
 
 - Enable inspected unsigned developer artifacts for macOS, Windows, and Linux,
   using the OpenMinion logo on each platform.

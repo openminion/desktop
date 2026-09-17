@@ -27,6 +27,7 @@ describe("preload surface", () => {
     const [name, api] = exposeInMainWorld.mock.calls[0];
     expect(name).toBe("openminion");
     expect(Object.keys(api)).toEqual([
+      "runtime",
       "chatNames",
       "reports",
       "tasks",
@@ -42,6 +43,13 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
+    expect(Object.keys(api.runtime)).toEqual(["status", "check", "stage"]);
+    await api.runtime.status();
+    await api.runtime.check();
+    await api.runtime.stage();
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStatus);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeCheck);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStage);
     expect(Object.keys(api.chatNames)).toEqual(["load", "save"]);
     await api.chatNames.load([]);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.chatNamesLoad, []);
