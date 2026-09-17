@@ -16,6 +16,7 @@ from Desktop; they are not bundled or overwritten.
 `iconutil`, without redrawing the artwork. Forge embeds it in the application
 bundle. Representations cover 16, 32, 128, 256, and 512 logical pixels at 1x
 and 2x. Every representation is downscaled from the master.
+The DMG maker also uses this file for the mounted installer disk's icon.
 
 `icon.ico` contains PNG-backed Windows representations at 16, 24, 32, 48, 64,
 128, and 256 pixels, downscaled with `sips` and stored in the ICO directory.

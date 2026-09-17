@@ -25,7 +25,7 @@ const config: ForgeConfig = {
     {
       name: "@electron-forge/maker-dmg",
       platforms: ["darwin"],
-      config: {},
+      config: { icon: "assets/icon.icns" },
     },
     {
       name: "@electron-forge/maker-deb",
