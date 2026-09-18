@@ -637,6 +637,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let savingName = false;
   let renameGeneration = 0;
   let daemonReady = false;
+  let connecting = true;
   let richContextReady = false;
   let creatingTask = false;
   let conversationLoading = false;
@@ -1775,7 +1776,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const writable = Boolean(selected && selected.status !== "closed");
     const attachmentsValid = turnAttachmentsAreValid();
     elements.chatStatus.textContent =
-      conversationLoading && !chat.active && !chat.label ? "Finishing…" : chat.label;
+      connecting && !selected
+        ? ""
+        : conversationLoading && !chat.active && !chat.label
+          ? "Finishing…"
+          : chat.label;
     elements.chatDetail.textContent = chat.detail;
     elements.chatDetail.hidden = !chat.detail;
     elements.chatProgress.hidden = !elements.chatStatus.textContent && !chat.detail;
@@ -1787,11 +1792,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       clearInterval(waitTimer);
       waitTimer = null;
     }
-    elements.newSession.disabled = creatingTask || chat.active;
+    elements.newSession.disabled = connecting || creatingTask || chat.active;
     const isCommand =
       elements.composer.value.trimStart().startsWith("/") &&
       !elements.composer.value.trimStart().startsWith("//");
     elements.send.disabled =
+      connecting ||
       creatingTask ||
       (!isCommand &&
         (!daemonReady ||
@@ -1805,9 +1811,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.cancel.disabled = !chat.active || !chat.traceId || chat.stopRequested;
     elements.cancel.title = chat.stopRequested ? "Waiting for OpenMinion to stop" : "Stop response";
     elements.send.hidden = chat.active && !isCommand;
-    elements.composerHint.textContent = chat.active
-      ? "You can keep drafting while OpenMinion works"
-      : "Enter to send · Shift+Enter for new line";
+    elements.composerHint.textContent = connecting
+      ? "Chat will be available when OpenMinion is ready"
+      : chat.active
+        ? "You can keep drafting while OpenMinion works"
+        : "Enter to send · Shift+Enter for new line";
     elements.send.title = isCommand
       ? "Run command"
       : !daemonReady
@@ -1817,7 +1825,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           : conversationLoading
             ? "Waiting for conversation history"
             : "Send message (Enter)";
-    elements.composer.disabled = false;
+    elements.composer.disabled = connecting;
+    elements.composer.placeholder = connecting ? "Waiting for OpenMinion…" : "Message OpenMinion…";
     elements.closeSession.disabled =
       !writable || conversationLoading || chat.active || attachmentPending;
     elements.attachImage.disabled =
@@ -2170,24 +2179,33 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   });
 
+  const renderReadiness = (summary?: string) => {
+    elements.recovery.hidden = daemonReady;
+    elements.readinessTitle.textContent = connecting
+      ? "Getting OpenMinion ready…"
+      : "Chat isn’t connected yet";
+    elements.readinessTitle.className = connecting ? "readiness-pending" : "";
+    elements.readinessSummary.textContent = connecting
+      ? "Starting your local runtime and connecting chat. First launch can take a little longer."
+      : `${summary} Your draft stays here while you reconnect.`;
+    elements.readinessActions.hidden = connecting;
+  };
+
   const renderStatus = (status: DaemonStatus) => {
     const view = statusView(status);
     daemonReady = status.state === "ready" || status.capabilities.includes("turns.text");
+    connecting = !daemonReady && !view.showRecovery;
     richContextReady = status.state === "ready" && status.protocol !== null;
     if (!selected) {
       chat = {
         ...chat,
-        label: daemonReady
-          ? "Send a message to start a new task."
-          : view.showRecovery
-            ? ""
-            : "Connecting to OpenMinion…",
+        label: daemonReady ? "Send a message to start a new task." : "",
       };
     }
     elements.statusDot.className = `status-dot ${view.tone}`;
     elements.statusSummary.textContent = view.summary;
     elements.retry.hidden = !view.showRetry;
-    elements.recovery.hidden = !view.showRecovery;
+    renderReadiness(view.summary);
     elements.daemonVersion.textContent = status.daemonVersion ?? "Unavailable";
     elements.protocolVersion.textContent = status.protocol?.toString() ?? "Unavailable";
     elements.connectionLabel.textContent = view.label;
@@ -2339,6 +2357,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   });
   elements.retry.addEventListener("click", async () => {
     elements.retry.disabled = true;
+    connecting = true;
+    daemonReady = false;
+    renderReadiness();
+    renderChat();
     const status = await api.daemon.retry();
     renderStatus(status);
     if (daemonReady) {
@@ -2346,6 +2368,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     elements.retry.disabled = false;
   });
+  elements.readinessRetry.addEventListener("click", () => elements.retry.click());
+  elements.readinessSettings.addEventListener("click", () =>
+    required(root, "show-settings").click(),
+  );
   const createTask = async () => {
     if (creatingTask || chat.active) return false;
     if (!daemonReady) {
@@ -2465,6 +2491,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderCapture();
   });
   const submitTurn = async (asGuidance: boolean) => {
+    if (connecting) return;
     if (!asGuidance && (await runCommand(elements.composer.value))) return;
     if (
       !daemonReady ||
@@ -2887,6 +2914,11 @@ function rendererElements(root: Document) {
     pinRuntimeVersion: required(root, "pin-runtime-version") as HTMLButtonElement,
     connectionDetails: required(root, "connection-details") as HTMLDetailsElement,
     recovery: required(root, "recovery"),
+    readinessTitle: required(root, "readiness-title"),
+    readinessSummary: required(root, "readiness-summary"),
+    readinessActions: required(root, "readiness-actions"),
+    readinessRetry: required(root, "readiness-retry"),
+    readinessSettings: required(root, "readiness-settings"),
     daemonVersion: required(root, "daemon-version"),
     protocolVersion: required(root, "protocol-version"),
     shellVersion: required(root, "shell-version"),

@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Show startup progress prominently in chat and enable typing when the daemon
+  is ready. Failed connections offer reconnect and settings without losing drafts.
+
 - Add persistent runtime upgrade pause/resume, exact published artifact pins,
   installed-runtime pins and pre-launch candidate discard, with startup and
   preparation enforcement and native same-chat hold/control checks.

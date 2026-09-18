@@ -818,8 +818,7 @@ h2 {
 .empty-note,
 .timeline-empty,
 .status-summary,
-.chat-status,
-.recovery {
+.chat-status {
   color: var(--muted);
   line-height: 1.55;
 }
@@ -976,7 +975,7 @@ details[open] > summary .summary-chevron {
   min-width: 0;
   overflow: hidden;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   background: #202020;
 }
 
@@ -1046,6 +1045,55 @@ details[open] > summary .summary-chevron {
   padding: 24px var(--conversation-gutter);
 }
 
+.readiness-panel {
+  width: 100%;
+  max-width: 560px;
+  align-self: center;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+
+.readiness-panel h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 550;
+}
+
+.readiness-panel p {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.readiness-pending::before {
+  content: "";
+  flex: 0 0 16px;
+  height: 16px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: session-spin 0.8s linear infinite;
+}
+
+.readiness-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.readiness-actions button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
 .timeline {
   display: flex;
   flex: 1 0 auto;
@@ -1071,6 +1119,10 @@ details[open] > summary .summary-chevron {
   font-size: 25px;
   font-weight: 500;
   letter-spacing: -0.025em;
+}
+
+.conversation:has(.readiness-panel:not([hidden])) .timeline-empty {
+  display: none;
 }
 
 .timeline-empty::before {
@@ -1718,29 +1770,6 @@ details[open] > summary .summary-chevron {
   margin: 0 var(--conversation-gutter) 6px;
 }
 
-.recovery {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  max-height: 30vh;
-  margin: 0 var(--conversation-gutter) 12px;
-  overflow: auto;
-  padding: 8px 12px;
-  border: 1px solid rgb(240 165 107 / 16%);
-  border-radius: 10px;
-  background: rgb(240 165 107 / 4%);
-  font-size: 12px;
-}
-
-.recovery button {
-  min-height: 28px;
-  padding: 4px 8px;
-  font-size: 11px;
-  flex-shrink: 0;
-}
-
 code {
   color: var(--text);
 }
@@ -2183,7 +2212,8 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .session-spinner {
+  .session-spinner,
+  .readiness-pending::before {
     animation: none;
   }
 }

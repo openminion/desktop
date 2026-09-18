@@ -166,11 +166,22 @@
             </div>
           </header>
           <div id="conversation" class="conversation">
+            <aside id="recovery" class="readiness-panel">
+              <div role="status" aria-live="polite" aria-atomic="true">
+                <h3 id="readiness-title" class="readiness-pending">Getting OpenMinion ready…</h3>
+                <p id="readiness-summary">Starting your local runtime and connecting chat. First launch can take a little longer.</p>
+              </div>
+              <div id="readiness-actions" class="readiness-actions" hidden>
+                <button id="readiness-retry" class="quiet-button" type="button">Reconnect</button>
+                <button id="show-connection" class="quiet-button" type="button">Connection details</button>
+                <button id="readiness-settings" class="quiet-button" type="button">Settings</button>
+              </div>
+            </aside>
             <div id="timeline" class="timeline" aria-live="polite">
               <p class="timeline-empty">
                 What would you like to work on?
               </p>
-              <div id="chat-progress" class="chat-progress">
+              <div id="chat-progress" class="chat-progress" hidden>
                 <div class="chat-status-line">
                   <p id="chat-status" class="chat-status" role="status" aria-live="polite" aria-atomic="true">
                     Choose or create a task to begin.
@@ -205,12 +216,6 @@
             <p id="guidance-status" class="capture-note" aria-live="polite" hidden>
               Write an instruction and keep a current frame to ask for guidance.
             </p>
-          </div>
-          <div class="chat-status-region">
-            <aside id="recovery" class="recovery" hidden>
-              <p>Connect to OpenMinion to send. You can keep drafting.</p>
-              <button id="show-connection" class="quiet-button" type="button">Connection details</button>
-            </aside>
           </div>
           <form id="composer-form" class="composer">
             <button id="jump-latest" class="jump-latest quiet-button" type="button" hidden title="Jump to latest message">↓ Jump to latest</button>

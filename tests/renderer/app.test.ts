@@ -800,6 +800,75 @@ describe("renderer status view", () => {
     }
   });
 
+  it.each(["ready", "running"] as const)(
+    "waits for chat readiness, recovers failures, and preserves drafts (%s)",
+    async (state) => {
+      let resolveStatus!: (value: DaemonStatus) => void;
+      let resolveRetry!: (value: DaemonStatus) => void;
+      const retry = vi.fn(
+        () =>
+          new Promise<DaemonStatus>((resolve) => {
+            resolveRetry = resolve;
+          }),
+      );
+      const create = vi.fn();
+      const submit = vi.fn();
+      const api = {
+        app: { info: async () => ({ shellVersion: "test" }) },
+        daemon: {
+          status: () =>
+            new Promise<DaemonStatus>((resolve) => {
+              resolveStatus = resolve;
+            }),
+          retry,
+        },
+        sessions: {
+          create,
+          list: async () => ({
+            ok: true,
+            value: { sessions: [], nextCursor: null, hasMore: false },
+          }),
+        },
+        turns: { submit, subscribe: () => () => {} },
+      } as unknown as NativeApi;
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        const mounted = mount(api, page.asDocument());
+        await vi.waitFor(() => expect(page.element("composer").disabled).toBe(true));
+        expect(page.element("new-session").disabled).toBe(true);
+        expect(page.element("send").disabled).toBe(true);
+        expect(page.element("chat-progress").hidden).toBe(true);
+        resolveStatus(status({ state: "starting" }));
+        await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce());
+        expect(page.element("recovery").hidden).toBe(false);
+        expect(page.element("readiness-title").textContent).toBe("Getting OpenMinion ready…");
+        expect(page.element("readiness-actions").hidden).toBe(true);
+        page.element("composer").value = "Preserve this draft";
+        page.element("composer-form").dispatch("submit");
+        expect(create).not.toHaveBeenCalled();
+        expect(submit).not.toHaveBeenCalled();
+        resolveRetry(status({ state: "degraded" }));
+        await mounted;
+        expect(page.element("readiness-title").textContent).toBe("Chat isn’t connected yet");
+        expect(page.element("readiness-actions").hidden).toBe(false);
+        expect(page.element("composer").disabled).toBe(false);
+        expect(page.element("send").disabled).toBe(true);
+        page.element("readiness-retry").click();
+        expect(retry).toHaveBeenCalledTimes(2);
+        expect(page.element("composer").disabled).toBe(true);
+        expect(page.element("readiness-actions").hidden).toBe(true);
+        resolveRetry(status({ state, reachable: true, capabilities: ["turns.text"] }));
+        await vi.waitFor(() => expect(page.element("recovery").hidden).toBe(true));
+        expect(page.element("composer").disabled).toBe(false);
+        expect(page.element("send").disabled).toBe(false);
+        expect(page.element("composer").value).toBe("Preserve this draft");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
   it("keeps drafts editable offline and preserves them when creating a connected task", async () => {
     const session = sessionSummary();
     const create = vi.fn().mockResolvedValue({ ok: true, value: session });
@@ -3390,6 +3459,11 @@ class FixtureDocument {
     "pin-runtime-version",
     "connection-details",
     "recovery",
+    "readiness-title",
+    "readiness-summary",
+    "readiness-actions",
+    "readiness-retry",
+    "readiness-settings",
     "daemon-version",
     "protocol-version",
     "shell-version",
