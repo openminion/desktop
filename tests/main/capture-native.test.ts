@@ -4,6 +4,7 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { arch } from "node:process";
 import { join } from "node:path";
+import { build } from "esbuild";
 import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
@@ -57,12 +58,17 @@ describe("native capture", () => {
           "MacOS",
           "Electron",
         );
-        const fixture = join(projectRoot, "dist", "tests", "fixtures", "capture-native.js");
-        await Promise.all([
-          access(packagedExecutable),
-          access(electronExecutable),
-          access(fixture),
-        ]);
+        const fixture = join(root, "capture-native.mjs");
+        await build({
+          entryPoints: [join(projectRoot, "tests", "fixtures", "capture-native.ts")],
+          outfile: fixture,
+          bundle: true,
+          external: ["electron"],
+          format: "esm",
+          platform: "node",
+          target: "node24",
+        });
+        await Promise.all([access(packagedExecutable), access(electronExecutable)]);
         expect(await readFile(packagedInfo, "utf-8")).toContain("OpenMinion");
 
         child = spawn(electronExecutable, [fixture], {

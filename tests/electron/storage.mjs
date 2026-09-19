@@ -122,7 +122,7 @@ async function checkStorage() {
         await evaluate("localStorage.setItem('openminion.task-name:legacy-reset','Stale name')");
       }
       const db = new DatabaseSync(join(desktopRoot, "desktop.sqlite"), { readOnly: true });
-      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 2);
+      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 3);
       assert.equal(db.prepare("SELECT runtime_home FROM installation").get().runtime_home, legacy);
       db.close();
       assert.equal(readFileSync(join(legacy, "runtime", "keep"), "utf8"), "existing environment");
