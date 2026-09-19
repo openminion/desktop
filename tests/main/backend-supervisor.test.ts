@@ -602,6 +602,52 @@ describe("DaemonSupervisor", () => {
     expect(cancelStore.runtimeState().pending).toBeNull();
   });
 
+  it("checks automatically at startup and every 24 hours without installing or restarting", async () => {
+    const root = await temporaryRoot();
+    const store = new DesktopStore(root);
+    cleanup.push(async () => store.close());
+    const ensure = vi.spyOn(OpenMinionInstallation.prototype, "ensure").mockResolvedValue({
+      path: join(root, "openminion"),
+      version: "0.0.19",
+    });
+    const stage = vi.spyOn(OpenMinionInstallation.prototype, "stage");
+    const check = vi.spyOn(manifests, "checkRuntimeManifest").mockResolvedValue(null);
+    const supervisor = new DaemonSupervisor({
+      store,
+      runtimeRoot: join(root, "runtime"),
+      runCommand: async () => result(0, JSON.stringify({ reachable: true })),
+    });
+    await supervisor.start();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      supervisor.startUpdateChecks();
+      await supervisor.checkRuntime();
+      expect(check).toHaveBeenCalledOnce();
+      supervisor.startUpdateChecks();
+      await vi.advanceTimersByTimeAsync(23 * 60 * 60_000);
+      expect(check).toHaveBeenCalledOnce();
+      check.mockResolvedValue({
+        record: { runtime_version: "0.0.21" },
+      } as manifests.RuntimeOffer);
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      expect(check).toHaveBeenCalledTimes(2);
+      expect(supervisor.runtimeStatus()).toMatchObject({
+        phase: "available",
+        installedVersion: "0.0.19",
+        availableVersion: "0.0.21",
+      });
+      expect(ensure).toHaveBeenCalledOnce();
+      expect(stage).not.toHaveBeenCalled();
+      expect(store.runtimeState().pending).toBeNull();
+      await supervisor.stop(true);
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+      expect(check).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+      await supervisor.stop(true);
+    }
+  });
+
   it("fences checks during startup shutdown and preserves checks on ordinary restarts", async () => {
     const root = await temporaryRoot();
     const store = new DesktopStore(root);
@@ -659,13 +705,16 @@ it.skipIf(!integrationExecutable)(
       configPath: join(root, "agents.json"),
       commandTimeoutMs: 60_000,
     });
+    cleanup.push(async () => {
+      await supervisor.stop(true);
+    });
 
     expect(await supervisor.start()).toMatchObject({
-      state: "running",
+      state: "ready",
       reachable: true,
       daemonVersion: null,
     });
-    expect(await supervisor.status()).toMatchObject({ state: "running", reachable: true });
+    expect(await supervisor.status()).toMatchObject({ state: "ready", reachable: true });
     expect(await supervisor.stop()).toEqual({ stopped: true });
   },
   120_000,

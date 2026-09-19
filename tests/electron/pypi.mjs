@@ -156,7 +156,7 @@ async function check() {
           fits:bounds.left >= 0 && bounds.top >= 0 && bounds.right <= innerWidth && bounds.bottom <= innerHeight,
           controlsVisible:actions.top >= bounds.top && actions.bottom <= bounds.bottom && close.top >= bounds.top,
           scrollable:getComputedStyle(output).overflowY === 'auto',
-          buttons:[...document.querySelectorAll('.daemon-actions button')].map(button => ({
+          buttons:[...document.querySelectorAll('.daemon-actions .diagnostic-control')].map(button => ({
             height:button.getBoundingClientRect().height,fontSize:getComputedStyle(button).fontSize
           }))};
       })()`);
@@ -172,6 +172,7 @@ async function check() {
           (await window.webContents.capturePage()).toPNG(),
         );
       }
+      assert.equal(diagnostics.buttons.length, 2);
       assert.ok(
         diagnostics.buttons.every(
           (button) => button.height >= 30 && button.height <= 34 && button.fontSize === "12px",
@@ -589,20 +590,26 @@ async function check() {
     console.log(
       "PASS: keyboard send, two task histories, task-local drafts, clear without deleting saved messages.",
     );
-    for (const [width, height] of [
-      [760, 560],
-      [1180, 800],
-      [1800, 1000],
-    ]) {
-      window.setContentSize(width, height);
-      await waitFor(`innerWidth === ${width} && innerHeight === ${height}`);
-      const bounds = await evaluate(
-        `(() => {const box=document.querySelector('#composer-form').getBoundingClientRect();return {right:box.right,bottom:box.bottom,width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth};})()`,
-      );
-      assert.equal(bounds.overflow, false);
-      assert.ok(bounds.right <= bounds.width && bounds.bottom <= bounds.height);
+    // Provision exact renderer sizes without the host's visible-window work-area clamp.
+    window.hide();
+    try {
+      for (const [width, height] of [
+        [760, 560],
+        [1180, 800],
+        [1800, 1000],
+      ]) {
+        window.setContentSize(width, height);
+        await waitFor(`innerWidth === ${width} && innerHeight === ${height}`);
+        const bounds = await evaluate(
+          `(() => {const box=document.querySelector('#composer-form').getBoundingClientRect();return {right:box.right,bottom:box.bottom,width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth};})()`,
+        );
+        assert.equal(bounds.overflow, false);
+        assert.ok(bounds.right <= bounds.width && bounds.bottom <= bounds.height);
+      }
+    } finally {
+      window.show();
     }
-    console.log("PASS: populated chat remains usable at minimum, normal and wide sizes.");
+    console.log("PASS: populated renderer layout at exact minimum, normal and wide sizes.");
     await fill("Draft preserved across outage");
     assert.equal((await runCommand(executable, [...args, "daemon", "stop"], 30_000)).exitCode, 0);
     await evaluate("document.querySelector('#show-connection').click()");

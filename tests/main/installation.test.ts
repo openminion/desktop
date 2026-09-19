@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  type CommandResult,
   OPENMINION_VERSION,
   OpenMinionInstallation,
-  type CommandResult,
   type RunCommand,
 } from "../../src/main/installation.js";
 
@@ -16,6 +16,35 @@ afterEach(async () => {
 });
 
 describe("OpenMinionInstallation", () => {
+  it("uses a developer executable without installing or enforcing the managed pin", async () => {
+    const root = await temporaryRoot();
+    const executable = join(root, "openminion");
+    await writeFile(executable, "");
+    const runCommand = vi.fn<RunCommand>(async () => result(0, "0.0.99\n"));
+    const installation = new OpenMinionInstallation({
+      runtimeRoot: join(root, "unused-runtime"),
+      openminionExecutable: executable,
+      runCommand,
+    });
+    await expect(installation.ensure()).resolves.toEqual({
+      path: executable,
+      version: "0.0.99",
+    });
+    expect(runCommand).toHaveBeenCalledExactlyOnceWith(executable, ["--version"], 30_000);
+  });
+
+  it("rejects a missing developer executable without falling back to pip", async () => {
+    const root = await temporaryRoot();
+    const runCommand = vi.fn<RunCommand>();
+    const installation = new OpenMinionInstallation({
+      runtimeRoot: root,
+      openminionExecutable: join(root, "missing-openminion"),
+      runCommand,
+    });
+    await expect(installation.ensure()).rejects.toThrow("openminion_executable_unavailable");
+    expect(runCommand).not.toHaveBeenCalled();
+  });
+
   it("uses the Windows 3.11 launcher and native Scripts executables", async () => {
     const root = await temporaryRoot();
     const environment = join(root, "python");

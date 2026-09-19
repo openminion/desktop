@@ -96,17 +96,31 @@ Desktop never stops an external or replaced daemon to apply an update. A
 recovery-required message means candidate launch began but did not complete;
 do not downgrade the runtime against those data roots without review.
 
-For source development, bypass the managed installation with:
+For source development, use your existing source-installed executable and a
+separate Desktop data root. From the Desktop repository root:
 
 ```bash
-OPENMINION_EXECUTABLE=/path/to/openminion npm start
+OPENMINION_DESKTOP_HOME=/absolute/path/to/desktop-dev \
+  OPENMINION_EXECUTABLE=/absolute/path/to/venv/bin/openminion npm start
 ```
+
+The executable override is unmanaged: Desktop does not install it with pip,
+replace it, check manifests for it, or prepare/activate managed updates. You
+update that source environment yourself. The data-root override keeps test
+profiles, conversations and runtime policy separate from your normal Desktop
+installation; selecting an executable alone does not isolate those files. Do
+not use an executable override to recover or downgrade an interrupted managed
+upgrade against its existing data roots.
 
 The executable must provide the ordinary `config init` and `daemon status`
 commands, with a sibling public `openminiond` entrypoint for an app-owned
 foreground launch. A pre-existing daemon can be used but is not stopped by
 Desktop; profile writes are rejected without verified app ownership. No
 Desktop-specific OpenMinion command is required.
+
+On Windows, select the source environment's `Scripts/openminion.exe`, with
+`openminiond.exe` in the same directory, and set both environment variables in
+your shell before `npm start`.
 
 The real app supports text messages, saved history, task closing, and turn
 cancellation through the ordinary CLI/API. New installations open **Welcome to

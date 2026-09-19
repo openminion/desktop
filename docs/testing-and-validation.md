@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -65,6 +65,14 @@ node tests/electron/runtime-update.mjs --testpypi-final 0.0.21
 node tests/electron/runtime-update.mjs --pypi-final 0.0.21
 ```
 
+The supervisor suite also advances a test clock through the 24-hour check
+interval: startup checks once, duplicate scheduling does not duplicate checks,
+a newly offered version appears without installation/restart, and shutdown
+removes the interval. That is deterministic scheduling proof, not a live
+24-hour public-release observation. Standalone CLI update notices use PyPI;
+Desktop's managed runtime checks use the GitHub manifest. Neither installs an
+update automatically.
+
 The private update harness uses main-only test fixtures and isolated roots to
 stage official PyPI 0.0.20 beside 0.0.19, keep the old daemon usable, activate on
 the next startup, retain an echo conversation and refuse interrupted-intent
@@ -98,6 +106,36 @@ bounds are still not public packaged-app compatibility certification.
 Python 3.11 is required. Windows uses `py -3.11` and `Scripts` executables;
 POSIX uses `python3.11` and `bin`. Native Windows/Linux and real published-feed
 update acceptance remain separate pending gates.
+
+### Packaged Public Runtime Acceptance
+
+Build the application first. Supply its actual executable and shipped Desktop
+version, not the Electron runner version:
+
+```bash
+node tests/electron/packaged-runtime.mjs /absolute/path/to/packaged/OpenMinion 0.0.0
+node tests/electron/packaged-runtime.mjs /absolute/path/to/packaged/OpenMinion 0.0.0 0.0.21
+```
+
+Use the native `.app/Contents/MacOS/OpenMinion` executable on macOS or packaged
+`OpenMinion.exe` on Windows. Replace the example versions with the exact package
+and runtime under acceptance. Set `TMPDIR` to workspace scratch before running.
+The harness launches an unmodified package, records its version and ASAR digest,
+uses an isolated Desktop home, and removes executable overrides. It drives the
+real UI through Electron's [main-process inspector](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process),
+enabled explicitly on loopback for this test only; do not weaken release fuses
+to enable the test. Tests are excluded from the application archive.
+
+Without a target, it requires successful startup/manual public checks with no
+eligible offer, an echo reply and independent CLI transcript/owned-quit readback.
+That is a no-update check, not upgrade certification. With a target, it requires
+actual public discovery, UI Prepare update, continued old-runtime chat, normal
+quit and next-startup activation, then a reply in the same canonical session
+with independent CLI export. An empty feed or null compatibility cannot pass
+the target mode. No network fixture or private compatibility bounds are used.
+Failures retain their isolated root. Native results qualify only the tested
+platform/package; Windows/Linux, recovery controls and signing/trust remain
+separate acceptance gates.
 
 After building, run the native migration and restart check:
 
@@ -174,6 +212,11 @@ The Electron test drives production main, preload, and renderer and covers:
   Settings, restart with preserved conversations, and rejection during active chat;
 - cancellation requests while the real daemon is waiting on a local controlled provider,
   provider rejection, and a successful subsequent request.
+
+Fixed populated renderer viewport assertions use a hidden native window to
+avoid operating-system work-area clamps, then restore the visible app for
+interaction tests. This is
+exact renderer-layout proof, not visible-wide-screen acceptance on a small host.
 
 The onboarding test separately covers automatic first-launch setup, dismissing
 setup without writing a profile, and required-key validation. It independently
