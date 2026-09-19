@@ -20,6 +20,7 @@ async function check() {
     const window = await loaded;
     const evaluate = (source) => window.webContents.executeJavaScript(source);
     const settle = () => new Promise((resolve) => setTimeout(resolve, 200));
+    await window.webContents.insertCSS(".message-actions { transition: none !important; }");
     for (let attempt = 0; attempt < 30; attempt += 1) {
       if (await evaluate("!!document.querySelector('.message-copy')")) break;
       await settle();
@@ -34,7 +35,7 @@ async function check() {
       window.setContentSize(width, height);
       await settle();
       await evaluate("document.activeElement.blur()");
-      window.webContents.sendInputEvent({ type: "mouseMove", x: 2, y: 2 });
+      window.webContents.sendInputEvent({ type: "mouseLeave", x: 2, y: 2 });
       await settle();
       const before = await evaluate(`(() => {
       const row = document.querySelector('.message-actions');
@@ -48,11 +49,13 @@ async function check() {
       assert.equal(before.overflow, false);
       assert.ok(before.time.length > 0);
       assert.ok(Number.isFinite(Date.parse(before.datetime)));
-      window.webContents.sendInputEvent({
+      const hover = {
         type: "mouseMove",
         x: Math.round(before.message.x + 12),
         y: Math.round(before.message.y + 12),
-      });
+      };
+      window.webContents.sendInputEvent({ ...hover, type: "mouseEnter" });
+      window.webContents.sendInputEvent(hover);
       await settle();
       assert.equal(
         await evaluate("getComputedStyle(document.querySelector('.message-actions')).opacity"),
@@ -77,9 +80,16 @@ async function check() {
       assert.equal(button.iconHeight, "12px");
       assert.equal(button.icon, "solid");
       assert.equal(button.label, "Copy message");
-      window.webContents.sendInputEvent({ type: "mouseMove", x: 2, y: 2 });
-      await evaluate("document.querySelector('.message-copy').focus()");
+      window.webContents.sendInputEvent({ type: "mouseLeave", x: 2, y: 2 });
       await settle();
+      assert.equal(
+        await evaluate(`(() => {
+          const button = document.querySelector('.message-copy');
+          button.focus();
+          return document.activeElement === button;
+        })()`),
+        true,
+      );
       assert.equal(
         await evaluate("getComputedStyle(document.querySelector('.message-actions')).opacity"),
         "1",
