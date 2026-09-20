@@ -1,11 +1,15 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-18
+Last updated: 2026-09-20
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Balance the polished OpenMinion mark with compact navigation, quieter header
+  actions, consistent small sidebar icons, tighter chat spacing, and a clearer
+  composer focus state.
 
 - Show startup progress prominently in chat and enable typing when the daemon
   is ready. Failed connections offer reconnect and settings without losing drafts.
