@@ -10,6 +10,11 @@ OpenMinion Desktop currently proves an unsigned local macOS package only. There
 is no public release workflow, signing identity, notarization process, updater,
 rollback contract, or clean-machine certification yet.
 
+The manual `CI` workflow can stage unsigned macOS, Windows, and Linux packages
+in a private draft release. This is a development handoff only, not public
+distribution or platform certification. Delete the draft after verification or
+transfer.
+
 ## Release floor
 
 Before treating a revision as a release candidate:

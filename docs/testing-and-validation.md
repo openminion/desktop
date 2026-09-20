@@ -43,6 +43,11 @@ DMG and ZIP on macOS, ZIP on Windows, and DEB and ZIP on Linux. Native packaging
 automation uses the same command. It does not prove signing, notarization,
 installation, updating, rollback, runtime certification, or release readiness.
 
+The manual `CI` workflow accepts `packages: true` to run `npm run make` on
+native macOS, Windows, and Linux runners. It stages the outputs in a private
+draft release for verification or transfer. That draft is not a public release
+and should be deleted after its outputs are handled.
+
 The command rejects an application archive containing repository-only files,
 development dependencies, local `.openminion` state, source, or tests. It also
 fails when a platform's expected artifact formats are missing.

@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
+    inputs:
+      packages:
+        description: Stage unsigned native packages in a private draft release
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -74,3 +80,75 @@ jobs:
       - name: Launch the sandboxed Electron application
         if: matrix.os == 'macos-latest'
         run: npm run electron-check
+
+  prepare-package-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Create private draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="desktop-package-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --title "Desktop package $tag" \
+            --notes "Private temporary unsigned packages for native verification."
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: Package (${{ matrix.target }})
+    if: github.event_name == 'workflow_dispatch' && inputs.packages
+    needs: [quality, prepare-package-release]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            target: macos-arm64
+          - runner: ubuntu-latest
+            target: linux-x64
+          - runner: windows-latest
+            target: windows-x64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build unsigned native packages
+        run: npm run make
+
+      - name: Stage packages in the private draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-package-release.outputs.tag }}
+        run: |
+          while IFS= read -r -d '' package; do
+            gh release upload \
+              "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              "$package"
+          done < <(find out/make -type f -print0)
