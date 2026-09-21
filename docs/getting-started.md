@@ -53,16 +53,18 @@ credential-free echo config, assigns an authenticated loopback daemon endpoint,
 and starts the daemon. Later launches reuse the environment while its version
 matches the pin.
 
-Open connection details to **Check updates**. When a certified compatible
-PyPI record is available, **Prepare update** installs it separately; quit and
-reopen Desktop to activate it before daemon startup. Checks also run at startup
-and every 24 hours, without installing automatically. The public GitHub feeds
-are deployed but initially empty, so checks currently offer no update and leave
-the pinned runtime unchanged. Missing or uncertified records do not authorize
-installation. Binary runtime selection is not enabled.
+Open connection details to **Check updates**. When a certified compatible PyPI
+or binary record is available, **Prepare update** stages it separately; quit
+and reopen Desktop to activate it before daemon startup. Binary records contain
+separately verified `openminion` and `openminiond` executables from one immutable
+runtime Release. Checks also run at startup and every 24 hours, without
+installing automatically. The public binary feed is currently empty, so it
+cannot offer a binary update. Missing or uncertified records do not authorize
+installation.
 
-Desktop reads `releases/runtime/v1/pypi/channels/stable.json` from the public
-OpenMinion repo's `main` branch, not `dev` or a separate manifest branch.
+Desktop reads the `pypi` and `binary` stable feeds under
+`releases/runtime/v1/` from the public OpenMinion repo's `main` branch, not
+`dev` or a separate manifest branch.
 Release publication prepares a metadata PR; protected merge makes its feed
 discoverable. Records with no certified Desktop compatibility are skipped.
 The main-to-dev back-merge keeps development metadata synchronized; it is not

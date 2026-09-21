@@ -49,7 +49,8 @@ SQLite schema versioning, legacy chat-name import and Desktop presentation data.
 It records existing runtime locations without moving core-owned files.
 
 `src/main/runtime-manifest.ts` owns bounded JSON parsing, PEP 440 ordering and
-compatible offer selection. The installer owns verified wheel staging; the
+compatible source/binary offer selection. The installer owns verified wheel or
+paired-executable staging; the
 supervisor owns notification-only checks and first-startup activation. The
 existing SQLite store owns pending identity and durable launch intent. There is
 no second updater service or runtime database.

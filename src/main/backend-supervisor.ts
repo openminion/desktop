@@ -5,7 +5,12 @@ import type {
   RuntimeControlInput,
   RuntimeUpdateStatus,
 } from "../shared/contracts.js";
-import { checkRuntimeManifest, desktopCompatible, type RuntimeOffer } from "./runtime-manifest.js";
+import {
+  checkRuntimeManifest,
+  desktopCompatible,
+  runtimeOfferDigest,
+  type RuntimeOffer,
+} from "./runtime-manifest.js";
 import type { ProfileSettings } from "../shared/profiles.js";
 import type { DaemonStatus } from "../shared/contracts.js";
 import { randomBytes } from "node:crypto";
@@ -374,7 +379,7 @@ export class DaemonSupervisor {
           source: offer.record.distribution,
           version: offer.record.runtime_version,
           manifestUrl: offer.reference.manifest_url,
-          sha256: offer.artifact.sha256,
+          sha256: runtimeOfferDigest(offer),
         });
       }
     }

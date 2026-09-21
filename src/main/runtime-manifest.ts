@@ -9,12 +9,14 @@ export type RuntimeArtifact = {
   sha256: string;
   size_bytes: number;
 };
-export type BinaryArtifact = RuntimeArtifact & {
+export type BinaryArtifact = {
   platform: "darwin" | "linux" | "win32";
   arch: "arm64" | "x64";
-  format: "executable";
+  format: "executables";
   min_os_version: string;
   verification_id: string;
+  cli: RuntimeArtifact;
+  daemon: RuntimeArtifact;
   libc_family?: string;
   min_libc_version?: string;
 };
@@ -49,8 +51,16 @@ export type RuntimeFeed = {
 export type RuntimeOffer = {
   record: RuntimeRecord;
   reference: RuntimeReference;
-  artifact: RuntimeArtifact;
+  artifact: RuntimeArtifact | BinaryArtifact;
 };
+
+export function runtimeOfferDigest(offer: RuntimeOffer): string {
+  if (offer.record.distribution !== "binary") return (offer.artifact as RuntimeArtifact).sha256;
+  const artifact = offer.artifact as BinaryArtifact;
+  return createHash("sha256")
+    .update(`cli:${artifact.cli.sha256}\ndaemon:${artifact.daemon.sha256}\n`)
+    .digest("hex");
+}
 
 const origin = "https://raw.githubusercontent.com/openminion/openminion";
 const digestPattern = /^[a-f0-9]{64}$/;
@@ -155,7 +165,7 @@ function artifact(value: unknown, source: RuntimeSource): RuntimeArtifact {
     (source === "pypi"
       ? url.host !== "files.pythonhosted.org"
       : url.host !== "github.com" ||
-        !url.pathname.startsWith("/openminion/openminion/releases/download/runtime-v"))
+        !url.pathname.startsWith("/openminion/runtime/releases/download/runtime-v"))
   ) {
     throw new Error("manifest_artifact_invalid");
   }
@@ -211,14 +221,15 @@ export function parseRuntimeRecord(value: unknown, source: RuntimeSource): Runti
     const seen = new Set<string>();
     for (const value of record.artifacts) {
       const item = object(value);
-      artifact(item, source);
       const target = `${text(item.platform)}-${text(item.arch)}`;
       if (
         !["darwin-arm64", "linux-x64", "win32-x64"].includes(target) ||
         seen.has(target) ||
-        item.format !== "executable"
+        item.format !== "executables"
       )
         throw new Error("manifest_target_invalid");
+      artifact(item.cli, source);
+      artifact(item.daemon, source);
       text(item.min_os_version);
       text(item.verification_id);
       if (item.platform === "linux") {
@@ -316,11 +327,12 @@ export async function checkRuntimeManifest(options: {
               item.arch === (options.arch ?? process.arch),
           );
     if (!selected) continue;
-    if (options.pin && selected.sha256 !== options.pin.sha256) continue;
+    const selectedDigest = runtimeOfferDigest({ record, reference, artifact: selected });
+    if (options.pin && selectedDigest !== options.pin.sha256) continue;
     if (
       compare(record.runtime_version, options.installedVersion) === 0 &&
       !options.includeInstalled &&
-      (!options.installedDigest || selected.sha256 === options.installedDigest)
+      (!options.installedDigest || selectedDigest === options.installedDigest)
     )
       return null;
     return { record, reference, artifact: selected };
