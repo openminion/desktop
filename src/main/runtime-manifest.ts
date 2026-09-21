@@ -75,6 +75,55 @@ export function desktopCompatible(version: string, min: string, max: string): bo
   return compare(version, min) >= 0 && compare(version, max) < 0;
 }
 
+function numericVersion(value: string): number[] | null {
+  if (!/^\d+(?:\.\d+)*$/.test(value)) return null;
+  return value.split(".").map(Number);
+}
+
+function versionAtLeast(current: string, minimum: string): boolean {
+  const left = numericVersion(current);
+  const right = numericVersion(minimum);
+  if (!left || !right) return false;
+  const width = Math.max(left.length, right.length);
+  for (let index = 0; index < width; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return true;
+}
+
+function systemVersion(): string {
+  return process.getSystemVersion().match(/\d+(?:\.\d+)*/)?.[0] ?? "";
+}
+
+function glibcVersion(): string | undefined {
+  const report = process.report?.getReport();
+  return typeof report === "object" &&
+    report !== null &&
+    "header" in report &&
+    typeof report.header === "object" &&
+    report.header !== null &&
+    "glibcVersionRuntime" in report.header &&
+    typeof report.header.glibcVersionRuntime === "string"
+    ? report.header.glibcVersionRuntime
+    : undefined;
+}
+
+function hostCompatible(
+  artifact: BinaryArtifact,
+  options: { osVersion?: string; libcFamily?: string; libcVersion?: string },
+): boolean {
+  if (!versionAtLeast(options.osVersion ?? systemVersion(), artifact.min_os_version)) return false;
+  if (artifact.platform !== "linux") return true;
+  const family = options.libcFamily ?? (glibcVersion() ? "glibc" : undefined);
+  const version = options.libcVersion ?? glibcVersion();
+  return (
+    family === artifact.libc_family &&
+    typeof version === "string" &&
+    versionAtLeast(version, artifact.min_libc_version ?? "")
+  );
+}
+
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("manifest_invalid");
@@ -230,11 +279,12 @@ export function parseRuntimeRecord(value: unknown, source: RuntimeSource): Runti
         throw new Error("manifest_target_invalid");
       artifact(item.cli, source);
       artifact(item.daemon, source);
-      text(item.min_os_version);
+      if (!numericVersion(text(item.min_os_version))) throw new Error("manifest_target_invalid");
       text(item.verification_id);
       if (item.platform === "linux") {
         if (item.libc_family !== "glibc") throw new Error("manifest_target_invalid");
-        text(item.min_libc_version);
+        if (!numericVersion(text(item.min_libc_version)))
+          throw new Error("manifest_target_invalid");
       }
       seen.add(target);
     }
@@ -266,6 +316,9 @@ export async function checkRuntimeManifest(options: {
   desktopVersion: string;
   platform?: NodeJS.Platform;
   arch?: string;
+  osVersion?: string;
+  libcFamily?: string;
+  libcVersion?: string;
   installedVersion: string;
   installedDigest?: string;
   pin?: RuntimePin | null;
@@ -324,7 +377,8 @@ export async function checkRuntimeManifest(options: {
         : record.artifacts?.find(
             (item) =>
               item.platform === (options.platform ?? process.platform) &&
-              item.arch === (options.arch ?? process.arch),
+              item.arch === (options.arch ?? process.arch) &&
+              hostCompatible(item, options),
           );
     if (!selected) continue;
     const selectedDigest = runtimeOfferDigest({ record, reference, artifact: selected });
