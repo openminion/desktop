@@ -97,16 +97,21 @@ checks the public GitHub stable feed asynchronously at startup and every 24 hour
 Manifest records pin full metadata commits and their SHA-256 digests. Only
 compatible promoted records are eligible; no source fallback or downgrade occurs.
 
-Explicit **Prepare update** verifies the official wheel's size and hash and
-installs it in a separate environment. Activation occurs on the first startup
-attempt only, under the app-instance lock, with private, non-adopted roots and
-no live daemon. SQLite records launch intent before candidate execution against
-live data. Failed/interrupted launch leaves a recovery marker instead of an
-automatic older-runtime restart. Developer executable overrides are unmanaged.
+Explicit **Prepare update** verifies the selected artifact's size and hash and
+stages it in a separate location. PyPI records install the official wheel into
+an isolated environment. Binary records download both the CLI and daemon from
+the immutable `openminion/runtime` GitHub Release, accept only GitHub's bounded
+release-asset redirect, verify each executable independently, and retain one
+shared identity derived from both digests. Activation occurs on the first startup attempt only,
+under the app-instance lock, with private, non-adopted roots and no live daemon.
+SQLite records launch intent before candidate execution against live data.
+Failed/interrupted launch leaves a recovery marker instead of an automatic
+older-runtime restart. Developer executable overrides are unmanaged.
 
 Publication and compatibility certification remain pending. Missing feeds fail
-as update checks without changing the installed pin. Binary installation and
-selection remain unavailable until standalone foreground/native/trust qualification.
+as update checks without changing the installed pin. Binary selection remains
+unavailable while the public binary feed is empty; only centrally verified,
+promoted records with explicit Desktop compatibility can become eligible.
 
 ## Reports And Transcript Export
 

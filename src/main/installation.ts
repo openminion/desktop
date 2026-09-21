@@ -1,9 +1,14 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { DesktopStore, InstalledRuntime } from "./desktop-store.js";
-import type { RuntimeOffer } from "./runtime-manifest.js";
+import {
+  runtimeOfferDigest,
+  type BinaryArtifact,
+  type RuntimeArtifact,
+  type RuntimeOffer,
+} from "./runtime-manifest.js";
 
 export const OPENMINION_VERSION = "0.0.19";
 
@@ -115,40 +120,45 @@ export class OpenMinionInstallation {
       source: offer.record.distribution,
       version: offer.record.runtime_version,
       manifestUrl: offer.reference.manifest_url,
-      sha256: offer.artifact.sha256,
+      sha256: runtimeOfferDigest(offer),
     });
-    // Standalone launchers remain prototype inputs until foreground/native qualification.
-    if (offer.record.distribution !== "pypi" || !offer.record.pypi)
-      throw new Error("binary_runtime_not_qualified");
     const stagingRoot = join(this.#options.runtimeRoot, "staged");
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
     const root = await mkdtemp(join(stagingRoot, `${offer.record.runtime_version}-`));
     try {
-      const wheel = join(root, offer.artifact.filename);
-      const response = await fetch(offer.artifact.url, {
-        signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(15 * 60_000)])
-          : AbortSignal.timeout(15 * 60_000),
-        redirect: "error",
-      });
-      if (!response.ok || !response.body) throw new Error("runtime_download_failed");
-      const digest = createHash("sha256");
-      let size = 0;
-      const file = await open(wheel, "wx", 0o600);
-      try {
-        for await (const chunk of response.body) {
-          size += chunk.length;
-          if (size > offer.artifact.size_bytes) throw new Error("runtime_integrity_mismatch");
-          digest.update(chunk);
-          await file.writeFile(chunk);
-        }
-      } finally {
-        await file.close();
-      }
-      if (size !== offer.artifact.size_bytes || digest.digest("hex") !== offer.artifact.sha256)
-        throw new Error("runtime_integrity_mismatch");
-      signal?.throwIfAborted();
       const platform = this.#options.platform ?? process.platform;
+      if (offer.record.distribution === "binary") {
+        const target = offer.artifact as BinaryArtifact;
+        const directory = join(root, "bin");
+        const executable = join(directory, platform === "win32" ? "openminion.exe" : "openminion");
+        const daemonExecutable = join(
+          directory,
+          platform === "win32" ? "openminiond.exe" : "openminiond",
+        );
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        await download(target.cli, executable, signal, true);
+        await download(target.daemon, daemonExecutable, signal, true);
+        if (platform !== "win32") {
+          await chmod(executable, 0o700);
+          await chmod(daemonExecutable, 0o700);
+        }
+        if (
+          (await this.#readVersion(
+            executable,
+            { OPENMINION_HOME: root, OPENMINION_DATA_ROOT: join(root, "data") },
+            signal,
+          )) !== offer.record.runtime_version
+        )
+          throw new Error("openminion_version_mismatch");
+        const candidate = installedRuntime(offer, executable);
+        signal?.throwIfAborted();
+        this.#options.store.stageRuntime(candidate);
+        return candidate;
+      }
+      if (!offer.record.pypi) throw new Error("manifest_invalid");
+      const wheel = join(root, offer.record.pypi.filename);
+      await download(offer.record.pypi, wheel, signal, false);
+      signal?.throwIfAborted();
       const environmentRoot = join(root, "python");
       const { python, executable } = pythonEnvironment(environmentRoot, platform);
       const created = await this.#runCommand(
@@ -185,15 +195,7 @@ export class OpenMinionInstallation {
         )) !== offer.record.runtime_version
       )
         throw new Error("openminion_version_mismatch");
-      const candidate: InstalledRuntime = {
-        source: "pypi",
-        version: offer.record.runtime_version,
-        executable,
-        sha256: offer.artifact.sha256,
-        manifestUrl: offer.reference.manifest_url,
-        desktopMinVersion: offer.record.desktop_compatibility!.min_version,
-        desktopMaxVersionExclusive: offer.record.desktop_compatibility!.max_version_exclusive,
-      };
+      const candidate = installedRuntime(offer, executable);
       signal?.throwIfAborted();
       this.#options.store.stageRuntime(candidate);
       return candidate;
@@ -214,6 +216,63 @@ export class OpenMinionInstallation {
       : await this.#runCommand(executable, ["--version"], 30_000);
     return result.exitCode === 0 ? result.stdout.trim() || null : null;
   }
+}
+
+function installedRuntime(offer: RuntimeOffer, executable: string): InstalledRuntime {
+  const bounds = offer.record.desktop_compatibility;
+  if (!bounds) throw new Error("manifest_compatibility_invalid");
+  return {
+    source: offer.record.distribution,
+    version: offer.record.runtime_version,
+    executable,
+    sha256: runtimeOfferDigest(offer),
+    manifestUrl: offer.reference.manifest_url,
+    desktopMinVersion: bounds.min_version,
+    desktopMaxVersionExclusive: bounds.max_version_exclusive,
+  };
+}
+
+async function download(
+  artifact: RuntimeArtifact,
+  destination: string,
+  signal: AbortSignal | undefined,
+  allowReleaseRedirect: boolean,
+): Promise<void> {
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(15 * 60_000)])
+    : AbortSignal.timeout(15 * 60_000);
+  let response = await fetch(artifact.url, { signal: requestSignal, redirect: "manual" });
+  if (response.status >= 300 && response.status < 400) {
+    if (!allowReleaseRedirect) throw new Error("runtime_download_failed");
+    const location = response.headers.get("location");
+    const redirect = location ? new URL(location, artifact.url) : null;
+    if (
+      redirect?.protocol !== "https:" ||
+      redirect.hostname !== "release-assets.githubusercontent.com" ||
+      redirect.username ||
+      redirect.password ||
+      redirect.hash
+    )
+      throw new Error("runtime_download_redirect_invalid");
+    await response.body?.cancel();
+    response = await fetch(redirect, { signal: requestSignal, redirect: "error" });
+  }
+  if (!response.ok || !response.body) throw new Error("runtime_download_failed");
+  const digest = createHash("sha256");
+  let size = 0;
+  const file = await open(destination, "wx", 0o600);
+  try {
+    for await (const chunk of response.body) {
+      size += chunk.length;
+      if (size > artifact.size_bytes) throw new Error("runtime_integrity_mismatch");
+      digest.update(chunk);
+      await file.writeFile(chunk);
+    }
+  } finally {
+    await file.close();
+  }
+  if (size !== artifact.size_bytes || digest.digest("hex") !== artifact.sha256)
+    throw new Error("runtime_integrity_mismatch");
 }
 
 export function pythonEnvironment(root: string, platform = process.platform) {

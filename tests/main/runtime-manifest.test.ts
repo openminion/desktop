@@ -5,6 +5,7 @@ import {
   parseRuntimeFeed,
   parseRuntimeRecord,
   runtimeFeedUrl,
+  runtimeOfferDigest,
   type RuntimeRecord,
 } from "../../src/main/runtime-manifest.js";
 
@@ -106,21 +107,44 @@ describe("runtime manifest boundary", () => {
     const artifact = {
       platform: "win32",
       arch: "x64",
-      format: "executable",
+      format: "executables",
       min_os_version: "10",
       verification_id: "native.1",
-      filename: "openminion.exe",
-      size_bytes: 123,
-      sha256: "a".repeat(64),
-      url: "https://github.com/openminion/openminion/releases/download/runtime-v1.0.0-build.1/openminion.exe",
+      cli: {
+        filename: "openminion.exe",
+        size_bytes: 123,
+        sha256: "a".repeat(64),
+        url: "https://github.com/openminion/runtime/releases/download/runtime-v1.0.0-build.1/openminion.exe",
+      },
+      daemon: {
+        filename: "openminiond.exe",
+        size_bytes: 124,
+        sha256: "b".repeat(64),
+        url: "https://github.com/openminion/runtime/releases/download/runtime-v1.0.0-build.1/openminiond.exe",
+      },
     };
     const binary = { ...common, distribution: "binary", artifacts: [artifact] };
-    expect(parseRuntimeRecord(binary, "binary").artifacts).toHaveLength(1);
+    const parsed = parseRuntimeRecord(binary, "binary");
+    expect(parsed.artifacts).toHaveLength(1);
+    const selected = parsed.artifacts![0];
+    const firstIdentity = runtimeOfferDigest({
+      record: parsed,
+      reference: reference(source),
+      artifact: selected,
+    });
+    expect(
+      runtimeOfferDigest({
+        record: parsed,
+        reference: reference(source),
+        artifact: { ...selected, daemon: { ...selected.daemon, sha256: "c".repeat(64) } },
+      }),
+    ).not.toBe(firstIdentity);
     expect(pypi).toBeDefined();
     for (const change of [
       { artifacts: [artifact, artifact] },
       { artifacts: [{ ...artifact, arch: "arm64" }] },
       { artifacts: [{ ...artifact, verification_id: undefined }] },
+      { artifacts: [{ ...artifact, daemon: { ...artifact.daemon, sha256: "invalid" } }] },
       { desktop_compatibility: null },
       { promotion_status: "candidate" },
     ]) {

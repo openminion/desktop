@@ -1,7 +1,7 @@
 # OpenMinion Desktop Certification Readiness Matrix
 
 Status: active
-Last updated: 2026-09-12
+Last updated: 2026-09-20
 
 Purpose: summarize the current proof posture for the standalone Desktop
 application.
@@ -18,6 +18,7 @@ application.
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |
 | macOS native capture | opt-in permissioned test | requires acceptance on an authorized host |
 | OpenMinion installation and daemon lifecycle | pinned PyPI 0.0.19; isolated config; real start/status/stop proof | development-ready |
+| Paired binary runtime staging | bounded immutable-release redirects, independent CLI/daemon integrity checks, pending activation and rollback-on-failure fixtures | implemented; public/native certification pending |
 | Text chat and saved sessions | real PyPI 0.0.19 CLI and production Electron GUI; first send, task switching, drafts, resizing, outage/restart recovery, canonical close | development-ready |
 | Provider errors and recovery | real PyPI daemon with a local controlled HTTP provider | locally verified; paid-provider acceptance pending |
 | Cancellation | authenticated request and saved-event evidence; PyPI 0.0.19 can complete an in-flight provider request after acknowledgement | runtime interruption gap remains |

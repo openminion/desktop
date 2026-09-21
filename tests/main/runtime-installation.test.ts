@@ -9,7 +9,7 @@ import {
   runCommand,
   type RunCommand,
 } from "../../src/main/installation.js";
-import type { RuntimeOffer } from "../../src/main/runtime-manifest.js";
+import { runtimeOfferDigest, type RuntimeOffer } from "../../src/main/runtime-manifest.js";
 
 const roots: string[] = [];
 const stores: DesktopStore[] = [];
@@ -31,7 +31,7 @@ it("blocks paused or wrong-identity candidates before downloading or invoking Py
     source: "pypi",
     version: "1.0.0",
     manifestUrl: "other-record",
-    sha256: offer().artifact.sha256,
+    sha256: offer().record.pypi!.sha256,
   });
   await expect(installer.stage(offer())).rejects.toThrow("runtime_pin_mismatch");
   expect(download).not.toHaveBeenCalled();
@@ -223,17 +223,138 @@ it("preserves unmanaged installations without any download", async () => {
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it("refuses binary prototypes instead of silently installing from PyPI", async () => {
+it("downloads both promoted binary executables and stages their shared identity", async () => {
   const { root, store } = await fixture();
-  const item = offer();
-  item.record.distribution = "binary";
-  const fetch = vi.fn();
+  const cli = Buffer.from("cli");
+  const daemon = Buffer.from("daemon");
+  const item = binaryOffer(cli, daemon);
+  const fetch = vi.fn(async (url: string | URL) => {
+    if (String(url).startsWith("https://github.com/")) {
+      const filename = String(url).endsWith("openminiond") ? "openminiond" : "openminion";
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: `https://release-assets.githubusercontent.com/${filename}?token=fixed`,
+        },
+      });
+    }
+    return new Response(String(url).includes("openminiond") ? daemon : cli);
+  });
   vi.stubGlobal("fetch", fetch);
-  await expect(
-    new OpenMinionInstallation({ runtimeRoot: join(root, "runtime"), store }).stage(item),
-  ).rejects.toThrow("binary_runtime_not_qualified");
-  expect(fetch).not.toHaveBeenCalled();
+  const command = vi.fn<RunCommand>(async (path, args) => {
+    expect(path).toContain("/runtime/staged/");
+    expect(args).toEqual(["--version"]);
+    return { exitCode: 0, stdout: "1.0.0", stderr: "" };
+  });
+  const staged = await new OpenMinionInstallation({
+    runtimeRoot: join(root, "runtime"),
+    store,
+    platform: "darwin",
+    runCommand: command,
+  }).stage(item);
+  expect(await readFile(staged.executable)).toEqual(cli);
+  expect(await readFile(join(dirname(staged.executable), "openminiond"))).toEqual(daemon);
+  expect(staged.sha256).toBe(runtimeOfferDigest(item));
+  expect(fetch).toHaveBeenCalledTimes(4);
 });
+
+it("rejects binary downloads redirected outside GitHub release assets", async () => {
+  const { root, store } = await fixture();
+  const item = binaryOffer(Buffer.from("cli"), Buffer.from("daemon"));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://example.com/openminion" },
+        }),
+    ),
+  );
+  await expect(
+    new OpenMinionInstallation({
+      runtimeRoot: join(root, "runtime"),
+      store,
+      platform: "darwin",
+    }).stage(item),
+  ).rejects.toThrow("runtime_download_redirect_invalid");
+  expect(store.runtimeState().pending).toBeNull();
+});
+
+it("rolls back the paired runtime when the daemon bytes fail verification", async () => {
+  const { root, store } = await fixture();
+  const cli = Buffer.from("cli");
+  const daemon = Buffer.from("daemon");
+  const item = binaryOffer(cli, daemon);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string | URL) => {
+      if (String(url).startsWith("https://github.com/")) {
+        const filename = String(url).endsWith("openminiond") ? "openminiond" : "openminion";
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: `https://release-assets.githubusercontent.com/${filename}?token=fixed`,
+          },
+        });
+      }
+      return new Response(String(url).includes("openminiond") ? Buffer.from("broken") : cli);
+    }),
+  );
+  await expect(
+    new OpenMinionInstallation({
+      runtimeRoot: join(root, "runtime"),
+      store,
+      platform: "darwin",
+    }).stage(item),
+  ).rejects.toThrow("runtime_integrity_mismatch");
+  expect(store.runtimeState().pending).toBeNull();
+});
+
+function binaryOffer(cli: Buffer, daemon: Buffer): RuntimeOffer {
+  const base = "https://github.com/openminion/runtime/releases/download/runtime-v1.0.0-build.1";
+  const target = {
+    platform: "darwin" as const,
+    arch: "arm64" as const,
+    format: "executables" as const,
+    min_os_version: "14.0",
+    verification_id: "native.macos.1",
+    cli: {
+      url: `${base}/openminion`,
+      filename: "openminion",
+      size_bytes: cli.length,
+      sha256: createHash("sha256").update(cli).digest("hex"),
+    },
+    daemon: {
+      url: `${base}/openminiond`,
+      filename: "openminiond",
+      size_bytes: daemon.length,
+      sha256: createHash("sha256").update(daemon).digest("hex"),
+    },
+  };
+  return {
+    artifact: target,
+    reference: {
+      runtime_version: "1.0.0",
+      manifest_url: "immutable",
+      manifest_sha256: "a".repeat(64),
+    },
+    record: {
+      schema_version: 1,
+      product: "openminion",
+      distribution: "binary",
+      channel: "stable",
+      promotion_status: "promoted",
+      runtime_version: "1.0.0",
+      release_id: "build.1",
+      published_at: "2026-09-20T00:00:00Z",
+      source_commit: "a".repeat(40),
+      release_notes_url: "https://github.com/openminion/openminion/releases/tag/v1.0.0",
+      desktop_compatibility: { min_version: "0.0.0", max_version_exclusive: "2.0.0" },
+      artifacts: [target],
+    },
+  };
+}
 
 it("keeps a successfully activated manifest installation instead of reinstalling the packaged pin", async () => {
   const { root, store } = await fixture();

@@ -54,13 +54,15 @@ fails when a platform's expected artifact formats are missing.
 
 ## Desktop Storage
 
-Runtime contract, verified staging and launch-intent checks:
+Runtime contract, verified source/paired-binary staging and launch-intent checks:
 
 ```bash
 npm test -- tests/main/runtime-manifest.test.ts tests/main/runtime-installation.test.ts tests/main/backend-supervisor.test.ts tests/main/desktop-store.test.ts
 ```
 
-These fixtures are not public-feed or native update certification. Run the real
+The binary fixtures reject untrusted redirects and roll back the whole pair if
+either executable fails verification. These fixtures are not public-feed or
+native update certification. Run the real
 managed PyPI first-install/reuse/owned-quit check separately after building:
 
 ```bash
