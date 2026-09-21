@@ -83,8 +83,9 @@ still owns profiles, credentials, transcripts and execution state. See
 
 ## Runtime Updates
 
-The narrow `runtime.control` bridge accepts pause/resume, discard, installed-pin,
-remove-pin and exact stable-version pin actions. Main resolves record/artifact
+The narrow `runtime.control` bridge accepts PyPI/native source selection,
+pause/resume, discard, installed-pin, remove-pin and exact stable-version pin
+actions. Main resolves record/artifact
 identities; renderer-provided URLs, paths, hashes and commands are rejected.
 Policy persists in Desktop's SQLite schema three; older clients must refuse
 that schema instead of silently ignoring a hold. Preparation and startup
@@ -109,9 +110,10 @@ Failed/interrupted launch leaves a recovery marker instead of an automatic
 older-runtime restart. Developer executable overrides are unmanaged.
 
 Publication and compatibility certification remain pending. Missing feeds fail
-as update checks without changing the installed pin. Binary selection remains
-unavailable while the public binary feed is empty; only centrally verified,
-promoted records with explicit Desktop compatibility can become eligible.
+as update checks without changing the installed pin. Selecting the native source
+does not install or relabel the active runtime, and an empty binary feed offers
+no update; only centrally verified, promoted records with explicit Desktop
+compatibility can become eligible.
 
 ## Reports And Transcript Export
 

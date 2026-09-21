@@ -38,6 +38,7 @@ function mount(api: NativeApi, root: Document): Promise<void> {
   api.runtime ??= {
     status: async () => ({
       source: "pypi",
+      selectedSource: "pypi",
       installedVersion: "0.0.19",
       availableVersion: null,
       phase: "unchecked",
@@ -46,6 +47,7 @@ function mount(api: NativeApi, root: Document): Promise<void> {
     }),
     check: async () => ({
       source: "pypi",
+      selectedSource: "pypi",
       installedVersion: "0.0.19",
       availableVersion: null,
       phase: "current",
@@ -56,6 +58,7 @@ function mount(api: NativeApi, root: Document): Promise<void> {
       ok: true,
       value: {
         source: "pypi",
+        selectedSource: "pypi",
         installedVersion: "0.0.19",
         availableVersion: null,
         phase: "current",
@@ -89,6 +92,7 @@ describe("renderer computer observation", () => {
     const page = new FixtureDocument();
     const current = {
       source: "pypi" as const,
+      selectedSource: "pypi" as const,
       installedVersion: "0.0.21",
       availableVersion: "0.0.22",
       phase: "pending" as const,
@@ -139,6 +143,7 @@ describe("renderer computer observation", () => {
       const page = new FixtureDocument();
       let current: Awaited<ReturnType<NativeApi["runtime"]["status"]>> = {
         source: "pypi",
+        selectedSource: "pypi",
         installedVersion: "0.0.19",
         availableVersion: null,
         phase: "checking",
@@ -186,6 +191,46 @@ describe("renderer computer observation", () => {
       }
     },
   );
+
+  it("selects a future runtime source without relabeling the active runtime", async () => {
+    const page = new FixtureDocument();
+    const current = {
+      source: "pypi" as const,
+      selectedSource: "pypi" as const,
+      installedVersion: "0.0.23",
+      availableVersion: null,
+      phase: "current" as const,
+      paused: false,
+      pinnedVersion: null,
+    };
+    const control = vi.fn<NativeApi["runtime"]["control"]>(async () => ({
+      ok: true,
+      value: { ...current, selectedSource: "binary" },
+    }));
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: { status: async () => status({ state: "running", reachable: true }) },
+      turns: { subscribe: () => () => {} },
+      runtime: { status: async () => current, check: vi.fn(), stage: vi.fn(), control },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      await mount(api, page.asDocument());
+      const source = page.element("runtime-update-source");
+      source.value = "binary";
+      source.dispatch("change");
+      expect(control).toHaveBeenCalledWith({ action: "source", source: "binary" });
+      await Promise.resolve();
+      expect(page.element("runtime-update-status").textContent).toContain(
+        "Installed: OpenMinion 0.0.23 (pypi)",
+      );
+      expect(page.element("runtime-update-status").textContent).toContain(
+        "Update source: native runtime",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("validates percentage regions and uses safe lifecycle copy", () => {
     expect(captureRegionFromPercentages(["10", "20", "40", "50"])).toEqual({
       xBps: 1000,
@@ -3449,6 +3494,7 @@ class FixtureDocument {
     "show-daemon-status",
     "show-daemon-logs",
     "runtime-update-status",
+    "runtime-update-source",
     "check-runtime-update",
     "stage-runtime-update",
     "pause-runtime-update",

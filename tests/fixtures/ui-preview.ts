@@ -209,6 +209,7 @@ const api: NativeApi = {
     }),
     status: async () => ({
       source: "unmanaged",
+      selectedSource: "pypi",
       installedVersion: null,
       availableVersion: null,
       phase: "unmanaged",
@@ -217,6 +218,7 @@ const api: NativeApi = {
     }),
     check: async () => ({
       source: "unmanaged",
+      selectedSource: "pypi",
       installedVersion: null,
       availableVersion: null,
       phase: "unmanaged",

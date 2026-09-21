@@ -206,6 +206,10 @@ describe("Desktop SQLite storage", () => {
     store.completeRuntimeLaunch();
     store.discardRuntime();
     expect(store.runtimeState().active).toEqual(candidate);
+    expect(() => store.setRuntimeSource("binary")).toThrow("runtime_pin_source_mismatch");
+    store.setRuntimePolicy(false, null);
+    store.setRuntimeSource("binary");
+    expect(store.runtimeState()).toMatchObject({ source: "binary", active: candidate });
   });
 
   it("migrates schema two while retaining a prepared candidate and launch intent", () => {

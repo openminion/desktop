@@ -180,7 +180,8 @@ export class DaemonSupervisor {
     if (state?.launchIntent) phase = "recovery_required";
     if (unmanaged) phase = "unmanaged";
     return {
-      source: unmanaged ? "unmanaged" : (state?.source ?? "pypi"),
+      source: unmanaged ? "unmanaged" : (state?.active?.source ?? state?.source ?? "pypi"),
+      selectedSource: state?.source ?? "pypi",
       installedVersion: this.#installedVersion,
       availableVersion: state?.pending?.version ?? this.#offer?.record.runtime_version ?? null,
       paused: state?.paused ?? false,
@@ -288,15 +289,21 @@ export class DaemonSupervisor {
     const value = input as Record<string, unknown>;
     if (
       !Object.keys(value).every(
-        (key) => key === "action" || (value.action === "pin" && key === "version"),
+        (key) =>
+          key === "action" ||
+          (value.action === "pin" && key === "version") ||
+          (value.action === "source" && key === "source"),
       ) ||
       typeof value.action !== "string" ||
-      !["pause", "resume", "discard", "unpin", "pin-installed", "pin"].includes(value.action) ||
+      !["pause", "resume", "discard", "unpin", "pin-installed", "pin", "source"].includes(
+        value.action,
+      ) ||
       (value.action === "pin" &&
         (typeof value.version !== "string" ||
-          !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value.version)))
+          !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value.version))) ||
+      (value.action === "source" && !["pypi", "binary"].includes(String(value.source)))
     )
-      return Promise.resolve(failure("invalid_input", "Choose an exact stable runtime version."));
+      return Promise.resolve(failure("invalid_input", "Choose a supported runtime control."));
     if (
       !this.#options.store ||
       this.#options.openminionExecutable ||
@@ -328,6 +335,16 @@ export class DaemonSupervisor {
         "runtime_recovery_required",
         "Recovery needs review before changing runtime policy.",
       );
+    if (input.action === "source" && state.pending)
+      return failure(
+        "runtime_candidate_pending",
+        "Discard the prepared update before changing its source.",
+      );
+    if (input.action === "source" && state.pin && state.pin.source !== input.source)
+      return failure(
+        "runtime_pin_source_mismatch",
+        "Remove the exact runtime pin before changing its source.",
+      );
     if (input.action === "pause" || input.action === "discard") {
       if (input.action === "pause") store.setRuntimePolicy(true, state.pin);
       this.#stageController?.abort();
@@ -342,6 +359,7 @@ export class DaemonSupervisor {
       if (this.#closing) return failure("runtime_busy", "Desktop is closing.");
       if (input.action === "resume") store.setRuntimePolicy(false, state.pin);
       else if (input.action === "unpin") store.setRuntimePolicy(state.paused, null);
+      else if (input.action === "source") store.setRuntimeSource(input.source);
       else if (input.action === "pin-installed") {
         if (!state.active)
           return failure(

@@ -48,19 +48,20 @@ Start Desktop with:
 npm start
 ```
 
-On first launch, Desktop creates a Python environment under `~/.openminion/desktop/runtime`, installs the pinned `openminion==0.0.19` PyPI package, initializes a
+On first launch, Desktop creates a Python environment under `~/.openminion/desktop/runtime`, installs the pinned OpenMinion PyPI package, initializes a
 credential-free echo config, assigns an authenticated loopback daemon endpoint,
 and starts the daemon. Later launches reuse the environment while its version
 matches the pin.
 
-Open connection details to **Check updates**. When a certified compatible PyPI
-or binary record is available, **Prepare update** stages it separately; quit
+Open connection details and choose **Python package** or **Native runtime** under
+**Update options**, then use **Check updates**. When a certified compatible
+record is available, **Prepare update** stages it separately; quit
 and reopen Desktop to activate it before daemon startup. Binary records contain
 separately verified `openminion` and `openminiond` executables from one immutable
 runtime Release. Checks also run at startup and every 24 hours, without
-installing automatically. The public binary feed is currently empty, so it
-cannot offer a binary update. Missing or uncertified records do not authorize
-installation.
+installing automatically. Selecting a source changes only future checks and
+does not relabel the active runtime. An empty binary feed cannot offer an
+update. Missing or uncertified records do not authorize installation.
 
 Desktop reads the `pypi` and `binary` stable feeds under
 `releases/runtime/v1/` from the public OpenMinion repo's `main` branch, not
@@ -72,8 +73,9 @@ another update channel and never upgrades a running app.
 
 ### Hold And Pin Runtime Upgrades
 
-Expand **Update options** in connection details for **Pause upgrades**, **Resume upgrades**,
-**Pin installed runtime**, **Set version pin**, **Remove pin**, and
+Expand **Update options** in connection details for source selection,
+**Pause upgrades**, **Resume upgrades**, **Pin installed runtime**,
+**Set version pin**, **Remove pin**, and
 **Discard prepared update**. A pause survives quit/reopen and blocks both
 preparation and startup activation, including an already-prepared update.
 Checks can still report availability while paused. Resume removes the pause,

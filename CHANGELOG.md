@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Added explicit PyPI/native runtime source selection while preserving the
+  actual source identity of the currently installed runtime.
+
 - Balance the polished OpenMinion mark with compact navigation, quieter header
   actions, consistent small sidebar icons, tighter chat spacing, and a clearer
   composer focus state.
