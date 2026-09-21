@@ -385,6 +385,7 @@ describe("DaemonSupervisor", () => {
       { action: "force" },
       { action: "pause", url: "https://evil.example" },
       { action: "pin", version: "1.0.0rc1" },
+      { action: "source", source: "archive" },
     ]) {
       expect(await supervisor.controlRuntime(input)).toMatchObject({
         ok: false,
@@ -436,6 +437,12 @@ describe("DaemonSupervisor", () => {
       ok: true,
       value: { pinnedVersion: null },
     });
+    expect(await supervisor.controlRuntime({ action: "source", source: "binary" })).toMatchObject({
+      ok: true,
+      value: { source: "binary", selectedSource: "binary" },
+    });
+    await supervisor.checkRuntime();
+    expect(check).toHaveBeenLastCalledWith(expect.objectContaining({ source: "binary" }));
     await supervisor.stop(true);
     const unmanaged = new DaemonSupervisor({
       store,

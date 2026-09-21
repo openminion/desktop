@@ -2095,7 +2095,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const installed = status.installedVersion
       ? `Installed: OpenMinion ${status.installedVersion} (${status.source}). `
       : "";
-    const policy = `${status.paused ? "Upgrades are paused, including prepared updates. " : ""}${status.pinnedVersion ? `Pinned to ${status.pinnedVersion}. ` : ""}`;
+    const policy = `Update source: ${status.selectedSource === "binary" ? "native runtime" : "Python package"}. ${status.paused ? "Upgrades are paused, including prepared updates. " : ""}${status.pinnedVersion ? `Pinned to ${status.pinnedVersion}. ` : ""}`;
     elements.runtimeUpdateStatus.textContent = installed + policy + copy[status.phase];
     elements.checkRuntimeUpdate.disabled = [
       "checking",
@@ -2107,6 +2107,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.stageRuntimeUpdate.hidden = status.phase !== "available";
     elements.stageRuntimeUpdate.disabled = status.phase !== "available" || status.paused;
     const busy = ["checking", "staging", "recovery_required", "unmanaged"].includes(status.phase);
+    elements.runtimeUpdateSource.value = status.selectedSource;
+    elements.runtimeUpdateSource.disabled = busy || status.phase === "pending";
     elements.pauseRuntimeUpdate.textContent = status.paused ? "Resume upgrades" : "Pause upgrades";
     elements.pauseRuntimeUpdate.dataset.action = status.paused ? "resume" : "pause";
     elements.pauseRuntimeUpdate.disabled = ["recovery_required", "unmanaged"].includes(
@@ -2138,6 +2140,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderRuntimeUpdate(result.ok ? result.value : await api.runtime.status());
     if (!result.ok) elements.runtimeUpdateStatus.textContent = result.error.message;
   };
+  elements.runtimeUpdateSource.addEventListener("change", () => {
+    const source = elements.runtimeUpdateSource.value;
+    if (source === "pypi" || source === "binary") void controlRuntime({ action: "source", source });
+  });
   elements.pauseRuntimeUpdate.addEventListener(
     "click",
     () =>
@@ -2904,6 +2910,7 @@ function rendererElements(root: Document) {
     showDaemonStatus: required(root, "show-daemon-status") as HTMLButtonElement,
     showDaemonLogs: required(root, "show-daemon-logs") as HTMLButtonElement,
     runtimeUpdateStatus: required(root, "runtime-update-status"),
+    runtimeUpdateSource: required(root, "runtime-update-source") as HTMLSelectElement,
     checkRuntimeUpdate: required(root, "check-runtime-update") as HTMLButtonElement,
     stageRuntimeUpdate: required(root, "stage-runtime-update") as HTMLButtonElement,
     pauseRuntimeUpdate: required(root, "pause-runtime-update") as HTMLButtonElement,

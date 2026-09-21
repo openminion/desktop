@@ -1331,6 +1331,7 @@ describe("desktop main boundary", () => {
       retry: vi.fn(),
       runtimeStatus: vi.fn().mockReturnValue({
         source: "pypi",
+        selectedSource: "pypi",
         installedVersion: "0.0.19",
         availableVersion: null,
         phase: "unchecked",
@@ -1532,6 +1533,7 @@ class CaptureFixtureDocument {
     "show-daemon-status",
     "show-daemon-logs",
     "runtime-update-status",
+    "runtime-update-source",
     "check-runtime-update",
     "stage-runtime-update",
     "pause-runtime-update",

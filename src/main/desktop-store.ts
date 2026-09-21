@@ -148,6 +148,14 @@ export class DesktopStore {
     this.writeRuntimeState({ ...state, paused, pin });
   }
 
+  setRuntimeSource(source: RuntimeState["source"]): void {
+    const state = this.runtimeState();
+    if (state.launchIntent) throw new Error("runtime_recovery_required");
+    if (state.pending) throw new Error("runtime_candidate_pending");
+    if (state.pin && state.pin.source !== source) throw new Error("runtime_pin_source_mismatch");
+    this.writeRuntimeState({ ...state, source });
+  }
+
   discardRuntime(): void {
     const state = this.runtimeState();
     if (state.launchIntent) throw new Error("runtime_recovery_required");

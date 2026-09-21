@@ -935,7 +935,8 @@ h2 {
   margin-top: 8px;
 }
 
-.runtime-update-options input {
+.runtime-update-options input,
+.runtime-update-options select {
   width: 100%;
   min-width: 0;
   min-height: 30px;

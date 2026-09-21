@@ -609,10 +609,12 @@ export type RuntimePin = {
 
 export type RuntimeControlInput =
   | { action: "pause" | "resume" | "discard" | "unpin" | "pin-installed" }
-  | { action: "pin"; version: string };
+  | { action: "pin"; version: string }
+  | { action: "source"; source: "pypi" | "binary" };
 
 export type RuntimeUpdateStatus = {
   source: "pypi" | "binary" | "unmanaged";
+  selectedSource: "pypi" | "binary";
   installedVersion: string | null;
   availableVersion: string | null;
   paused: boolean;

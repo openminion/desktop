@@ -143,6 +143,11 @@
               </div>
               <details class="connection-help runtime-update-options">
                 <summary>Update options</summary>
+                <label for="runtime-update-source">Update source</label>
+                <select id="runtime-update-source">
+                  <option value="pypi">Python package</option>
+                  <option value="binary">Native runtime</option>
+                </select>
                 <div class="daemon-actions">
                   <button id="pause-runtime-update" class="quiet-button" type="button">Pause upgrades</button>
                   <button id="discard-runtime-update" class="quiet-button" type="button" hidden>Discard prepared update</button>
