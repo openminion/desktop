@@ -277,6 +277,60 @@ describe("DaemonSupervisor", () => {
     expect(daemon.kill).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])(
+    "repairs profiles after its daemon exits only when no process remains (%s)",
+    async (pidAlive) => {
+      const root = await temporaryRoot();
+      const executable = await fakeExecutable(root);
+      await writeFile(join(root, "agents.json"), '{"runtime":{}}');
+      let reachable = false;
+      let exited = false;
+      const daemon = fakeDaemon(() => {
+        reachable = false;
+      });
+      const supervisor = new DaemonSupervisor({
+        openminionExecutable: executable,
+        homeRoot: root,
+        dataRoot: join(root, "data"),
+        configPath: join(root, "agents.json"),
+        runCommand: async (_command, args) =>
+          args.length === 1
+            ? result(0, "0.0.19")
+            : result(
+                reachable ? 0 : 1,
+                JSON.stringify({
+                  ...daemonPayload(reachable, root),
+                  pid_alive: exited ? pidAlive : reachable,
+                }),
+              ),
+        spawnDaemon: () => {
+          reachable = true;
+          exited = false;
+          return daemon.exitCode === null
+            ? daemon
+            : fakeDaemon(() => {
+                reachable = false;
+              });
+        },
+      });
+      await supervisor.start();
+      Object.assign(daemon, { exitCode: 1 });
+      reachable = false;
+      exited = true;
+      const save = vi.fn().mockResolvedValue({});
+      const applied = await supervisor.applyProfiles(save);
+      if (pidAlive) {
+        expect(applied).toMatchObject({ ok: false, error: { code: "runtime_external" } });
+        expect(save).not.toHaveBeenCalled();
+      } else {
+        expect(applied).toMatchObject({ ok: true, value: { daemon: { reachable: true } } });
+        expect(save).toHaveBeenCalledOnce();
+      }
+      expect(daemon.kill).not.toHaveBeenCalled();
+      await supervisor.stop();
+    },
+  );
+
   it.each([
     [true, false, undefined],
     [false, false, undefined],

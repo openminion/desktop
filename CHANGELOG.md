@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Allow repairing model credentials in Settings after the daemon exits, while
+  continuing to reject profile changes when another live process owns the daemon.
+
 - Move Rename and Close task into a compact native task-actions menu so the
   chat header stays focused on the conversation. Existing task behavior is unchanged.
 

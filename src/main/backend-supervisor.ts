@@ -124,15 +124,23 @@ export class DaemonSupervisor {
     if (!this.profiles || !this.#executable)
       return failure("settings_unavailable", "Connect to OpenMinion before editing profiles.");
     const ownedDaemon = this.#daemon;
-    let owned = false;
-    if (ownedDaemon) {
-      try {
-        owned = this.#owns(await this.#daemonStatus(), ownedDaemon);
-      } catch {
-        owned = false;
-      }
+    let canApply = false;
+    try {
+      const current = await this.#daemonStatus();
+      const childStopped =
+        !ownedDaemon || ownedDaemon.exitCode !== null || ownedDaemon.signalCode !== null;
+      canApply = Boolean(
+        (ownedDaemon && this.#owns(current, ownedDaemon)) ||
+          (childStopped &&
+            !current.reachable &&
+            current.pid_alive === false &&
+            current.lifecycle === "stopped" &&
+            current.endpoint_status === "unreachable"),
+      );
+    } catch {
+      canApply = false;
     }
-    if (!owned)
+    if (!canApply)
       return failure(
         "runtime_external",
         "This daemon is managed outside Desktop. Stop it before applying profile changes.",
