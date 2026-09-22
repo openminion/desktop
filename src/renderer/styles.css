@@ -1624,12 +1624,8 @@ details[open] > summary .summary-chevron {
   display: none;
 }
 
-.attachment-menu {
+.action-menu {
   inset: auto;
-  position-anchor: --attachment-trigger;
-  bottom: anchor(top);
-  left: anchor(left);
-  margin: 0 0 8px;
   padding: 6px;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
@@ -1638,11 +1634,36 @@ details[open] > summary .summary-chevron {
   box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
 }
 
-.attachment-menu button {
+.action-menu button {
   display: block;
   width: 100%;
   border-color: transparent;
   text-align: left;
+}
+
+.attachment-menu {
+  position-anchor: --attachment-trigger;
+  bottom: anchor(top);
+  left: anchor(left);
+  margin: 0 0 8px;
+}
+
+.task-actions-menu {
+  position-anchor: --task-actions-trigger;
+  top: anchor(bottom);
+  right: anchor(right);
+  min-width: 144px;
+  margin: 6px 0 0;
+}
+
+.task-actions-menu button {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.chat-heading-actions > [popovertarget="task-actions"] {
+  anchor-name: --task-actions-trigger;
 }
 
 .composer-tools > [popovertarget="attachment-menu"] {

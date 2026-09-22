@@ -1,11 +1,14 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-20
+Last updated: 2026-09-22
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Move Rename and Close task into a compact native task-actions menu so the
+  chat header stays focused on the conversation. Existing task behavior is unchanged.
 
 - Keep chat drafts editable during startup, center the conversation on wide
   windows, and show only local screen preview controls until screenshot delivery exists.

@@ -177,11 +177,16 @@
               <h2 id="current-title">New task</h2>
             </div>
             <div class="chat-heading-actions">
-              <button id="rename-session" class="context-link" type="button" disabled>Rename</button>
               <button class="context-link" type="button" popovertarget="context-panel">
                 Context
               </button>
-              <button id="close-session" class="context-link" type="button" disabled>Close task</button>
+              <button class="icon-only-button" type="button" popovertarget="task-actions" aria-label="Task actions" title="Task actions">
+                <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
+              </button>
+              <section id="task-actions" class="action-menu task-actions-menu" popover aria-label="Task actions">
+                <button id="rename-session" class="quiet-button" type="button" popovertarget="task-actions" popovertargetaction="hide" disabled>Rename</button>
+                <button id="close-session" class="quiet-button" type="button" popovertarget="task-actions" popovertargetaction="hide" disabled>Close task</button>
+              </section>
             </div>
           </header>
           <div id="conversation" class="conversation">
@@ -271,7 +276,7 @@
                 <button class="icon-only-button" type="button" popovertarget="attachment-menu" aria-label="Add attachment" title="Add attachment">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                 </button>
-                <div id="attachment-menu" class="attachment-menu" popover>
+                <div id="attachment-menu" class="action-menu attachment-menu" popover>
                   <button id="attach-image" class="quiet-button" type="button" popovertarget="attachment-menu" popovertargetaction="hide" disabled>Attach image</button>
                   <button id="attach-file" class="quiet-button" type="button" popovertarget="attachment-menu" popovertargetaction="hide" disabled>Attach file</button>
                 </div>
