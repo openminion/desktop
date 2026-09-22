@@ -1,9 +1,17 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
 
+const packageIcon =
+  process.platform === "darwin"
+    ? "assets/icon.icns"
+    : process.platform === "win32"
+      ? "assets/icon.ico"
+      : "assets/icon.png";
+
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     executableName: "OpenMinion",
+    icon: packageIcon,
     // Keep local state and repository-only files outside the distributed archive.
     ignore: [/^\/(?!dist(?:\/|$)|package\.json$|LICENSE$|NOTICE$).+/],
     name: "OpenMinion",
@@ -11,13 +19,24 @@ const config: ForgeConfig = {
   makers: [
     {
       name: "@electron-forge/maker-zip",
-      platforms: ["darwin"],
+      platforms: ["darwin", "linux", "win32"],
       config: {},
     },
     {
       name: "@electron-forge/maker-dmg",
       platforms: ["darwin"],
-      config: {},
+      config: { icon: "assets/icon.icns" },
+    },
+    {
+      name: "@electron-forge/maker-deb",
+      platforms: ["linux"],
+      config: {
+        options: {
+          bin: "OpenMinion",
+          homepage: "https://www.openminion.com",
+          maintainer: "OpenMinion Contributors",
+        },
+      },
     },
   ],
 };

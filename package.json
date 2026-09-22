@@ -20,7 +20,7 @@
     "node": ">=24 <25",
     "npm": ">=11 <12"
   },
-  "main": "dist/src/main/index.js",
+  "main": "dist/src/main/bootstrap.js",
   "scripts": {
     "build": "node scripts/build.mjs",
     "format": "biome format --write .",
@@ -37,17 +37,23 @@
     "hooks:run": "npm run precommit && node scripts/commit-message.mjs --git-head",
     "start": "npm run build && electron .",
     "package": "npm run build && electron-forge package && node scripts/package-contents.mjs",
-    "make": "npm run build && electron-forge make && node scripts/package-contents.mjs"
+    "make": "npm run build && electron-forge make && node scripts/package-contents.mjs --artifacts",
+    "electron-check": "npm run build && electron tests/electron/smoke.mjs",
+    "preview": "npm run build && electron scripts/preview.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
-    "@electron/asar": "3.4.1",
     "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-deb": "7.11.2",
     "@electron-forge/maker-dmg": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
+    "@electron/asar": "3.4.1",
+    "@renovatebot/pep440": "5.0.1",
     "@types/node": "24.13.3",
     "electron": "43.1.1",
+    "esbuild": "0.28.2",
+    "markdown-it": "15.0.2",
     "typescript": "7.0.2",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }

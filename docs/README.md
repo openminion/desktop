@@ -10,10 +10,14 @@ OpenMinion Desktop repository.
 | If you want to... | Read |
 | --- | --- |
 | Set up and start the source-development app | [Getting Started](getting-started.md) |
+| Use screenshots and understand the screen-context direction | [Screen Context](screen-context.md) |
 | Understand repository and process ownership | [Source Tree Owner Map](source-tree-owner-map.md) |
 | Follow implementation and simplicity rules | [Engineering Patterns](engineering-patterns.md) |
 | Understand local hooks and hosted checks | [Code Quality Enforcement](code-quality-enforcement.md) |
 | Run provider-free, package, native, or daemon proof | [Testing And Validation](testing-and-validation.md) |
+| Check CLI/Focus coverage and remaining GUI workflows | [Focus Parity Contract](focus-parity.md) |
+| Use the currently connected slash commands | [Desktop Commands](commands.md) |
+| Review the composer polish and its acceptance evidence | [Composer Refinement](composer-refinement.md) |
 | Check which product claims are currently supported | [Certification Readiness Matrix](certification-readiness-matrix.md) |
 
 ## Application Boundaries
@@ -33,9 +37,11 @@ This documentation describes source-development and unsigned local packaging.
 It does not claim a signed release, remote daemon service, Windows or Linux
 desktop package, unrestricted native input, or a second agent runtime.
 
-As of 2026-09-07, the required Desktop bootstrap contract has not landed on
-OpenMinion `main`; use only the explicitly matched development revision.
+Desktop lifecycle uses the pinned public PyPI package and ordinary OpenMinion
+commands. Text chat and completed session history use the public CLI/API.
+Approvals, media, artifacts, and full Focus parity remain incomplete; all further
+integration must use existing public interfaces.
 
 Historical planning packets and workspace-local trackers are not public
 product guidance. Current behavior is defined by this repository, its public
-docs, and the compatible OpenMinion daemon contract.
+docs, and the pinned OpenMinion public command surface.

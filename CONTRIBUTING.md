@@ -74,18 +74,26 @@ and `build`. Prefer a scope that names the affected owner, such as `main`,
 
 ## Optional integration checks
 
-Run the native capture test on a macOS session with Screen Recording
-permission:
+Build and inspect the current host's unsigned artifacts when packaging, runtime
+assets, or Forge configuration changes:
 
 ```bash
-npm run package
+npm run make
+```
+
+Run the native capture test on a macOS session with Screen Recording permission:
+
+```bash
 OPENMINION_ODC_NATIVE_CAPTURE=1 npm test -- tests/main/capture-native.test.ts
 ```
 
-Run real-daemon integration tests with a compatible OpenMinion executable:
+Run the real managed-runtime and pinned-package integration checks:
 
 ```bash
-OPENMINION_ODF_EXECUTABLE=/path/to/openminion npm test -- tests/main/index.test.ts
+env -u OPENMINION_EXECUTABLE -u OPENMINION_PYPI_EXECUTABLE \
+  node tests/electron/managed-install.mjs
+OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npm test -- tests/main/cli-client.test.ts
+OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/pypi.mjs
 ```
 
 These checks prove different tiers. An unsigned package does not prove native

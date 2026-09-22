@@ -13,7 +13,32 @@ let activeObservationListener: ((_event: unknown, payload: unknown) => void) | n
 const textEncoder = new TextEncoder();
 
 const api: NativeApi = {
+  runtime: {
+    status: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeStatus),
+    check: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeCheck),
+    stage: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeStage),
+    control: (input) => ipcRenderer.invoke(IPC_CHANNELS.runtimeControl, input),
+  },
+  chatNames: {
+    load: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesLoad, input),
+    save: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesSave, input),
+  },
+  reports: { read: (input) => ipcRenderer.invoke(IPC_CHANNELS.reportsRead, input) },
+  tasks: {
+    control: (input) => ipcRenderer.invoke(IPC_CHANNELS.tasksControl, input),
+  },
+  profiles: {
+    presets: () => ipcRenderer.invoke(IPC_CHANNELS.profilesPresets),
+    setup: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesSetup, input),
+    read: () => ipcRenderer.invoke(IPC_CHANNELS.profilesRead),
+    save: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesSave, input),
+    import: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesImport, input),
+  },
   app: {
+    openLink: (url) => ipcRenderer.invoke(IPC_CHANNELS.openLink, url),
+    copyText(text) {
+      return ipcRenderer.invoke(IPC_CHANNELS.copyText, text);
+    },
     async info() {
       return {
         appName: "OpenMinion",
@@ -22,6 +47,7 @@ const api: NativeApi = {
     },
   },
   daemon: {
+    inspect: (kind) => ipcRenderer.invoke(IPC_CHANNELS.daemonInspect, kind),
     status() {
       return ipcRenderer.invoke(IPC_CHANNELS.daemonStatus);
     },
@@ -30,6 +56,7 @@ const api: NativeApi = {
     },
   },
   sessions: {
+    export: (input) => ipcRenderer.invoke(IPC_CHANNELS.sessionsExport, input),
     list(input) {
       return ipcRenderer.invoke(IPC_CHANNELS.sessionsList, input);
     },

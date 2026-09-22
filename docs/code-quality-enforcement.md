@@ -1,7 +1,7 @@
 # OpenMinion Desktop Code Quality Enforcement
 
 Status: active
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 Purpose: summarize the public contributor view of Desktop's local hooks,
 package-owned checks, hosted CI, and explicit acceptance tiers.
@@ -43,7 +43,7 @@ the packaged-file boundary changes.
 | Cross-platform checks | package-specific: Linux and macOS provider-free checks; macOS package smoke |
 | Packaged-file boundary | apply: final `app.asar` runtime allowlist verification |
 | Native permission checks | package-specific: explicit macOS opt-in test |
-| OpenMinion integration | package-specific: explicit compatible-daemon test |
+| OpenMinion integration | package-specific: pinned-package lifecycle test; transport acceptance remains separate |
 | Python Make, pre-commit, and validators | not applicable: this is a Node/TypeScript application |
 | Numeric debt baselines | not applicable: current TypeScript and Biome gates are clean |
 | Release publishing | not applicable until signing, notarization, update, and rollback are implemented |
@@ -56,7 +56,9 @@ commit, then validate the subject at commit time. `npm run hooks:run` checks the
 same policy against the current revision.
 
 GitHub Actions validates workflow definitions and new commit subjects, runs the
-complete package check on Linux and macOS, and builds an unsigned macOS package.
+complete package check on Linux and macOS, builds an unsigned macOS package,
+and launches the actual sandboxed application with `npm run electron-check`
+on macOS.
 Workflow steps call stable package scripts instead of duplicating their
 internal sequences.
 

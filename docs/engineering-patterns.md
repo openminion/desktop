@@ -24,6 +24,15 @@ approval, audit, and user-visible behavior.
 
 ## Process Owners
 
+Desktop is the GUI representation of OpenMinion Focus/CLI. Focus defines the
+command names, aliases, arguments, defaults, runtime behavior, busy-turn rules,
+and permission semantics. Desktop presents those operations; it must not invent
+a separate command language or substitute weaker behavior under the same name.
+Missing integration is a parity defect, not a Desktop product distinction.
+Native buttons may present file, screenshot, and window interactions without
+adding Desktop-only slash commands. See [Focus Parity Contract](focus-parity.md)
+for the required shared-owner integration and acceptance criteria.
+
 1. OpenMinion owns agent semantics, sessions, policy, credentials, artifacts,
    and durable execution truth.
 2. Electron main owns daemon supervision, authenticated communication, file
@@ -35,6 +44,11 @@ approval, audit, and user-visible behavior.
 5. Shared modules own contracts used across more than one Desktop process.
 
 ## Boundary Rules
+
+Sandboxed preloads must be bundled as CommonJS, with shared contracts included
+and only `electron` left external. Keep `sandbox: true` and context isolation;
+do not disable them to accommodate ESM preload imports. The main process and
+renderer keep their existing ESM output.
 
 1. Treat renderer payloads as untrusted.
 2. Never expose raw IPC, Node.js, filesystem, shell, credential, or generic

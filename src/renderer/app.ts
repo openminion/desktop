@@ -1,3 +1,7 @@
+import { renderMarkdown } from "./markdown.js";
+import { mountProfiles } from "./profiles.js";
+import { renderTasks } from "./tasks.js";
+import type { ScheduleInput, TaskAction } from "../shared/tasks.js";
 import type {
   ApprovalDecision,
   ApprovalDecisionV1,
@@ -15,16 +19,19 @@ import type {
   DaemonStatus,
   ErrorV1,
   FileGrantV1,
+  InferenceUsageV1,
   MediaAttachmentV1,
   MessageV1,
   NativeApi,
   ObservationFrameFactV1,
   ObservationStatusV1,
+  RuntimeUpdateStatus,
   SessionEventV1,
   SessionSummaryV1,
   ToolProgressV1,
   TurnEventV1,
   TurnSubmitValue,
+  TurnUsageDisplay,
 } from "../shared/contracts.js";
 
 declare global {
@@ -46,8 +53,12 @@ export type ChatState = {
   traceId: string | null;
   terminalTraceId: string | null;
   active: boolean;
+  startedAt: number | null;
+  stopRequested: boolean;
   label: string;
   error: ErrorV1 | null;
+  detail: string;
+  lastUpdateAt: number | null;
 };
 
 export type RecoveredSession = {
@@ -57,6 +68,37 @@ export type RecoveredSession = {
 };
 
 export type ActivityItem = ToolProgressV1 | ApprovalEventV1;
+
+export const DESKTOP_COMMANDS = [
+  { name: "/help", description: "Show commands currently connected in Desktop" },
+  { name: "/new", description: "Start a new session" },
+  { name: "/sessions", description: "Pick a session" },
+  { name: "/close", description: "Close the current session" },
+  { name: "/tasks", description: "Inspect and control OpenMinion work" },
+  { name: "/agents", description: "List agents or find one by ID or name" },
+  { name: "/tools", description: "Show available tools" },
+  { name: "/tokens", description: "Show durable token usage details" },
+  { name: "/export", description: "Export the saved conversation" },
+  { name: "/status", description: "Show connection, task, agent, and model" },
+  { name: "/model", description: "Show reported model (selection not connected yet)" },
+  { name: "/copy", description: "Copy the latest reply" },
+  { name: "/clear", description: "Clear the visible chat; keep saved history" },
+  { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
+  { name: "/normal", description: "Show tool activity" },
+] as const;
+
+export const DESKTOP_ALIASES: Record<string, string> = {
+  "/": "/help",
+  "/session": "/sessions",
+  "/cls": "/clear",
+  "/task": "/tasks",
+  "/agent": "/agents",
+  "/tool": "/tools",
+};
+
+export function commandMatches(text: string) {
+  return DESKTOP_COMMANDS.filter((command) => command.name.startsWith(text.trim()));
+}
 
 export type ArtifactView = {
   item: ArtifactCatalogItemV1;
@@ -179,19 +221,31 @@ export function captureRegionFromPercentages(values: readonly string[]): Capture
 }
 
 export function statusView(status: DaemonStatus): StatusView {
-  if (status.state === "ready") {
+  if (status.state === "ready" || status.capabilities.includes("turns.text")) {
     return {
-      label: "Daemon connected",
-      summary: "Your authenticated local OpenMinion runtime is ready.",
+      label: "Connected",
+      summary:
+        status.state === "ready"
+          ? "Ready for messages."
+          : "Connected to your local OpenMinion daemon.",
       tone: "ready",
       showRetry: false,
       showRecovery: false,
     };
   }
+  if (status.state === "running") {
+    return {
+      label: "OpenMinion running",
+      summary: "The local runtime is ready; Desktop chat is not connected yet.",
+      tone: "pending",
+      showRetry: false,
+      showRecovery: true,
+    };
+  }
   if (status.state === "degraded") {
     return {
-      label: "Connection needs attention",
-      summary: "The secure daemon connection could not be established.",
+      label: "Not connected",
+      summary: "Reconnect to send messages.",
       tone: "degraded",
       showRetry: true,
       showRecovery: true,
@@ -212,8 +266,12 @@ export function initialChatState(): ChatState {
     traceId: null,
     terminalTraceId: null,
     active: false,
-    label: "Choose a session to begin.",
+    startedAt: null,
+    stopRequested: false,
+    label: "Choose or create a task to begin.",
     error: null,
+    detail: "",
+    lastUpdateAt: null,
   };
 }
 
@@ -227,35 +285,47 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
       return state;
     }
     return {
+      ...state,
       sessionId: event.sessionId,
       traceId: event.traceId,
       terminalTraceId: null,
       active: true,
-      label: "OpenMinion is working…",
+      startedAt: state.startedAt ?? Date.now(),
+      label: "Working…",
       error: null,
+      detail: "",
+      lastUpdateAt: Date.now(),
     };
   }
   if (event.sessionId !== state.sessionId || event.traceId !== state.traceId) {
     return state;
   }
   if (event.kind === "progress") {
+    if (state.stopRequested) return state;
     return {
       ...state,
-      label:
-        event.progressKind === "status"
-          ? (event.label ?? event.detailText ?? "OpenMinion is working…")
-          : "Receiving response…",
+      label: event.progressKind === "status" ? event.label?.trim() || "Working…" : "Writing…",
+      detail: event.progressKind === "status" ? event.detailText?.trim() || "" : "",
+      lastUpdateAt: Date.now(),
     };
   }
   if (event.kind === "response") {
     return {
       ...state,
-      label: event.errors.length ? "Turn completed with an error." : "Response received.",
+      label: event.errors[0]?.message ?? (state.stopRequested ? state.label : "Finishing…"),
       error: event.errors[0] ?? null,
+      detail: "",
+      lastUpdateAt: Date.now(),
     };
   }
   if (event.kind === "error") {
-    return { ...state, label: event.error.message, error: event.error };
+    return {
+      ...state,
+      label: event.error.message,
+      error: event.error,
+      detail: "",
+      lastUpdateAt: Date.now(),
+    };
   }
   if (event.kind === "tool" || event.kind === "approval") {
     return state;
@@ -265,12 +335,15 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
     traceId: null,
     terminalTraceId: event.traceId,
     active: false,
+    stopRequested: false,
+    detail: "",
+    lastUpdateAt: null,
     label:
       event.outcome === "complete"
-        ? "Turn complete."
+        ? ""
         : event.outcome === "cancelled"
-          ? "Turn cancelled."
-          : "Turn ended with an error.",
+          ? "Stopped."
+          : (state.error?.message ?? "Something went wrong. Try again."),
   };
 }
 
@@ -287,13 +360,28 @@ export function applySubmitResult(state: ChatState, result: TurnSubmitValue): Ch
     ...state,
     traceId: result.traceId,
     active: true,
-    label: "OpenMinion is working…",
+    startedAt: state.startedAt ?? Date.now(),
+    label: state.stopRequested ? state.label : "Working…",
   };
 }
 
 export function applyActivityEvent(activity: ActivityItem[], event: ActivityItem): ActivityItem[] {
   const key = activityKey(event);
   const prior = activity.find((item) => activityKey(item) === key);
+  if (
+    prior?.kind === "approval" &&
+    event.kind === "approval" &&
+    prior.outcome !== "pending" &&
+    event.outcome === "pending"
+  )
+    return activity;
+  if (
+    prior?.kind === "tool" &&
+    event.kind === "tool" &&
+    prior.phase === "completed" &&
+    event.phase === "started"
+  )
+    return activity;
   const next =
     event.kind === "approval" && prior?.kind === "approval"
       ? {
@@ -499,10 +587,82 @@ export async function recoverSession(
 export async function mount(api: NativeApi, root: Document = document): Promise<void> {
   const elements = rendererElements(root);
   const info = await api.app.info();
-  elements.shellVersion.textContent = `Desktop ${info.shellVersion}`;
+  elements.shellVersion.textContent = info.shellVersion;
   let sessions: SessionSummaryV1[] = [];
   let selected: SessionSummaryV1 | null = null;
+  let renamingSession: SessionSummaryV1 | null = null;
+  const legacyNames: { sessionId: string; title: string }[] = [];
+  const legacyKeys: string[] = [];
+  let legacyStorage: Storage | null = null;
+  let legacyReadFailed = false;
+  try {
+    legacyStorage = root.defaultView?.localStorage ?? null;
+    if (legacyStorage) {
+      for (let index = 0; index < legacyStorage.length; index += 1) {
+        const key = legacyStorage.key(index)!;
+        if (!key.startsWith("openminion.task-name:")) continue;
+        legacyKeys.push(key);
+        legacyNames.push({
+          sessionId: key.slice("openminion.task-name:".length),
+          title: legacyStorage.getItem(key)!,
+        });
+      }
+    }
+  } catch {
+    // Retain legacy names when browser storage cannot be read; retry on next launch.
+    legacyStorage = null;
+    legacyReadFailed = true;
+  }
+  const savedNames = legacyReadFailed
+    ? {
+        ok: false as const,
+        error: { message: "Could not read existing chat names. Restart the app to try again." },
+      }
+    : await api.chatNames.load(legacyNames);
+  const names = new Map(
+    (savedNames.ok ? savedNames.value : legacyNames).map(({ sessionId, title }) => [
+      sessionId,
+      title,
+    ]),
+  );
+  if (savedNames.ok && legacyStorage) {
+    try {
+      for (const key of legacyKeys) legacyStorage.removeItem(key);
+    } catch {
+      // SQLite records the completed import, so a leftover key cannot restore a reset name.
+    }
+  }
+  const taskName = (session: SessionSummaryV1): string =>
+    names.get(session.sessionId) || session.title || "Untitled task";
+  let savingName = false;
+  let renameGeneration = 0;
+  let daemonReady = false;
+  let connecting = true;
+  let richContextReady = false;
+  let creatingTask = false;
+  let conversationLoading = false;
+  let waitTimer: ReturnType<typeof setInterval> | null = null;
   let messages: MessageV1[] = [];
+  const drafts = new Map<string, string>();
+  let submittedText: string | null = null;
+  let responseText = "";
+  let responseUsage: InferenceUsageV1 | undefined;
+  const liveTurns = new Map<
+    string,
+    {
+      state: ChatState;
+      messages: MessageV1[];
+      submittedText: string;
+      responseText: string;
+      responseUsage?: InferenceUsageV1;
+      activity: ActivityItem[];
+    }
+  >();
+  let hiddenMessageCount = 0;
+  let quietTools = false;
+  let commandIndex = 0;
+  let commandDraft: string | null = null;
+  let commandsDismissed = false;
   let activity: ActivityItem[] = [];
   let attachments: MediaAttachmentV1[] = [];
   let artifacts: ArtifactCatalogItemV1[] = [];
@@ -548,11 +708,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const turnAttachmentsAreValid = () =>
-    Boolean(
-      selected &&
-        attachments.every(
-          (attachment) => attachment.sessionId === selected?.sessionId && attachment.turnCompatible,
-        ),
+    attachments.every(
+      (attachment) => attachment.sessionId === selected?.sessionId && attachment.turnCompatible,
     );
 
   const staleGuidanceReason = (
@@ -675,8 +832,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const renderGuidance = () => {
     refreshGuidanceState();
     const eligible = Boolean(
-      selected &&
+      richContextReady &&
+        selected &&
         selected.status !== "closed" &&
+        !conversationLoading &&
         !chat.active &&
         !attachmentPending &&
         attachments.length <= 3 &&
@@ -686,12 +845,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     );
     elements.askGuidance.disabled = !eligible;
     elements.guidanceStatus.textContent = guidanceMessage;
+    elements.guidanceStatus.hidden = !guidanceView && !guidancePending;
     elements.guidanceCard.hidden = guidanceView === null;
     elements.guidanceState.textContent = guidanceView?.state === "stale" ? "Stale" : "Current";
     elements.guidanceText.textContent = guidanceView?.text ?? "";
-    elements.guidancePreview.src =
-      guidanceView?.state === "current" ? guidanceView.frame.previewUrl : "";
-    elements.guidancePreview.hidden = !elements.guidancePreview.src;
+    const previewUrl = guidanceView?.state === "current" ? guidanceView.frame.previewUrl : "";
+    elements.guidancePreview.src = previewUrl;
+    elements.guidancePreview.hidden = !previewUrl;
     elements.guidanceFacts.textContent = guidanceView
       ? `${guidanceView.sourceLabel} · ${guidanceView.sourceKind} · ${guidanceView.frame.width} × ${guidanceView.frame.height} · captured ${relativeAge(guidanceView.frame.capturedAt)} · sent ${relativeAge(guidanceView.frame.sentAt!)} · ${expiryCopy(guidanceView.frame.expiresAt)}`
       : "";
@@ -712,11 +872,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const renderObservation = () => {
-    const writable = Boolean(selected && selected.status !== "closed" && observationApi);
+    elements.includeScreenshotControl.hidden = !richContextReady;
+    elements.askGuidance.hidden = !richContextReady;
+    elements.watchSettings.hidden = !richContextReady;
+    const writable = Boolean(
+      richContextReady && selected && selected.status !== "closed" && observationApi,
+    );
     const state = observationStatus?.state ?? "idle";
     elements.observationState.textContent = state[0]!.toUpperCase() + state.slice(1);
-    elements.observationStatus.textContent =
-      observationMessage ?? observationStatusCopy(observationStatus, writable);
+    elements.observationStatus.textContent = richContextReady
+      ? (observationMessage ?? observationStatusCopy(observationStatus, writable))
+      : "Screenshot sending and automatic watch are not connected to this runtime.";
     const configuring = ["selecting", "uploading", "inferencing", "stopping", "failed"].includes(
       state,
     );
@@ -739,6 +905,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       captureState?.state !== "observing" ||
       captureFrame === null ||
       attachments.length > 3;
+    elements.screenContextStatus.textContent = observationStatus?.watchEnabled
+      ? "Automatic watch preview · delivery is not connected"
+      : captureState?.state === "observing"
+        ? elements.includeCurrentView.checked
+          ? "Included with next message · latest eligible frame"
+          : "Local preview only · screenshot not included"
+        : captureStatusCopy(captureState, selected !== null);
     renderObservationFrame(
       elements.observationSelected,
       elements.observationSelectedPreview,
@@ -814,10 +987,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderRegionOverlay(elements, region);
     const live =
       state === "observing" || state === "paused" || state === "starting" || state === "stopping";
+    elements.captureCandidates.hidden = live;
+    elements.captureRegionControls.hidden = live || selectedCandidate === null;
     elements.captureLive.hidden = !live;
-    elements.capturePreview.src =
-      state === "observing" && captureFrame ? captureFrame.previewUrl : "";
-    elements.capturePreview.hidden = !elements.capturePreview.src;
+    elements.screenContextSummary.hidden = !live;
+    elements.screenContextName.textContent = captureState?.sourceLabel ?? "Screen context";
+    elements.screenContextName.setAttribute("title", elements.screenContextName.textContent);
+    const previewUrl = state === "observing" && captureFrame ? captureFrame.previewUrl : "";
+    elements.capturePreview.src = previewUrl;
+    elements.capturePreview.hidden = !previewUrl;
+    elements.screenContextPreview.src = previewUrl;
+    elements.screenContextPreview.hidden = !previewUrl;
     elements.pauseCapture.hidden = state !== "observing";
     elements.resumeCapture.hidden = state !== "paused";
     elements.pauseCapture.disabled = capturePending;
@@ -935,11 +1115,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const renderFiles = () => {
-    const writable = Boolean(selected && selected.status !== "closed" && api.files);
+    const writable = Boolean(
+      richContextReady && selected && selected.status !== "closed" && api.files,
+    );
     elements.chooseFile.disabled = !writable || chat.active || attachmentPending;
-    elements.chooseFolder.disabled = true;
-    elements.chooseFolder.title = "Folder import requires native filesystem support.";
-    elements.fileStatus.textContent = fileLabel;
+    elements.fileStatus.textContent = richContextReady
+      ? fileLabel
+      : "File import is not connected to this runtime.";
     renderFileGrants(
       root,
       elements.fileGrantList,
@@ -1033,9 +1215,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const renderArtifacts = () => {
-    const writable = Boolean(selected && selected.status !== "closed");
+    const writable = Boolean(richContextReady && selected && selected.status !== "closed");
     elements.refreshArtifacts.disabled = !writable || artifactPending;
-    elements.artifactStatus.textContent = artifactLabel;
+    elements.artifactStatus.textContent = richContextReady
+      ? artifactLabel
+      : "Artifact browsing is not connected to this runtime.";
     renderArtifactList(
       root,
       elements.artifactList,
@@ -1132,24 +1316,530 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderArtifacts();
   };
 
+  const hideCommandMenu = () => {
+    commandsDismissed = true;
+    elements.commandMenu.hidden = true;
+    elements.showCommands.setAttribute("aria-expanded", "false");
+    elements.composer.removeAttribute("aria-activedescendant");
+    if (commandDraft !== null) {
+      elements.composer.value = commandDraft;
+      commandDraft = null;
+    }
+  };
+
+  const renderCommandMenu = () => {
+    const value = elements.composer.value.trim();
+    const matches = commandMatches(value);
+    if (commandsDismissed || !value.startsWith("/") || !matches.length) {
+      elements.commandMenu.hidden = true;
+      elements.showCommands.setAttribute("aria-expanded", "false");
+      elements.composer.removeAttribute("aria-activedescendant");
+      return;
+    }
+    commandIndex = Math.min(commandIndex, matches.length - 1);
+    elements.commandMenu.replaceChildren(
+      ...matches.map((command, index) => {
+        const button = root.createElement("button");
+        button.id = `command-option-${index}`;
+        button.type = "button";
+        button.className = `command-option${index === commandIndex ? " active" : ""}`;
+        button.setAttribute("role", "option");
+        button.setAttribute("aria-selected", String(index === commandIndex));
+        const name = root.createElement("span");
+        name.className = "command-name";
+        name.textContent = command.name;
+        const description = root.createElement("span");
+        description.className = "command-description";
+        description.textContent = command.description;
+        button.append(name, description);
+        button.addEventListener("click", () => void runCommand(command.name));
+        return button;
+      }),
+    );
+    elements.commandMenu.hidden = false;
+    elements.showCommands.setAttribute("aria-expanded", "true");
+    elements.composer.setAttribute("aria-activedescendant", `command-option-${commandIndex}`);
+    elements.commandMenu.children[commandIndex]?.scrollIntoView({ block: "nearest" });
+  };
+
+  let commandResultGeneration = 0;
+  const hideCommandResult = () => {
+    commandResultGeneration += 1;
+    elements.commandPanel.hidden = true;
+  };
+  elements.closeCommand.addEventListener("click", () => {
+    hideCommandResult();
+    elements.composer.focus();
+  });
+  elements.commandPanel.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      hideCommandResult();
+      elements.composer.focus();
+    }
+  });
+  const showCommandResult = (title: string, text: string) => {
+    commandResultGeneration += 1;
+    elements.commandTitle.textContent = title;
+    const paragraph = root.createElement("p");
+    paragraph.textContent = text;
+    elements.commandResult.replaceChildren(paragraph);
+    elements.commandPanel.hidden = false;
+    elements.commandPanel.scrollIntoView({ block: "start" });
+  };
+
+  let diagnosticsGeneration = 0;
+  let diagnosticsTrigger = elements.showDaemonStatus;
+  elements.closeDiagnostics.addEventListener("click", () => elements.diagnosticsDialog.close());
+  elements.diagnosticsDialog.addEventListener("close", () => {
+    if (elements.diagnosticsDialog.open) return;
+    diagnosticsGeneration += 1;
+    const focusTarget = diagnosticsTrigger.disabled ? elements.showConnection : diagnosticsTrigger;
+    focusTarget.focus();
+  });
+  const inspectDaemon = async (kind: "status" | "logs") => {
+    if (elements.showDaemonStatus.disabled) return;
+    elements.showDaemonStatus.disabled = true;
+    elements.showDaemonLogs.disabled = true;
+    const title = kind === "logs" ? "Daemon logs" : "Daemon status";
+    diagnosticsTrigger = kind === "logs" ? elements.showDaemonLogs : elements.showDaemonStatus;
+    elements.diagnosticsTitle.textContent = title;
+    const summary = root.createElement("p");
+    summary.setAttribute("role", "status");
+    summary.textContent = "Reading from OpenMinion…";
+    elements.diagnosticsResult.replaceChildren(summary);
+    if (!elements.diagnosticsDialog.open) elements.diagnosticsDialog.showModal();
+    const generation = ++diagnosticsGeneration;
+    try {
+      const result = await api.daemon.inspect(kind);
+      if (generation !== diagnosticsGeneration || !elements.diagnosticsDialog.open) return;
+      summary.textContent = result.ok
+        ? kind === "logs"
+          ? "Latest 200 lines. Refresh to read newer entries."
+          : "Current status from OpenMinion."
+        : result.error.message;
+      const actions = root.createElement("div");
+      actions.className = "diagnostic-actions";
+      elements.diagnosticsResult.append(actions);
+      const refresh = root.createElement("button");
+      refresh.type = "button";
+      refresh.className = "quiet-button diagnostic-control";
+      refresh.textContent = "Refresh";
+      refresh.addEventListener("click", () => void inspectDaemon(kind));
+      actions.append(refresh);
+      if (result.ok) {
+        const output = root.createElement("pre");
+        output.className = "diagnostic-output";
+        output.textContent = result.value.text;
+        const copy = root.createElement("button");
+        copy.type = "button";
+        copy.className = "quiet-button diagnostic-control";
+        copy.textContent = "Copy";
+        copy.addEventListener("click", async () => {
+          const copied = await api.app.copyText(result.value.text);
+          copy.textContent = copied.ok ? "Copied" : "Copy failed";
+        });
+        actions.append(copy);
+        elements.diagnosticsResult.append(output);
+      }
+    } finally {
+      elements.showDaemonStatus.disabled = false;
+      elements.showDaemonLogs.disabled = false;
+    }
+  };
+  elements.showDaemonStatus.addEventListener("click", () => void inspectDaemon("status"));
+  elements.showDaemonLogs.addEventListener("click", () => void inspectDaemon("logs"));
+
+  const runTasks = async (action: TaskAction, taskId?: string, schedule?: ScheduleInput) => {
+    if (!selected || !daemonReady || !api.tasks) {
+      if (schedule) return "Connect OpenMinion and choose a conversation first.";
+      showCommandResult("OpenMinion work", "Connect OpenMinion and choose a conversation first.");
+      return;
+    }
+    if (chat.active && !["list", "show"].includes(action)) {
+      if (schedule) return "Finish or stop this turn before scheduling work.";
+      showCommandResult("Turn in progress", "Finish or stop this turn before changing work.");
+      return;
+    }
+    const sessionId = selected.sessionId;
+    if (!schedule)
+      showCommandResult(
+        "OpenMinion work",
+        action === "list" || action === "show" ? "Loading work…" : "Applying change…",
+      );
+    const request = commandResultGeneration;
+    const result = await api.tasks.control({
+      sessionId,
+      action,
+      taskId,
+      ...(schedule ? { schedule } : {}),
+    });
+    if (request !== commandResultGeneration || selected?.sessionId !== sessionId) return;
+    // A dismissed result stays dismissed; completion must not reopen it over the chat.
+    if (elements.commandPanel.hidden) return;
+    if (!result.ok) {
+      if (schedule && result.error.code === "schedule_refresh_failed") {
+        showCommandResult("Schedule created", result.error.message);
+        const refresh = root.createElement("button");
+        refresh.type = "button";
+        refresh.textContent = "Refresh work list";
+        refresh.addEventListener("click", () => void runTasks("list"));
+        elements.commandResult.append(refresh);
+        return;
+      }
+      if (schedule) return result.error.message;
+      showCommandResult("OpenMinion work", result.error.message);
+      return;
+    }
+    showCommandResult(
+      "OpenMinion work",
+      [
+        result.value.tasks.length
+          ? "Work reported by OpenMinion for the current agent."
+          : "No work found.",
+        result.value.pendingActions
+          ? `${result.value.pendingActions} pending decisions. Resolve them in Focus/CLI; approval controls are not connected here yet.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+    renderTasks(
+      root,
+      elements.commandResult,
+      result.value.tasks,
+      chat.active,
+      (nextAction, id) => {
+        if (selected?.sessionId === sessionId) void runTasks(nextAction, id);
+      },
+      (schedule) =>
+        selected?.sessionId === sessionId
+          ? runTasks("schedule", undefined, schedule)
+          : Promise.resolve("Choose the original conversation before scheduling work."),
+    );
+  };
+
+  const runCommand = async (text: string): Promise<boolean> => {
+    const value = text.trim();
+    if (!value.startsWith("/") || value.startsWith("//")) return false;
+    const [name, ...args] = value.split(/\s+/);
+    const command = DESKTOP_ALIASES[name] ?? name;
+    if (!DESKTOP_COMMANDS.some((item) => item.name === command)) {
+      hideCommandMenu();
+      showCommandResult(
+        "Command unavailable",
+        `${name} is not available in Desktop. Type /help for supported commands. This text was not sent to the model.`,
+      );
+      return true;
+    }
+    if (
+      args.length &&
+      command !== "/tasks" &&
+      command !== "/agents" &&
+      !(command === "/new" && args.join(" ") === "session")
+    ) {
+      hideCommandMenu();
+      showCommandResult(
+        "Command arguments",
+        `${command} arguments are not connected in Desktop yet. Use Focus/CLI for this operation.`,
+      );
+      return true;
+    }
+    elements.composer.value = commandDraft ?? "";
+    commandDraft = null;
+    hideCommandMenu();
+    elements.composer.focus();
+    switch (command) {
+      case "/agents":
+      case "/tools":
+      case "/tokens": {
+        if (command === "/agents" && args.length && chat.active) {
+          showCommandResult("Agents", "Finish or stop this turn before inspecting an agent.");
+          break;
+        }
+        const kind = command.slice(1) as "agents" | "tools" | "tokens";
+        const titles = { agents: "Agents", tools: "Tools", tokens: "Token usage" };
+        if (kind === "tokens" && !selected) {
+          showCommandResult(titles[kind], "No active session.");
+          break;
+        }
+        const sessionId = selected?.sessionId;
+        showCommandResult(titles[kind], "Loading from OpenMinion…");
+        const request = commandResultGeneration;
+        const result = await api.reports.read({
+          kind,
+          ...(sessionId ? { sessionId } : {}),
+          ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
+        });
+        if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
+        if (elements.commandPanel.hidden) break;
+        if (!result.ok) showCommandResult(titles[kind], result.error.message);
+        else {
+          const report = result.value;
+          let text: string;
+          if (report.kind === "agents")
+            text =
+              report.agents
+                .map(
+                  (agent) =>
+                    `${agent.id === selected?.activeAgentId ? "● " : ""}${agent.id}${agent.label !== agent.id ? ` — ${agent.label}` : ""}`,
+                )
+                .join("\n") || "No matching agents.";
+          else if (report.kind === "tools")
+            text =
+              report.tools
+                .map((tool) => `${tool.name}${tool.enabled ? "" : " · disabled"}`)
+                .join("\n") || "No tools.";
+          else text = report.text;
+          showCommandResult(titles[kind], text);
+        }
+        break;
+      }
+      case "/export": {
+        if (!selected) {
+          showCommandResult("Export conversation", "Choose a saved conversation first.");
+          break;
+        }
+        const sessionId = selected.sessionId;
+        showCommandResult("Export conversation", "Preparing the saved conversation…");
+        const request = commandResultGeneration;
+        const result = await api.sessions.export({ sessionId });
+        if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
+        showCommandResult(
+          "Export conversation",
+          result.ok
+            ? result.value.cancelled
+              ? "Export cancelled."
+              : "Conversation saved."
+            : result.error.message,
+        );
+        break;
+      }
+      case "/tasks": {
+        if (!args.length) await runTasks("list");
+        else if (["pause", "resume", "cancel"].includes(args[0].toLowerCase()) && args.length === 2)
+          await runTasks(args[0].toLowerCase() as TaskAction, args[1]);
+        else if (
+          args.length === 1 &&
+          !["pause", "resume", "cancel"].includes(args[0].toLowerCase())
+        )
+          await runTasks("show", args[0]);
+        else
+          showCommandResult(
+            "Task command",
+            "Use /tasks, /tasks <task-id>, or /tasks pause|resume|cancel <task-id>.",
+          );
+        break;
+      }
+      case "/help":
+        showCommandResult(
+          "Focus commands — partial integration",
+          "Desktop presents OpenMinion Focus. Only the commands below are connected so far; model selection and other Focus operations still require integration. Type / and use ↑ / ↓. Enter runs a command; Tab completes its name. Escape dismisses the menu. Use // for a message beginning with /.",
+        );
+        for (const item of DESKTOP_COMMANDS) {
+          const button = root.createElement("button");
+          button.type = "button";
+          button.className = "command-option";
+          button.textContent = `${item.name}  ${item.description}`;
+          button.addEventListener("click", () => {
+            hideCommandResult();
+            void runCommand(item.name);
+          });
+          elements.commandResult.append(button);
+        }
+        break;
+      case "/new": {
+        const button = elements.newSession;
+        if (!daemonReady || button.disabled)
+          showCommandResult(
+            "Task unavailable",
+            "Connect OpenMinion and finish or cancel the active turn before changing this task.",
+          );
+        else button.click();
+        break;
+      }
+      case "/close":
+        if (elements.closeSession.disabled)
+          showCommandResult(
+            "Close conversation",
+            "Choose an open conversation and finish or stop its active turn first.",
+          );
+        else elements.closeSession.click();
+        break;
+      case "/sessions":
+        showCommandResult(
+          "Choose a task",
+          sessions.length
+            ? "Resume a saved conversation."
+            : "No saved tasks. Connect OpenMinion and create a new task.",
+        );
+        for (const session of sessions) {
+          const button = root.createElement("button");
+          button.type = "button";
+          button.className = "command-option";
+          button.textContent = `${taskName(session)} · ${session.status}`;
+          button.addEventListener("click", () => {
+            hideCommandResult();
+            void selectSession(session);
+          });
+          elements.commandResult.append(button);
+        }
+        break;
+      case "/status":
+      case "/model":
+        showCommandResult(
+          command === "/model" ? "Configured model" : "Task status",
+          [
+            elements.connectionLabel.textContent,
+            `Task: ${selected ? taskName(selected) : "No task selected"}`,
+            `Session: ${selected?.sessionId ?? "None"}`,
+            `Agent: ${selected?.activeAgentId ?? "Not reported"}`,
+            `Provider: ${selected?.model.provider ?? "Not reported"}`,
+            `Model: ${selected?.model.modelId ?? "Not reported"}`,
+            chat.label,
+            "Model selection through Focus is not connected in Desktop yet.",
+          ].join("\n"),
+        );
+        break;
+      case "/copy": {
+        const reply = responseText
+          ? { body: responseText, profileName: selected?.activeAgentId }
+          : messages.slice(hiddenMessageCount).findLast((item) => item.role === "assistant");
+        const text = reply && assistantBody(reply.body, reply.profileName);
+        if (!text) showCommandResult("Copy reply", "There is no reply to copy yet.");
+        else {
+          const result = await api.app.copyText(text);
+          showCommandResult(
+            "Copy reply",
+            result.ok ? "Copied to clipboard." : result.error.message,
+          );
+        }
+        break;
+      }
+      case "/clear":
+        if (chat.active)
+          showCommandResult(
+            "Turn in progress",
+            "Finish or cancel this turn before clearing the visible chat.",
+          );
+        else {
+          hiddenMessageCount = messages.length;
+          activity = [];
+          showCommandResult(
+            "Chat cleared",
+            "Saved history is unchanged. Select the task again to restore it.",
+          );
+        }
+        break;
+      case "/quiet":
+        quietTools = true;
+        break;
+      case "/normal":
+        quietTools = false;
+        break;
+    }
+    renderChat();
+    return true;
+  };
+
+  elements.timeline.addEventListener("click", (event) => {
+    const link = (event.target as Element).closest("a[href]");
+    if (!link) return;
+    event.preventDefault();
+    void api.app.openLink(link.getAttribute("href")!).then((result) => {
+      if (!result.ok) showCommandResult("Open link", result.error.message);
+    });
+  });
+
+  const renderJumpToLatest = () => {
+    const { scrollHeight, clientHeight, scrollTop } = elements.conversation;
+    elements.jumpLatest.hidden =
+      scrollHeight - clientHeight - scrollTop <= 48 || !elements.commandMenu.hidden;
+  };
+  elements.conversation.addEventListener("scroll", renderJumpToLatest);
+  window.addEventListener("resize", renderJumpToLatest);
+  elements.jumpLatest.addEventListener("click", () => {
+    elements.conversation.scrollTop = elements.conversation.scrollHeight;
+    renderJumpToLatest();
+    elements.composer.focus();
+  });
+
+  const renderWaitTime = () => {
+    elements.chatElapsed.textContent =
+      chat.active && chat.startedAt !== null ? waitingTime(chat.startedAt, Date.now()) : "";
+    const sinceUpdate = chat.lastUpdateAt === null ? 0 : Date.now() - chat.lastUpdateAt;
+    elements.chatUpdate.textContent =
+      chat.active && sinceUpdate >= 15_000
+        ? `Last update ${waitingTime(chat.lastUpdateAt!, Date.now())} ago`
+        : "";
+    elements.chatUpdate.hidden = !elements.chatUpdate.textContent;
+  };
+
   const renderChat = () => {
     const writable = Boolean(selected && selected.status !== "closed");
     const attachmentsValid = turnAttachmentsAreValid();
-    elements.chatStatus.textContent = chat.label;
+    elements.chatStatus.textContent =
+      connecting && !selected
+        ? ""
+        : conversationLoading && !chat.active && !chat.label
+          ? "Finishing…"
+          : chat.label;
+    elements.chatDetail.textContent = chat.detail;
+    elements.chatDetail.hidden = !chat.detail;
+    elements.chatProgress.hidden = !elements.chatStatus.textContent && !chat.detail;
+    elements.timeline.setAttribute("aria-busy", String(conversationLoading));
+    elements.chatStatus.className = `chat-status${(chat.active || conversationLoading) && !chat.error ? " working" : ""}${chat.error ? " error" : ""}`;
+    renderWaitTime();
+    if (chat.active && waitTimer === null) waitTimer = setInterval(renderWaitTime, 1000);
+    if (!chat.active && waitTimer !== null) {
+      clearInterval(waitTimer);
+      waitTimer = null;
+    }
+    elements.newSession.disabled = connecting || creatingTask || chat.active;
+    const isCommand =
+      elements.composer.value.trimStart().startsWith("/") &&
+      !elements.composer.value.trimStart().startsWith("//");
     elements.send.disabled =
-      !writable ||
-      chat.active ||
-      attachmentPending ||
-      !elements.composer.value.trim() ||
-      !attachmentsValid;
+      connecting ||
+      creatingTask ||
+      (!isCommand &&
+        (!daemonReady ||
+          selected?.status === "closed" ||
+          conversationLoading ||
+          chat.active ||
+          attachmentPending ||
+          !elements.composer.value.trim() ||
+          !attachmentsValid));
     elements.cancel.hidden = !chat.active;
-    elements.cancel.disabled = !chat.active || !chat.traceId;
-    elements.composer.disabled = !writable || chat.active;
-    elements.closeSession.disabled = !writable || chat.active || attachmentPending;
+    elements.cancel.disabled = !chat.active || !chat.traceId || chat.stopRequested;
+    elements.cancel.title = chat.stopRequested ? "Waiting for OpenMinion to stop" : "Stop response";
+    elements.send.hidden = chat.active && !isCommand;
+    elements.composerHint.textContent = connecting
+      ? "Keep drafting while OpenMinion starts"
+      : chat.active
+        ? "You can keep drafting while OpenMinion works"
+        : "Enter to send · Shift+Enter for new line";
+    elements.send.title = isCommand
+      ? "Run command"
+      : !daemonReady
+        ? "Connect OpenMinion to send this draft"
+        : selected?.status === "closed"
+          ? "Create or choose an open task to send"
+          : conversationLoading
+            ? "Waiting for conversation history"
+            : "Send message (Enter)";
+    elements.composer.disabled = false;
+    elements.composer.placeholder = connecting
+      ? "Write a message while OpenMinion starts…"
+      : "Message OpenMinion…";
+    elements.closeSession.disabled =
+      !writable || conversationLoading || chat.active || attachmentPending;
     elements.attachImage.disabled =
-      !writable || chat.active || attachmentPending || attachments.length >= 4;
+      !richContextReady || !writable || chat.active || attachmentPending || attachments.length >= 4;
     elements.attachFile.disabled = elements.attachImage.disabled;
-    elements.currentTitle.textContent = selected?.title ?? "New conversation";
+    elements.renameSession.disabled = !selected;
+    elements.currentTitle.textContent = selected ? taskName(selected) : "New task";
+    elements.currentTitle.title = elements.currentTitle.textContent;
     renderAttachments(root, elements.attachments, attachments, (mediaId) => {
       const attachment = attachments.find((item) => item.mediaId === mediaId);
       if (!attachment) {
@@ -1166,9 +1856,27 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderTimeline(
       root,
       elements.timeline,
-      messages,
+      elements.conversation,
+      elements.chatProgress,
+      conversationLoading,
+      [
+        ...messages.slice(hiddenMessageCount),
+        ...(submittedText === null ? [] : [{ role: "user" as const, body: submittedText }]),
+        ...(responseText
+          ? [
+              {
+                role: "assistant" as const,
+                body: responseText,
+                profileName: selected?.activeAgentId,
+                usage: responseUsage,
+              },
+            ]
+          : []),
+      ],
+      selected?.turnUsageDisplay ?? "total",
+      (text) => api.app.copyText(text),
       automaticObservation,
-      activity,
+      quietTools ? activity.filter((item) => item.kind === "approval") : activity,
       deciding,
       (approval, decision) => {
         if (deciding.has(approval.approvalId)) {
@@ -1186,6 +1894,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           })
           .then((result) => {
             deciding.delete(approval.approvalId);
+            const live = liveTurns.get(approval.sessionId);
+            if (result.ok && live)
+              live.activity = applyActivityEvent(
+                live.activity,
+                resolvedApproval(approval, result.value),
+              );
             if (generation !== selectionGeneration || selected?.sessionId !== approval.sessionId) {
               return;
             }
@@ -1199,6 +1913,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       },
     );
     renderObservation();
+    renderCommandMenu();
+    renderJumpToLatest();
   };
 
   const showError = (error: ErrorV1) => {
@@ -1206,17 +1922,55 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderChat();
   };
 
+  const sessionSpinners = new Map<string, HTMLElement>();
+  const updateSessionActivity = () => {
+    for (const [sessionId, spinner] of sessionSpinners) {
+      const active = liveTurns.get(sessionId)?.state.active === true;
+      spinner.hidden = !active;
+      spinner.parentElement?.setAttribute(
+        "aria-label",
+        `${spinner.parentElement.title}${active ? " · Working" : ""}`,
+      );
+    }
+  };
+  const renderSessionList = () => {
+    sessionSpinners.clear();
+    renderSessions(
+      root,
+      elements.sessionList,
+      sessions,
+      selected?.sessionId ?? null,
+      taskName,
+      sessionSpinners,
+      (id) => {
+        const next = sessions.find((item) => item.sessionId === id);
+        if (next) void selectSession(next);
+      },
+    );
+
+    updateSessionActivity();
+  };
+
   const selectSession = async (
     session: SessionSummaryV1,
     terminalTraceId: string | null = null,
     preserveGuidance = false,
   ) => {
+    const refreshing = selected?.sessionId === session.sessionId;
+    const terminalState =
+      refreshing && terminalTraceId !== null && chat.terminalTraceId === terminalTraceId
+        ? chat
+        : null;
+    if (!refreshing) hideCommandResult();
     const terminalGuidance =
       preserveGuidance &&
       terminalTraceId !== null &&
       (guidancePending?.traceId === terminalTraceId || guidanceView?.traceId === terminalTraceId);
     if (!terminalGuidance) clearGuidance();
     if (selected && selected.sessionId !== session.sessionId) {
+      hideCommandMenu();
+      drafts.set(selected.sessionId, elements.composer.value);
+      elements.composer.value = drafts.get(session.sessionId) ?? "";
       captureGeneration += 1;
       observationGeneration += 1;
       observationPending = false;
@@ -1238,30 +1992,36 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const generation = ++selectionGeneration;
     submissionGeneration += 1;
     selected = session;
-    capturePending = Boolean(captureApi);
-    artifacts = [];
-    artifactView = null;
-    artifactLabel = "Loading artifacts…";
-    fileLabel = "Choose a local file to import.";
-    activity = [];
-    deciding.clear();
-    chat = {
-      ...initialChatState(),
-      sessionId: session.sessionId,
-      terminalTraceId,
-      label: "Loading canonical history…",
-    };
-    renderSessions(root, elements.sessionList, sessions, session.sessionId, (id) => {
-      const next = sessions.find((item) => item.sessionId === id);
-      if (next) {
-        void selectSession(next);
-      }
-    });
+    conversationLoading = true;
+    if (!refreshing) {
+      const live = liveTurns.get(session.sessionId);
+      messages = live?.messages ?? [];
+      submittedText = live?.submittedText ?? null;
+      responseText = live?.responseText ?? "";
+      responseUsage = live?.responseUsage;
+      hiddenMessageCount = 0;
+      capturePending = Boolean(captureApi);
+      artifacts = [];
+      artifactView = null;
+      artifactLabel = "Loading artifacts…";
+      fileLabel = "Choose a local file to import.";
+      activity = live?.activity ?? [];
+      deciding.clear();
+      chat = live?.state ?? {
+        ...initialChatState(),
+        sessionId: session.sessionId,
+        terminalTraceId,
+        label: "Loading conversation…",
+      };
+    }
+    renderSessionList();
     renderChat();
     renderArtifacts();
     renderFiles();
     renderCapture();
-    const artifactsLoading = loadArtifacts(session.sessionId, generation);
+    const artifactsLoading = richContextReady
+      ? loadArtifacts(session.sessionId, generation)
+      : Promise.resolve();
     const recovered = await recoverSession(api, session.sessionId);
     if (generation !== selectionGeneration || selected?.sessionId !== session.sessionId) {
       return;
@@ -1271,6 +2031,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       return;
     }
     capturePending = false;
+    conversationLoading = false;
     renderCapture();
     if ("code" in recovered) {
       showError(recovered);
@@ -1278,14 +2039,31 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     selected = recovered.session;
     messages = recovered.messages;
+    submittedText = null;
+    responseText = "";
+    responseUsage = undefined;
+    hiddenMessageCount = 0;
     automaticObservation = null;
     activity = recoverActivity(recovered.session.sessionId, recovered.events);
     chat = {
       ...initialChatState(),
       sessionId: recovered.session.sessionId,
       terminalTraceId,
-      label: terminalLabel(recovered.events),
+      label: recovered.session.isDraft
+        ? "Send a message to start this task."
+        : terminalLabel(recovered.events),
+      ...(terminalState ? { label: terminalState.label, error: terminalState.error } : {}),
     };
+    const live = liveTurns.get(session.sessionId);
+    if (live) {
+      chat = live.state;
+      // The CLI may not persist the accepted request until the turn finishes.
+      messages = live.messages;
+      submittedText = live.submittedText;
+      responseText = live.responseText;
+      responseUsage = live.responseUsage;
+      for (const item of live.activity) activity = applyActivityEvent(activity, item);
+    }
     renderChat();
   };
 
@@ -1296,12 +2074,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       return;
     }
     sessions = result;
-    renderSessions(root, elements.sessionList, sessions, selected?.sessionId ?? null, (id) => {
-      const next = sessions.find((item) => item.sessionId === id);
-      if (next) {
-        void selectSession(next);
-      }
-    });
+    renderSessionList();
     if (!selected && sessions[0]) {
       await selectSession(sessions[0]);
     } else if (!sessions.length) {
@@ -1309,31 +2082,164 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   };
 
-  const renderStatus = (status: DaemonStatus) => {
-    const view = statusView(status);
-    elements.statusDot.className = `status-dot ${view.tone}`;
-    elements.statusLabel.textContent = view.label;
-    elements.statusSummary.textContent = view.summary;
-    elements.retry.hidden = !view.showRetry;
-    elements.recovery.hidden = !view.showRecovery;
-    elements.daemonVersion.textContent = status.daemonVersion ?? "—";
-    elements.protocolVersion.textContent = status.protocol?.toString() ?? "—";
-    elements.connectionLabel.textContent = view.label;
+  const renderRuntimeUpdate = (status: RuntimeUpdateStatus) => {
+    const copy: Record<RuntimeUpdateStatus["phase"], string> = {
+      unchecked: "Runtime updates have not been checked.",
+      checking: "Checking for a compatible runtime…",
+      current: "No compatible runtime update is available.",
+      incompatible:
+        "The installed runtime is incompatible with this Desktop version. Check for a compatible update before connecting.",
+      available: `Runtime ${status.availableVersion} is available. Your current runtime stays in use.`,
+      staging: "Preparing the update without interrupting your work…",
+      pending: `Runtime ${status.availableVersion} is prepared for a later eligible startup. Pause and pin controls still apply; an external daemon must be stopped separately.`,
+      check_failed: "Could not check for updates. Your installed runtime is unchanged.",
+      recovery_required:
+        "A runtime update was interrupted after launch began. Recovery needs review; Desktop will not downgrade your data automatically.",
+      unmanaged: "Runtime is managed outside Desktop. Updates are not applied here.",
+    };
+    const installed = status.installedVersion
+      ? `Installed: OpenMinion ${status.installedVersion} (${status.source}). `
+      : "";
+    const policy = `Update source: ${status.selectedSource === "binary" ? "native runtime" : "Python package"}. ${status.paused ? "Upgrades are paused, including prepared updates. " : ""}${status.pinnedVersion ? `Pinned to ${status.pinnedVersion}. ` : ""}`;
+    elements.runtimeUpdateStatus.textContent = installed + policy + copy[status.phase];
+    elements.checkRuntimeUpdate.disabled = [
+      "checking",
+      "staging",
+      "pending",
+      "recovery_required",
+      "unmanaged",
+    ].includes(status.phase);
+    elements.stageRuntimeUpdate.hidden = status.phase !== "available";
+    elements.stageRuntimeUpdate.disabled = status.phase !== "available" || status.paused;
+    const busy = ["checking", "staging", "recovery_required", "unmanaged"].includes(status.phase);
+    elements.runtimeUpdateSource.value = status.selectedSource;
+    elements.runtimeUpdateSource.disabled = busy || status.phase === "pending";
+    elements.pauseRuntimeUpdate.textContent = status.paused ? "Resume upgrades" : "Pause upgrades";
+    elements.pauseRuntimeUpdate.dataset.action = status.paused ? "resume" : "pause";
+    elements.pauseRuntimeUpdate.disabled = ["recovery_required", "unmanaged"].includes(
+      status.phase,
+    );
+    elements.discardRuntimeUpdate.hidden = !["pending", "staging"].includes(status.phase);
+    elements.discardRuntimeUpdate.disabled = ["recovery_required", "unmanaged"].includes(
+      status.phase,
+    );
+    elements.pinInstalledRuntime.disabled = busy || !status.installedVersion;
+    elements.pinRuntimeVersion.disabled = busy || !status.installedVersion;
+    elements.unpinRuntime.hidden = !status.pinnedVersion;
+    elements.unpinRuntime.disabled = busy;
+  };
+  elements.checkRuntimeUpdate.addEventListener("click", async () => {
+    elements.checkRuntimeUpdate.disabled = true;
+    elements.runtimeUpdateStatus.textContent = "Checking for a compatible runtime…";
+    renderRuntimeUpdate(await api.runtime.check());
+  });
+  elements.stageRuntimeUpdate.addEventListener("click", async () => {
+    elements.stageRuntimeUpdate.disabled = true;
+    elements.runtimeUpdateStatus.textContent = "Preparing the update…";
+    const result = await api.runtime.stage();
+    renderRuntimeUpdate(result.ok ? result.value : await api.runtime.status());
+    if (!result.ok) elements.runtimeUpdateStatus.textContent = result.error.message;
+  });
+  const controlRuntime = async (input: Parameters<NativeApi["runtime"]["control"]>[0]) => {
+    const result = await api.runtime.control(input);
+    renderRuntimeUpdate(result.ok ? result.value : await api.runtime.status());
+    if (!result.ok) elements.runtimeUpdateStatus.textContent = result.error.message;
+  };
+  elements.runtimeUpdateSource.addEventListener("change", () => {
+    const source = elements.runtimeUpdateSource.value;
+    if (source === "pypi" || source === "binary") void controlRuntime({ action: "source", source });
+  });
+  elements.pauseRuntimeUpdate.addEventListener(
+    "click",
+    () =>
+      void controlRuntime({
+        action: elements.pauseRuntimeUpdate.dataset.action === "resume" ? "resume" : "pause",
+      }),
+  );
+  elements.discardRuntimeUpdate.addEventListener(
+    "click",
+    () => void controlRuntime({ action: "discard" }),
+  );
+  elements.pinInstalledRuntime.addEventListener(
+    "click",
+    () => void controlRuntime({ action: "pin-installed" }),
+  );
+  elements.unpinRuntime.addEventListener("click", () => void controlRuntime({ action: "unpin" }));
+  elements.pinRuntimeVersion.addEventListener(
+    "click",
+    () => void controlRuntime({ action: "pin", version: elements.runtimePinVersion.value.trim() }),
+  );
+  let runtimeStatusTimer: ReturnType<typeof setInterval> | null = null;
+  let runtimeStatusLoading = false;
+  const refreshRuntimeStatus = async () => {
+    if (runtimeStatusLoading) return;
+    runtimeStatusLoading = true;
+    try {
+      renderRuntimeUpdate(await api.runtime.status());
+    } finally {
+      runtimeStatusLoading = false;
+    }
+  };
+  elements.connectionDetails.addEventListener("toggle", () => {
+    if (runtimeStatusTimer !== null) clearInterval(runtimeStatusTimer);
+    runtimeStatusTimer = null;
+    if (elements.connectionDetails.open) {
+      void refreshRuntimeStatus();
+      // Project automatic check completion only while connection details are visible.
+      runtimeStatusTimer = setInterval(() => void refreshRuntimeStatus(), 2_000);
+    }
+  });
+
+  const renderReadiness = (summary?: string) => {
+    elements.recovery.hidden = daemonReady;
+    elements.readinessTitle.textContent = connecting
+      ? "Getting OpenMinion ready…"
+      : "Chat isn’t connected yet";
+    elements.readinessTitle.className = connecting ? "readiness-pending" : "";
+    elements.readinessSummary.textContent = connecting
+      ? "Starting your local runtime and connecting chat. First launch can take a little longer."
+      : `${summary} Your draft stays here while you reconnect.`;
+    elements.readinessActions.hidden = connecting;
   };
 
+  const renderStatus = (status: DaemonStatus) => {
+    const view = statusView(status);
+    daemonReady = status.state === "ready" || status.capabilities.includes("turns.text");
+    connecting = !daemonReady && !view.showRecovery;
+    richContextReady = status.state === "ready" && status.protocol !== null;
+    if (!selected) {
+      chat = {
+        ...chat,
+        label: daemonReady ? "Send a message to start a new task." : "",
+      };
+    }
+    elements.statusDot.className = `status-dot ${view.tone}`;
+    elements.statusSummary.textContent = view.summary;
+    elements.retry.hidden = !view.showRetry;
+    renderReadiness(view.summary);
+    elements.daemonVersion.textContent = status.daemonVersion ?? "Unavailable";
+    elements.protocolVersion.textContent = status.protocol?.toString() ?? "Unavailable";
+    elements.connectionLabel.textContent = view.label;
+    renderChat();
+  };
+
+  const profiles = mountProfiles(api, root, (status) => {
+    renderStatus(status);
+    if (daemonReady) void loadSessions();
+  });
+
   const refresh = async (): Promise<void> => {
-    let remainingPolls = 20;
     let status = await api.daemon.status();
     renderStatus(status);
-    while (status.state !== "ready" && status.state !== "degraded" && remainingPolls > 0) {
-      remainingPolls -= 1;
-      await wait(500);
-      status = await api.daemon.status();
+    if (!["running", "ready", "degraded"].includes(status.state)) {
+      status = await api.daemon.retry();
       renderStatus(status);
     }
-    if (status.state === "ready") {
+    if (daemonReady) {
       await loadSessions();
     }
+    await profiles?.checkSetup();
+    renderRuntimeUpdate(await api.runtime.status());
   };
 
   const acceptGuidanceTurnEvent = (event: TurnEventV1) => {
@@ -1370,6 +2276,27 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const unsubscribe = api.turns.subscribe((event) => {
+    const matchesSelectedTurn =
+      selected?.sessionId === event.sessionId && chat.traceId === event.traceId;
+    const live = liveTurns.get(event.sessionId);
+    if (live) {
+      const matchesTurn = live.state.traceId === event.traceId;
+      if (matchesTurn && (event.kind === "tool" || event.kind === "approval"))
+        live.activity = applyActivityEvent(live.activity, event);
+      if (matchesTurn && event.kind === "progress" && event.progressKind === "text")
+        live.responseText += event.text;
+      if (matchesTurn && event.kind === "response") {
+        live.responseText = event.finalText;
+        live.responseUsage = event.usage;
+      }
+      live.state = applyTurnEvent(live.state, event);
+      if (selected?.sessionId === event.sessionId) {
+        responseText = live.responseText;
+        responseUsage = live.responseUsage;
+      }
+      if (event.kind === "done" && matchesTurn) liveTurns.delete(event.sessionId);
+      updateSessionActivity();
+    }
     acceptGuidanceTurnEvent(event);
     if (
       (event.kind === "tool" || event.kind === "approval") &&
@@ -1379,7 +2306,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     chat = applyTurnEvent(chat, event);
     renderChat();
-    if (event.kind === "done" && selected?.sessionId === event.sessionId) {
+    if (event.kind === "done" && matchesSelectedTurn && selected) {
       void selectSession(selected, event.traceId, true);
     }
   });
@@ -1417,6 +2344,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       captureGeneration += 1;
       observationGeneration += 1;
       clearGuidance();
+      if (waitTimer !== null) clearInterval(waitTimer);
+      if (runtimeStatusTimer !== null) clearInterval(runtimeStatusTimer);
       capturePending = false;
       captureMessage = null;
       unsubscribe();
@@ -1432,26 +2361,101 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     { once: true },
   );
 
+  elements.showConnection.addEventListener("click", async () => {
+    elements.connectionDetails.open = true;
+    elements.retry.focus();
+    renderStatus(await api.daemon.status());
+  });
   elements.retry.addEventListener("click", async () => {
     elements.retry.disabled = true;
+    connecting = true;
+    daemonReady = false;
+    renderReadiness();
+    renderChat();
     const status = await api.daemon.retry();
     renderStatus(status);
-    if (status.state === "ready") {
+    if (daemonReady) {
       await loadSessions();
     }
     elements.retry.disabled = false;
   });
-  elements.newSession.addEventListener("click", async () => {
-    const result = await api.sessions.create({ title: "New chat" });
+  elements.readinessRetry.addEventListener("click", () => elements.retry.click());
+  elements.readinessSettings.addEventListener("click", () =>
+    required(root, "show-settings").click(),
+  );
+  const createTask = async () => {
+    if (creatingTask || chat.active) return false;
+    if (!daemonReady) {
+      elements.composer.focus();
+      return false;
+    }
+    creatingTask = true;
+    renderChat();
+    const result = await api.sessions.create({ title: "New task" });
     if (!result.ok) {
+      creatingTask = false;
       showError(result.error);
-      return;
+      return false;
     }
     sessions = [result.value, ...sessions];
     await selectSession(result.value);
+    creatingTask = false;
+    renderChat();
+    elements.composer.focus();
+    return true;
+  };
+  elements.renameSession.addEventListener("click", () => {
+    if (!selected) return;
+    renameGeneration += 1;
+    renamingSession = selected;
+    elements.taskName.value = taskName(selected);
+    elements.renameSessionId.textContent = selected.sessionId;
+    elements.renameError.textContent = savedNames.ok ? "" : savedNames.error.message;
+    elements.renameDialog.showModal();
+    elements.taskName.focus();
+    elements.taskName.select();
   });
+  elements.renameCancel.addEventListener("click", () => elements.renameDialog.close());
+  elements.renameDialog.addEventListener("close", () => {
+    if (elements.renameDialog.open) return;
+    renameGeneration += 1;
+    renamingSession = null;
+    elements.renameSession.focus();
+  });
+  const saveTaskName = async (name: string | null) => {
+    if (!renamingSession || savingName || !savedNames.ok) return;
+    const session = renamingSession;
+    const generation = renameGeneration;
+    savingName = true;
+    elements.renameError.textContent = "Saving…";
+    const result = await api.chatNames.save({ sessionId: session.sessionId, title: name });
+    savingName = false;
+    if (result.ok) {
+      if (name === null) names.delete(session.sessionId);
+      else names.set(session.sessionId, name);
+      renderSessionList();
+      renderChat();
+    }
+    if (generation !== renameGeneration) return;
+    if (!result.ok) {
+      elements.renameError.textContent = result.error.message;
+      return;
+    }
+    elements.renameDialog.close();
+  };
+  elements.renameForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = elements.taskName.value.trim();
+    if (!name || name.length > 120) {
+      elements.renameError.textContent = "Enter a name between 1 and 120 characters.";
+      return;
+    }
+    void saveTaskName(name);
+  });
+  elements.renameReset.addEventListener("click", () => void saveTaskName(null));
+  elements.newSession.addEventListener("click", () => void createTask());
   elements.closeSession.addEventListener("click", async () => {
-    if (!selected || chat.active) {
+    if (!selected || conversationLoading || chat.active) {
       return;
     }
     const generation = selectionGeneration;
@@ -1490,26 +2494,32 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     artifactView = null;
     artifactLabel = "This session is closed.";
     fileLabel = "This session is closed.";
-    renderSessions(root, elements.sessionList, sessions, selected.sessionId, (id) => {
-      const next = sessions.find((item) => item.sessionId === id);
-      if (next) {
-        void selectSession(next);
-      }
-    });
-    chat = { ...chat, label: "Session closed." };
+    renderSessionList();
+    chat = { ...chat, label: "Task closed. Start a new task to continue." };
     renderChat();
     renderArtifacts();
     renderFiles();
     renderCapture();
   });
   const submitTurn = async (asGuidance: boolean) => {
-    if (!selected || chat.active) {
+    if (connecting) return;
+    if (!asGuidance && (await runCommand(elements.composer.value))) return;
+    if (
+      !daemonReady ||
+      creatingTask ||
+      conversationLoading ||
+      chat.active ||
+      selected?.status === "closed"
+    ) {
       return;
     }
-    const message = elements.composer.value.trim();
+    const draft = elements.composer.value;
+    const message = draft.trim().replace(/^\/\//, "/");
     if (!message) {
       return;
     }
+    if (!selected && (asGuidance || !(await createTask()))) return;
+    if (!selected) return;
     const pending = asGuidance
       ? guidanceSnapshot(selected.sessionId, captureState, captureFrame)
       : null;
@@ -1527,11 +2537,37 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       guidanceView = null;
       guidanceMessage = "Submitting guidance request…";
     }
-    chat = { ...chat, active: true, label: "Submitting turn…", error: null };
+    chat = {
+      ...chat,
+      active: true,
+      startedAt: Date.now(),
+      stopRequested: false,
+      label: "Sending…",
+      error: null,
+      detail: "",
+      lastUpdateAt: Date.now(),
+    };
+    submittedText = message;
+    responseText = "";
+    responseUsage = undefined;
+    const sessionId = selected.sessionId;
+    if (elements.composer.value === draft) elements.composer.value = "";
+    drafts.delete(sessionId);
+    elements.composer.focus();
+    liveTurns.set(sessionId, {
+      state: chat,
+      messages,
+      submittedText: message,
+      responseText: "",
+      responseUsage: undefined,
+      activity: [],
+    });
+    updateSessionActivity();
     releaseFileGrants(api, fileGrants);
     fileGrants = [];
     fileLabel = "File grants released for this turn.";
     renderChat();
+    elements.conversation.scrollTop = elements.conversation.scrollHeight;
     const generation = ++submissionGeneration;
     const includeCurrentView = asGuidance || elements.includeCurrentView.checked;
     const result = await api.turns.submit({
@@ -1542,11 +2578,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         : {}),
       ...(includeCurrentView ? { observation: { includeCurrentView: true as const } } : {}),
     });
+    const live = liveTurns.get(sessionId);
+    if (live && result.ok) live.state = applySubmitResult(live.state, result.value);
+    if (!result.ok) {
+      liveTurns.delete(sessionId);
+      updateSessionActivity();
+      if (selected?.sessionId === sessionId) {
+        if (!elements.composer.value) elements.composer.value = draft;
+      } else if (!drafts.get(sessionId)) drafts.set(sessionId, draft);
+    }
     if (generation !== submissionGeneration) {
+      if (selected?.sessionId === sessionId) {
+        void selectSession(selected);
+      }
       return;
     }
     if (!result.ok) {
       chat = { ...chat, active: false };
+      submittedText = null;
       if (asGuidance) clearGuidance();
       if (result.error.code === "submission_ambiguous") {
         attachments = [];
@@ -1570,7 +2619,6 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         if (observationStatus) acceptGuidanceObservation(observationStatus);
       }
     }
-    elements.composer.value = "";
     elements.includeCurrentView.checked = false;
     attachments = [];
     chat = applySubmitResult(chat, result.value);
@@ -1581,7 +2629,74 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     void submitTurn(false);
   });
   elements.askGuidance.addEventListener("click", () => void submitTurn(true));
-  elements.composer.addEventListener("input", renderChat);
+  elements.composer.addEventListener("input", () => {
+    commandIndex = 0;
+    commandsDismissed = false;
+    renderChat();
+  });
+  const openCommands = () => {
+    if (!elements.composer.value.startsWith("/")) commandDraft = elements.composer.value;
+    elements.composer.value = "/";
+    commandsDismissed = false;
+    commandIndex = 0;
+    elements.composer.focus();
+    renderChat();
+  };
+  elements.showCommands.addEventListener("click", openCommands);
+  root.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      openCommands();
+    }
+  });
+  elements.composer.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
+    const matches = commandMatches(elements.composer.value);
+    if (event.key === "Escape" && elements.commandMenu.hidden && !elements.commandPanel.hidden) {
+      event.preventDefault();
+      hideCommandResult();
+      return;
+    }
+    if (!elements.commandMenu.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        hideCommandMenu();
+        renderChat();
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        commandIndex =
+          (commandIndex + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+        renderCommandMenu();
+        return;
+      }
+      if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+        event.preventDefault();
+        const command = matches[commandIndex];
+        if (command && event.key === "Tab") {
+          elements.composer.value = `${command.name} `;
+          commandsDismissed = true;
+          renderChat();
+        } else if (command) void runCommand(command.name);
+        return;
+      }
+    }
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      elements.composer.value.startsWith("/") &&
+      !elements.composer.value.startsWith("//")
+    ) {
+      event.preventDefault();
+      void runCommand(elements.composer.value);
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (!elements.send.disabled) void submitTurn(false);
+    }
+  });
   const pickMedia = async (kind: "image" | "file") => {
     if (!selected || chat.active || attachmentPending || attachments.length >= 4) {
       return;
@@ -1723,24 +2838,43 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderArtifacts();
   });
   elements.cancel.addEventListener("click", async () => {
-    if (!selected || !chat.traceId) {
+    if (!selected || !chat.traceId || chat.stopRequested) {
       return;
     }
-    elements.cancel.disabled = true;
-    const result = await api.turns.cancel({
-      sessionId: selected.sessionId,
-      traceId: chat.traceId,
-    });
-    if (!result.ok) {
-      showError(result.error);
-      return;
-    }
-    chat = {
-      ...chat,
-      active: !result.value.terminal,
-      label: result.value.terminal ? `Turn ${result.value.state}.` : "Cancellation requested…",
-    };
+    const sessionId = selected.sessionId;
+    const traceId = chat.traceId;
+    chat = { ...chat, stopRequested: true, label: "Requesting stop…", error: null };
+    const live = liveTurns.get(sessionId);
+    if (live) live.state = chat;
     renderChat();
+    const result = await api.turns.cancel({ sessionId, traceId });
+    const current = liveTurns.get(sessionId);
+    if (!current?.state.active || current.state.traceId !== traceId) return;
+    current.state = result.ok
+      ? {
+          ...current.state,
+          active: !result.value.terminal,
+          stopRequested: !result.value.terminal,
+          label: !result.value.terminal
+            ? "Stop requested…"
+            : result.value.state === "completed"
+              ? ""
+              : result.value.state === "cancelled"
+                ? "Stopped."
+                : "Something went wrong. Check the reply before trying again.",
+        }
+      : {
+          ...current.state,
+          stopRequested: false,
+          label: result.error.message,
+          error: result.error,
+        };
+    if (result.ok && result.value.terminal) liveTurns.delete(sessionId);
+    updateSessionActivity();
+    if (selected?.sessionId === sessionId && chat.traceId === traceId) {
+      chat = current.state;
+      renderChat();
+    }
   });
 
   renderChat();
@@ -1771,25 +2905,75 @@ function invalidArtifactResponse(): ErrorV1 {
 function rendererElements(root: Document) {
   return {
     statusDot: required(root, "status-dot"),
-    statusLabel: required(root, "status-label"),
     statusSummary: required(root, "status-summary"),
     retry: required(root, "retry") as HTMLButtonElement,
+    showConnection: required(root, "show-connection"),
+    diagnosticsDialog: required(root, "diagnostics-dialog") as HTMLDialogElement,
+    diagnosticsTitle: required(root, "diagnostics-title"),
+    diagnosticsResult: required(root, "diagnostics-result"),
+    closeDiagnostics: required(root, "close-diagnostics"),
+    showDaemonStatus: required(root, "show-daemon-status") as HTMLButtonElement,
+    showDaemonLogs: required(root, "show-daemon-logs") as HTMLButtonElement,
+    runtimeUpdateStatus: required(root, "runtime-update-status"),
+    runtimeUpdateSource: required(root, "runtime-update-source") as HTMLSelectElement,
+    checkRuntimeUpdate: required(root, "check-runtime-update") as HTMLButtonElement,
+    stageRuntimeUpdate: required(root, "stage-runtime-update") as HTMLButtonElement,
+    pauseRuntimeUpdate: required(root, "pause-runtime-update") as HTMLButtonElement,
+    discardRuntimeUpdate: required(root, "discard-runtime-update") as HTMLButtonElement,
+    pinInstalledRuntime: required(root, "pin-installed-runtime") as HTMLButtonElement,
+    unpinRuntime: required(root, "unpin-runtime") as HTMLButtonElement,
+    runtimePinVersion: required(root, "runtime-pin-version") as HTMLInputElement,
+    pinRuntimeVersion: required(root, "pin-runtime-version") as HTMLButtonElement,
+    connectionDetails: required(root, "connection-details") as HTMLDetailsElement,
     recovery: required(root, "recovery"),
+    readinessTitle: required(root, "readiness-title"),
+    readinessSummary: required(root, "readiness-summary"),
+    readinessActions: required(root, "readiness-actions"),
+    readinessRetry: required(root, "readiness-retry"),
+    readinessSettings: required(root, "readiness-settings"),
     daemonVersion: required(root, "daemon-version"),
     protocolVersion: required(root, "protocol-version"),
     shellVersion: required(root, "shell-version"),
     connectionLabel: required(root, "connection-label"),
+    screenContextSummary: required(root, "screen-context-summary"),
+    screenContextName: required(root, "screen-context-name"),
+    screenContextStatus: required(root, "screen-context-status"),
+    screenContextPreview: required(root, "screen-context-preview") as HTMLImageElement,
     sessionList: required(root, "session-list"),
     newSession: required(root, "new-session") as HTMLButtonElement,
     closeSession: required(root, "close-session") as HTMLButtonElement,
     currentTitle: required(root, "current-title"),
+    renameSession: required(root, "rename-session") as HTMLButtonElement,
+    renameDialog: required(root, "rename-dialog") as HTMLDialogElement,
+    renameForm: required(root, "rename-form") as HTMLFormElement,
+    taskName: required(root, "task-name") as HTMLInputElement,
+    renameSessionId: required(root, "rename-session-id"),
+    renameError: required(root, "rename-error"),
+    renameCancel: required(root, "rename-cancel"),
+    renameReset: required(root, "rename-reset"),
     timeline: required(root, "timeline"),
+    conversation: required(root, "conversation"),
+    jumpLatest: required(root, "jump-latest"),
+    chatProgress: required(root, "chat-progress"),
     chatStatus: required(root, "chat-status"),
+    chatDetail: required(root, "chat-detail"),
+    chatUpdate: required(root, "chat-update"),
+    chatElapsed: required(root, "chat-elapsed"),
+    composerHint: required(root, "composer-hint"),
     composerForm: required(root, "composer-form") as HTMLFormElement,
     composer: required(root, "composer") as HTMLTextAreaElement,
+    showCommands: required(root, "show-commands"),
+    commandMenu: required(root, "command-menu"),
+    commandPanel: required(root, "command-panel"),
+    closeCommand: required(root, "close-command"),
+    commandTitle: required(root, "command-title"),
+    commandResult: required(root, "command-result"),
+    contextPanel: required(root, "context-panel"),
+    screenPanel: required(root, "screen-panel"),
     send: required(root, "send") as HTMLButtonElement,
     cancel: required(root, "cancel") as HTMLButtonElement,
     askGuidance: required(root, "ask-guidance") as HTMLButtonElement,
+    watchSettings: required(root, "watch-settings"),
     guidanceCard: required(root, "guidance-card"),
     guidanceState: required(root, "guidance-state"),
     guidancePreview: required(root, "guidance-preview") as HTMLImageElement,
@@ -1797,6 +2981,7 @@ function rendererElements(root: Document) {
     guidanceText: required(root, "guidance-text"),
     guidanceStatus: required(root, "guidance-status"),
     includeCurrentView: required(root, "include-current-view") as HTMLInputElement,
+    includeScreenshotControl: required(root, "include-screenshot-control"),
     attachments: required(root, "attachments"),
     attachImage: required(root, "attach-image") as HTMLButtonElement,
     attachFile: required(root, "attach-file") as HTMLButtonElement,
@@ -1808,7 +2993,6 @@ function rendererElements(root: Document) {
     artifactContent: required(root, "artifact-content"),
     closeArtifact: required(root, "close-artifact") as HTMLButtonElement,
     chooseFile: required(root, "choose-file") as HTMLButtonElement,
-    chooseFolder: required(root, "choose-folder") as HTMLButtonElement,
     fileStatus: required(root, "file-status"),
     fileGrantList: required(root, "file-grant-list"),
     captureState: required(root, "capture-state"),
@@ -2110,6 +3294,7 @@ function renderAttachments(
       const name = root.createElement("span");
       name.className = "attachment-name";
       name.textContent = `${attachment.name} · ${formatBytes(attachment.sizeBytes)} · ${attachment.mimeType}`;
+      name.title = name.textContent;
       chip.append(name);
       if (!attachment.turnCompatible) {
         const state = root.createElement("span");
@@ -2121,6 +3306,7 @@ function renderAttachments(
       button.type = "button";
       button.className = "quiet-button attachment-remove";
       button.textContent = "Remove";
+      button.setAttribute("aria-label", `Remove ${attachment.name}`);
       button.addEventListener("click", () => remove(attachment.mediaId));
       chip.append(button);
       return chip;
@@ -2153,13 +3339,22 @@ function renderSessions(
   list: HTMLElement,
   sessions: SessionSummaryV1[],
   selectedId: string | null,
+  taskName: (session: SessionSummaryV1) => string,
+  spinners: Map<string, HTMLElement>,
   select: (sessionId: string) => void,
 ): void {
   const items: HTMLElement[] = sessions.map((session) => {
     const button = root.createElement("button");
     button.type = "button";
     button.className = `session-item${session.sessionId === selectedId ? " selected" : ""}`;
-    button.textContent = session.title ?? "Untitled session";
+    button.textContent = `${taskName(session)}${session.status === "closed" ? " · Closed" : ""}`;
+    button.title = button.textContent;
+    const spinner = root.createElement("span");
+    spinner.className = "session-spinner";
+    spinner.hidden = true;
+    spinner.setAttribute("aria-hidden", "true");
+    button.append(spinner);
+    spinners.set(session.sessionId, spinner);
     button.setAttribute("aria-current", session.sessionId === selectedId ? "true" : "false");
     button.addEventListener("click", () => select(session.sessionId));
     return button;
@@ -2167,31 +3362,140 @@ function renderSessions(
   if (!items.length) {
     const empty = root.createElement("p");
     empty.className = "empty-note";
-    empty.textContent = "No sessions yet.";
+    empty.textContent = "Your tasks will appear here.";
     items.push(empty);
   }
   list.replaceChildren(...items);
 }
 
+type TimelineMessage = {
+  key: string;
+  node: HTMLElement;
+  profile: HTMLElement | null;
+  usage: HTMLElement | null;
+  timestamp: HTMLTimeElement;
+};
+const timelineMessages = new WeakMap<HTMLElement, TimelineMessage[]>();
+
+export function messageTime(createdAt?: string): string {
+  if (!createdAt) return "";
+  const date = new Date(createdAt);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleString(undefined, { weekday: "long", hour: "numeric", minute: "2-digit" });
+}
+
 function renderTimeline(
   root: Document,
   timeline: HTMLElement,
-  messages: MessageV1[],
+  conversation: HTMLElement,
+  progress: HTMLElement,
+  loading: boolean,
+  messages: ReadonlyArray<
+    Pick<MessageV1, "role" | "body" | "profileName" | "usage"> &
+      Partial<Pick<MessageV1, "createdAt">>
+  >,
+  turnUsageDisplay: TurnUsageDisplay,
+  copyText: NativeApi["app"]["copyText"],
   automaticObservation: ObservationFrameFactV1 | null,
   activity: ActivityItem[],
   deciding: Set<string>,
   decide: (approval: ApprovalEventV1, decision: ApprovalDecision) => void,
 ): void {
-  const items: HTMLElement[] = messages.map((message) => {
+  const scrollTop = conversation.scrollTop;
+  const followLatest = conversation.scrollHeight - conversation.clientHeight - scrollTop <= 1;
+  const previous = timelineMessages.get(timeline) ?? [];
+  const next: TimelineMessage[] = [];
+  const items: HTMLElement[] = messages.map((message, index) => {
+    const bodyText =
+      message.role === "assistant"
+        ? assistantBody(message.body, message.profileName)
+        : message.body;
+    const usageText =
+      message.role === "assistant" ? formatDesktopTurnUsage(message.usage, turnUsageDisplay) : "";
+    const key = JSON.stringify([message.role, bodyText]);
+    const cached = previous[index];
+    if (cached?.key === key) {
+      if (cached.profile) {
+        if (cached.profile.textContent !== (message.profileName ?? ""))
+          cached.profile.textContent = message.profileName ?? "";
+        cached.profile.hidden = !message.profileName;
+      }
+      if (cached.usage) {
+        if (cached.usage.textContent !== usageText) cached.usage.textContent = usageText;
+        cached.usage.hidden = !usageText;
+      }
+      cached.timestamp.textContent = messageTime(message.createdAt);
+      cached.timestamp.dateTime = message.createdAt ?? "";
+      cached.timestamp.title = message.createdAt
+        ? new Date(message.createdAt).toLocaleString()
+        : "";
+      cached.timestamp.hidden = !cached.timestamp.textContent;
+      next.push(cached);
+      return cached.node;
+    }
     const article = root.createElement("article");
     article.className = `message ${message.role}`;
     const role = root.createElement("p");
     role.className = "message-role";
     role.textContent = message.role === "user" ? "You" : "OpenMinion";
-    const body = root.createElement("p");
+    const profile = message.role === "assistant" ? root.createElement("span") : null;
+    if (profile) {
+      profile.className = "message-profile";
+      profile.textContent = message.profileName ?? "";
+      profile.hidden = !message.profileName;
+      role.append(profile);
+    }
+    const body = root.createElement("div");
     body.className = "message-body";
-    body.textContent = message.body;
+    if (message.role === "assistant") {
+      body.className += " markdown";
+      renderMarkdown(root, body, bodyText);
+    } else body.textContent = bodyText;
     article.append(role, body);
+    const usage = message.role === "assistant" ? root.createElement("p") : null;
+    if (usage) {
+      usage.className = "message-usage";
+      usage.textContent = usageText;
+      usage.hidden = !usageText;
+      article.append(usage);
+    }
+    const actions = root.createElement("div");
+    actions.className = "message-actions";
+    const copy = root.createElement("button");
+    copy.type = "button";
+    copy.className = "quiet-button message-copy";
+    copy.textContent = "Copy";
+    copy.title = "Copy message";
+    copy.setAttribute("aria-label", "Copy message");
+    copy.setAttribute("aria-live", "polite");
+    copy.addEventListener("click", async () => {
+      copy.disabled = true;
+      try {
+        const result = await copyText(bodyText);
+        copy.textContent = result.ok ? "Copied" : "Copy failed";
+      } catch {
+        copy.textContent = "Copy failed";
+      }
+      copy.dataset.copyState = copy.textContent === "Copied" ? "copied" : "error";
+      copy.title = copy.textContent;
+      copy.setAttribute("aria-label", copy.textContent);
+      setTimeout(() => {
+        copy.textContent = "Copy";
+        copy.dataset.copyState = "";
+        copy.title = "Copy message";
+        copy.setAttribute("aria-label", "Copy message");
+        copy.disabled = false;
+      }, 1500);
+    });
+    const timestamp = root.createElement("time");
+    timestamp.className = "message-time";
+    timestamp.textContent = messageTime(message.createdAt);
+    timestamp.dateTime = message.createdAt ?? "";
+    timestamp.title = message.createdAt ? new Date(message.createdAt).toLocaleString() : "";
+    timestamp.hidden = !timestamp.textContent;
+    actions.append(copy, timestamp);
+    article.append(actions);
+    next.push({ key, node: article, profile, usage, timestamp });
     return article;
   });
   if (automaticObservation) {
@@ -2217,14 +3521,24 @@ function renderTimeline(
         : renderApprovalCard(root, item, deciding.has(item.approvalId), decide),
     ),
   );
-  if (!items.length) {
+  if (!items.length && !loading) {
     const empty = root.createElement("p");
     empty.className = "timeline-empty";
-    empty.textContent = "Start a conversation. Your canonical history appears here.";
+    empty.textContent = "What would you like to work on?";
     items.push(empty);
   }
-  timeline.replaceChildren(...items);
-  timeline.scrollTop = timeline.scrollHeight;
+  const requestIndex = messages.findLastIndex((message) => message.role === "user");
+  if (requestIndex >= 0) items.splice(requestIndex + 1, 0, progress);
+  else items.push(progress);
+  timelineMessages.set(timeline, next);
+  for (const [index, item] of items.entries()) {
+    const current = timeline.children[index];
+    if (current === item) continue;
+    if (current) timeline.replaceChild(item, current);
+    else timeline.append(item);
+  }
+  while (timeline.children.length > items.length) timeline.removeChild(timeline.lastElementChild!);
+  conversation.scrollTop = followLatest ? conversation.scrollHeight : scrollTop;
 }
 
 function renderToolCard(root: Document, item: ToolProgressV1): HTMLElement {
@@ -2384,15 +3698,65 @@ function decisionFact(event: SessionEventV1): ApprovalDecision | null {
   return value === "allow_once" || value === "deny" ? value : null;
 }
 
+export function assistantBody(body: string, profileName?: string | null): string {
+  // PyPI responses include a speaker envelope; move only the reported speaker to the header.
+  const prefix = profileName ? `${profileName}: ` : null;
+  return prefix && body.startsWith(prefix) ? body.slice(prefix.length) : body;
+}
+
+export function formatDesktopTurnUsage(
+  usage: InferenceUsageV1 | undefined,
+  display: TurnUsageDisplay,
+): string {
+  if (!usage?.usageAvailable) return "";
+  const parts = usage.durationMs === null ? [] : [formatDurationMs(usage.durationMs)];
+  if (display === "total" && usage.totalTokens) {
+    parts.push(`${formatTokenCount(usage.totalTokens)} tokens`);
+  }
+  if (display === "input_output" || display === "input_output_calls") {
+    if (usage.inputTokens || usage.outputTokens) {
+      parts.push(
+        `${formatTokenCount(usage.inputTokens)} in`,
+        `${formatTokenCount(usage.outputTokens)} out`,
+      );
+    }
+    if (display === "input_output_calls" && usage.llmCalls) {
+      parts.push(`${usage.llmCalls} ${usage.llmCalls === 1 ? "call" : "calls"}`);
+    }
+  }
+  return parts.join(" · ");
+}
+
+function formatTokenCount(value: number | null): string {
+  if (value === null) return "—";
+  if (value < 1_000) return String(value);
+  const divisor = value < 1_000_000 ? 1_000 : 1_000_000;
+  const suffix = value < 1_000_000 ? "k" : "m";
+  return `${(value / divisor).toFixed(1).replace(".0", "")}${suffix}`;
+}
+
+function formatDurationMs(value: number): string {
+  const seconds = Math.max(0, Math.floor(value / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+export function waitingTime(startedAt: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
 function terminalLabel(events: SessionEventV1[]): string {
   const last = events.at(-1);
   if (!last?.state) {
-    return "History loaded. Ready for a new turn.";
+    return "";
   }
-  if (["completed", "failed", "cancelled"].includes(last.state)) {
-    return `Last turn ${last.state}.`;
-  }
-  return "History loaded. A previous turn may still be active.";
+  if (last.state === "completed") return "";
+  if (last.state === "cancelled") return "Stopped.";
+  if (last.state === "failed") return "Something went wrong. Check the reply before trying again.";
+  return "This task may still be running. Check its status before sending again.";
 }
 
 function required(root: Document, id: string): HTMLElement {
@@ -2401,10 +3765,6 @@ function required(root: Document, id: string): HTMLElement {
     throw new Error(`missing renderer element ${id}`);
   }
   return element;
-}
-
-function wait(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 if (typeof window !== "undefined" && window.openminion) {

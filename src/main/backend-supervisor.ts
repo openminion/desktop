@@ -1,455 +1,792 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { request as httpRequest, type IncomingMessage } from "node:http";
-import type { Readable } from "node:stream";
-import type { DaemonStatus, DesktopClientReady } from "../shared/contracts.js";
-import { DESKTOP_CAPABILITIES } from "../shared/contracts.js";
+import { Profiles } from "./profiles.js";
+import { failure, failureFrom } from "./openminion-client.js";
+import type {
+  ClientResult,
+  RuntimeControlInput,
+  RuntimeUpdateStatus,
+} from "../shared/contracts.js";
+import {
+  checkRuntimeManifest,
+  desktopCompatible,
+  runtimeOfferDigest,
+  type RuntimeOffer,
+} from "./runtime-manifest.js";
+import type { ProfileSettings } from "../shared/profiles.js";
+import type { DaemonStatus } from "../shared/contracts.js";
+import { randomBytes } from "node:crypto";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { dirname, join } from "node:path";
+import { access, chmod, readFile, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { createServer } from "node:net";
 import { LifecycleState } from "./lifecycle-state.js";
-import { OpenMinionClient } from "./openminion-client.js";
-import { clientHeaders, publicStatus, validateReadiness } from "./security.js";
+import {
+  OpenMinionInstallation,
+  type OpenMinionInstallationOptions,
+  type RunCommand,
+  runCommand,
+} from "./installation.js";
+import { CliClient } from "./cli-client.js";
 
-const MAX_READINESS_BYTES = 16 * 1024;
-const MAX_RESPONSE_BYTES = 64 * 1024;
-const MAX_HELPER_OUTPUT_BYTES = 4 * 1024;
-
-export type DaemonSupervisorOptions = {
-  openminionExecutable?: string;
-  startupTimeoutMs?: number;
+export type DaemonSupervisorOptions = OpenMinionInstallationOptions & {
+  commandTimeoutMs?: number;
   configPath?: string;
   homeRoot?: string;
   dataRoot?: string;
+  spawnDaemon?: (
+    executable: string,
+    args: readonly string[],
+    options: SpawnOptions,
+  ) => ChildProcess;
+  exclusiveRuntime?: boolean;
+};
+
+type DaemonCliStatus = {
+  reachable: boolean;
+  pid?: number | null;
+  pid_alive?: boolean;
+  lifecycle?: string;
+  endpoint_status?: string;
+  remote_config_path?: string;
+  remote_data_root?: string;
+};
+
+export type OpenMinionCommandContext = {
+  executable: string;
+  args: readonly string[];
 };
 
 export class DaemonSupervisor {
+  readonly profiles: Profiles | null;
   readonly lifecycle = new LifecycleState();
-  readonly client: OpenMinionClient;
+  readonly client: CliClient;
   readonly #options: DaemonSupervisorOptions;
-  #readiness: DesktopClientReady | null = null;
-  #capabilities: string[] = [];
+  readonly #installation: OpenMinionInstallation;
+  readonly #runCommand: RunCommand;
+  #executable: string | null = null;
+  #daemonVersion: string | null = null;
   #errorCode: string | null = null;
-  #bootstrapChild: ChildProcess | null = null;
+  #daemon: ChildProcess | null = null;
   #startPromise: Promise<DaemonStatus> | null = null;
-  #renewalTimer: NodeJS.Timeout | null = null;
-  #recoveryUsed = false;
-  #bootstrapAttempts = 0;
+  #startAttempts = 0;
+  #installedVersion: string | null = null;
+  #offer: RuntimeOffer | null = null;
+  #updatePhase: RuntimeUpdateStatus["phase"] = "unchecked";
+  #checkPromise: Promise<RuntimeUpdateStatus> | null = null;
+  #checkController: AbortController | null = null;
+  #stagePromise: Promise<ClientResult<RuntimeUpdateStatus>> | null = null;
+  #stageController: AbortController | null = null;
+  #controlPromise: Promise<ClientResult<RuntimeUpdateStatus>> | null = null;
+  #controlController: AbortController | null = null;
+  #closing = false;
+  #updateTimer: ReturnType<typeof setInterval> | null = null;
+  #chatConnected = false;
 
-  constructor(options: DaemonSupervisorOptions = {}) {
+  constructor(options: DaemonSupervisorOptions) {
     this.#options = options;
-    this.client = new OpenMinionClient(() => this.#readiness);
+    this.#runCommand = options.runCommand ?? runCommand;
+    this.client = new CliClient(() => this.getCommandContext(), this.#runCommand);
+    this.#installation = new OpenMinionInstallation(options);
+    this.profiles =
+      options.configPath && options.homeRoot && options.dataRoot
+        ? new Profiles(options.configPath, options.homeRoot, options.dataRoot, this.#runCommand)
+        : null;
   }
 
-  get bootstrapAttempts(): number {
-    return this.#bootstrapAttempts;
+  async readProfiles(): Promise<ClientResult<ProfileSettings>> {
+    if (!this.profiles) return failure("settings_unavailable", "Profile settings are unavailable.");
+    try {
+      return { ok: true, value: await this.profiles.read() };
+    } catch {
+      return failure(
+        "settings_unavailable",
+        "Could not load profiles. Connect to OpenMinion, then reopen Settings.",
+      );
+    }
+  }
+
+  async setupPresets() {
+    if (!this.profiles || !this.#executable)
+      return failure(
+        "setup_unavailable",
+        "Wait for OpenMinion to finish starting, then reopen Settings.",
+      );
+    try {
+      return { ok: true as const, value: await this.profiles.presets(this.#executable) };
+    } catch (error) {
+      return failureFrom(error);
+    }
+  }
+
+  async applyProfiles(
+    save: (profiles: Profiles, executable: string) => Promise<ProfileSettings>,
+  ): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus }>> {
+    if (!this.profiles || !this.#executable)
+      return failure("settings_unavailable", "Connect to OpenMinion before editing profiles.");
+    const ownedDaemon = this.#daemon;
+    let canApply = false;
+    try {
+      const current = await this.#daemonStatus();
+      const childStopped =
+        !ownedDaemon || ownedDaemon.exitCode !== null || ownedDaemon.signalCode !== null;
+      canApply = Boolean(
+        (ownedDaemon && this.#owns(current, ownedDaemon)) ||
+          (childStopped &&
+            !current.reachable &&
+            current.pid_alive === false &&
+            current.lifecycle === "stopped" &&
+            current.endpoint_status === "unreachable"),
+      );
+    } catch {
+      canApply = false;
+    }
+    if (!canApply)
+      return failure(
+        "runtime_external",
+        "This daemon is managed outside Desktop. Stop it before applying profile changes.",
+      );
+    if (this.#startPromise || !this.client.beginConfiguration())
+      return failure("settings_busy", "Wait for running chats to finish before applying settings.");
+    try {
+      const settings = await save(this.profiles, this.#executable);
+      const needsStop =
+        this.#daemon !== null && this.#daemon.exitCode === null && this.#daemon.signalCode === null;
+      const stopped = await this.stop();
+      if (needsStop && !stopped.stopped)
+        return failure(
+          "settings_restart_failed",
+          "Settings were saved, but OpenMinion could not stop. Restart Desktop to apply them.",
+        );
+      const daemon = await this.start();
+      return { ok: true, value: { settings, daemon } };
+    } catch (error) {
+      return failureFrom(error);
+    } finally {
+      this.client.endConfiguration();
+    }
+  }
+
+  get startAttempts(): number {
+    return this.#startAttempts;
+  }
+
+  runtimeStatus(): RuntimeUpdateStatus {
+    const state = this.#options.store?.runtimeState();
+    const unmanaged = Boolean(this.#options.openminionExecutable);
+    let phase = this.#updatePhase;
+    if (
+      (phase === "current" || phase === "unchecked") &&
+      state?.active &&
+      !desktopCompatible(
+        this.#options.desktopVersion ?? "0.0.0",
+        state.active.desktopMinVersion,
+        state.active.desktopMaxVersionExclusive,
+      )
+    )
+      phase = "incompatible";
+    if (state?.pending) phase = "pending";
+    if (state?.launchIntent) phase = "recovery_required";
+    if (unmanaged) phase = "unmanaged";
+    return {
+      source: unmanaged ? "unmanaged" : (state?.active?.source ?? state?.source ?? "pypi"),
+      selectedSource: state?.source ?? "pypi",
+      installedVersion: this.#installedVersion,
+      availableVersion: state?.pending?.version ?? this.#offer?.record.runtime_version ?? null,
+      paused: state?.paused ?? false,
+      pinnedVersion: state?.pin?.version ?? null,
+      phase,
+    };
+  }
+
+  checkRuntime(): Promise<RuntimeUpdateStatus> {
+    if (this.#checkPromise) return this.#checkPromise;
+    if (
+      this.#closing ||
+      this.#controlPromise ||
+      this.#options.openminionExecutable ||
+      !this.#options.store ||
+      !this.#installedVersion ||
+      this.#options.store.runtimeState().pending ||
+      this.#options.store.runtimeState().launchIntent ||
+      this.#stagePromise
+    ) {
+      return Promise.resolve(this.runtimeStatus());
+    }
+    this.#offer = null;
+    this.#checkController = new AbortController();
+    this.#updatePhase = "checking";
+    const state = this.#options.store.runtimeState();
+    this.#checkPromise = checkRuntimeManifest({
+      source: state.source,
+      desktopVersion: this.#options.desktopVersion ?? "0.0.0",
+      installedVersion: this.#installedVersion,
+      installedDigest: state.active?.sha256,
+      pin: state.pin,
+      signal: this.#checkController.signal,
+    })
+      .then((offer) => {
+        this.#offer = offer;
+        this.#updatePhase = offer ? "available" : "current";
+        return this.runtimeStatus();
+      })
+      .catch(() => {
+        // Network/metadata failures do not affect the active installation or replay work.
+        this.#updatePhase = "check_failed";
+        return this.runtimeStatus();
+      })
+      .finally(() => {
+        this.#checkPromise = null;
+        this.#checkController = null;
+      });
+    return this.#checkPromise;
+  }
+
+  stageRuntime(): Promise<ClientResult<RuntimeUpdateStatus>> {
+    if (this.#stagePromise) return this.#stagePromise;
+    if (this.#options.store?.runtimeState().paused)
+      return Promise.resolve(
+        failure("runtime_updates_paused", "Resume upgrades before preparing an update."),
+      );
+    if (!this.#options.exclusiveRuntime) {
+      return Promise.resolve(
+        failure(
+          "runtime_shared_roots",
+          "Runtime updates require Desktop's private installation. This adopted runtime must be updated outside Desktop.",
+        ),
+      );
+    }
+    if (
+      this.#closing ||
+      this.#controlPromise ||
+      !this.#offer ||
+      this.#checkPromise ||
+      this.#options.openminionExecutable ||
+      this.#options.store?.runtimeState().pending
+    ) {
+      return Promise.resolve(
+        failure("runtime_candidate_unavailable", "Check for a compatible update first."),
+      );
+    }
+    this.#updatePhase = "staging";
+    this.#stageController = new AbortController();
+    this.#stagePromise = this.#installation
+      .stage(this.#offer, this.#stageController.signal)
+      .then(() => {
+        this.#offer = null;
+        return { ok: true as const, value: this.runtimeStatus() };
+      })
+      .catch(() => {
+        this.#updatePhase = "available";
+        return failure(
+          "runtime_stage_failed",
+          "The update could not be prepared. Your current runtime is unchanged.",
+        );
+      })
+      .finally(() => {
+        this.#stagePromise = null;
+        this.#stageController = null;
+      });
+    return this.#stagePromise;
+  }
+
+  controlRuntime(input: unknown): Promise<ClientResult<RuntimeUpdateStatus>> {
+    if (this.#controlPromise || this.#startPromise || this.#closing)
+      return Promise.resolve(failure("runtime_busy", "Wait for the current runtime operation."));
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      return Promise.resolve(failure("invalid_input", "Invalid runtime control."));
+    const value = input as Record<string, unknown>;
+    if (
+      !Object.keys(value).every(
+        (key) =>
+          key === "action" ||
+          (value.action === "pin" && key === "version") ||
+          (value.action === "source" && key === "source"),
+      ) ||
+      typeof value.action !== "string" ||
+      !["pause", "resume", "discard", "unpin", "pin-installed", "pin", "source"].includes(
+        value.action,
+      ) ||
+      (value.action === "pin" &&
+        (typeof value.version !== "string" ||
+          !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value.version))) ||
+      (value.action === "source" && !["pypi", "binary"].includes(String(value.source)))
+    )
+      return Promise.resolve(failure("invalid_input", "Choose a supported runtime control."));
+    if (
+      !this.#options.store ||
+      this.#options.openminionExecutable ||
+      !this.#options.exclusiveRuntime
+    )
+      return Promise.resolve(
+        failure("runtime_unmanaged", "Runtime controls require Desktop's private installation."),
+      );
+    this.#controlController = new AbortController();
+    this.#controlPromise = this.#controlRuntime(value as RuntimeControlInput)
+      .catch(() =>
+        failure(
+          "runtime_control_failed",
+          "The runtime control could not be applied. No runtime was launched.",
+        ),
+      )
+      .finally(() => {
+        this.#controlPromise = null;
+        this.#controlController = null;
+      });
+    return this.#controlPromise;
+  }
+
+  async #controlRuntime(input: RuntimeControlInput): Promise<ClientResult<RuntimeUpdateStatus>> {
+    const store = this.#options.store!;
+    const state = store.runtimeState();
+    if (state.launchIntent)
+      return failure(
+        "runtime_recovery_required",
+        "Recovery needs review before changing runtime policy.",
+      );
+    if (input.action === "source" && state.pending)
+      return failure(
+        "runtime_candidate_pending",
+        "Discard the prepared update before changing its source.",
+      );
+    if (input.action === "source" && state.pin && state.pin.source !== input.source)
+      return failure(
+        "runtime_pin_source_mismatch",
+        "Remove the exact runtime pin before changing its source.",
+      );
+    if (input.action === "pause" || input.action === "discard") {
+      if (input.action === "pause") store.setRuntimePolicy(true, state.pin);
+      this.#stageController?.abort();
+      if (this.#stagePromise) await this.#stagePromise;
+      if (this.#closing) return failure("runtime_busy", "Desktop is closing.");
+      if (input.action === "discard") store.discardRuntime();
+    } else {
+      if (this.#stagePromise)
+        return failure("runtime_busy", "Finish or discard preparation before changing the pin.");
+      this.#checkController?.abort();
+      if (this.#checkPromise) await this.#checkPromise;
+      if (this.#closing) return failure("runtime_busy", "Desktop is closing.");
+      if (input.action === "resume") store.setRuntimePolicy(false, state.pin);
+      else if (input.action === "unpin") store.setRuntimePolicy(state.paused, null);
+      else if (input.action === "source") store.setRuntimeSource(input.source);
+      else if (input.action === "pin-installed") {
+        if (!state.active)
+          return failure(
+            "runtime_identity_unverified",
+            "This legacy installation has no verified artifact identity. Use a developer executable or pin a published candidate.",
+          );
+        store.setRuntimePolicy(state.paused, {
+          source: state.active.source,
+          version: state.active.version,
+          manifestUrl: state.active.manifestUrl,
+          sha256: state.active.sha256,
+        });
+      } else if (input.action === "pin") {
+        if (!this.#installedVersion)
+          return failure(
+            "runtime_unavailable",
+            "Connect the installed runtime before selecting a pin.",
+          );
+        const offer = await checkRuntimeManifest({
+          source: state.source,
+          desktopVersion: this.#options.desktopVersion ?? "0.0.0",
+          installedVersion: this.#installedVersion,
+          targetVersion: input.version,
+          includeInstalled: true,
+          signal: this.#controlController!.signal,
+        });
+        if (this.#closing || this.#controlController!.signal.aborted)
+          return failure("runtime_busy", "Desktop is closing.");
+        if (!offer)
+          return failure(
+            "runtime_pin_unavailable",
+            "That exact compatible published runtime is unavailable. No fallback or downgrade was selected.",
+          );
+        store.setRuntimePolicy(state.paused, {
+          source: offer.record.distribution,
+          version: offer.record.runtime_version,
+          manifestUrl: offer.reference.manifest_url,
+          sha256: runtimeOfferDigest(offer),
+        });
+      }
+    }
+    this.#offer = null;
+    this.#updatePhase = "unchecked";
+    return { ok: true, value: this.runtimeStatus() };
+  }
+
+  startUpdateChecks(): void {
+    if (
+      this.#closing ||
+      !this.#options.store ||
+      this.#options.openminionExecutable ||
+      this.#updateTimer
+    )
+      return;
+    void this.checkRuntime();
+    this.#updateTimer = setInterval(
+      () => {
+        void this.checkRuntime();
+      },
+      24 * 60 * 60_000,
+    );
+    this.#updateTimer.unref();
   }
 
   async start(): Promise<DaemonStatus> {
-    if (this.lifecycle.current === "ready") {
-      return this.snapshot();
-    }
-    if (this.#startPromise) {
-      return this.#startPromise;
-    }
-    this.#startPromise = this.#bootstrap().finally(() => {
+    if (this.lifecycle.current === "running") return this.status();
+    if (this.#startPromise) return this.#startPromise;
+    this.#startPromise = this.#start().finally(() => {
       this.#startPromise = null;
     });
     return this.#startPromise;
   }
 
   async status(): Promise<DaemonStatus> {
-    if (this.lifecycle.current !== "ready" || !this.#readiness) {
-      return this.snapshot();
-    }
+    if (this.lifecycle.current !== "running" || !this.#executable) return this.snapshot();
     try {
-      await fetchHealth(this.#readiness);
+      const status = await this.#daemonStatus();
+      if (!status.reachable) throw new Error("daemon_unavailable");
+      if (this.#daemon && !this.#owns(status, this.#daemon))
+        throw new Error("daemon_ownership_unverified");
       this.#errorCode = null;
-      this.#recoveryUsed = false;
-    } catch {
-      await this.#recoverOnce("daemon_unavailable");
+    } catch (error) {
+      this.#errorCode = normalizeErrorCode(error, "daemon_status_failed");
+      this.lifecycle.move("degraded");
     }
     return this.snapshot();
   }
 
-  async retry(): Promise<DaemonStatus> {
-    if (this.lifecycle.current === "ready") {
-      return this.status();
+  async inspect(kind: unknown): Promise<ClientResult<{ text: string }>> {
+    if (kind !== "status" && kind !== "logs")
+      return failure("invalid_request", "Choose daemon status or logs.");
+    if (!this.#executable)
+      return failure(
+        "runtime_unavailable",
+        "OpenMinion is not installed yet. Check the connection details.",
+      );
+    try {
+      const result = await this.#runOpenMinion([
+        "daemon",
+        kind,
+        ...(kind === "logs" ? ["--lines", "200"] : []),
+      ]);
+      if (result.exitCode !== 0 && !(kind === "status" && result.exitCode === 1))
+        return failure(
+          "diagnostics_unavailable",
+          "Could not read daemon diagnostics. The log may not exist yet; try Refresh after reconnecting.",
+        );
+      return { ok: true, value: { text: result.stdout.trim() || "No entries reported." } };
+    } catch {
+      return failure("diagnostics_unavailable", "Could not read daemon diagnostics. Try Refresh.");
     }
-    this.#recoveryUsed = false;
-    return this.start();
   }
 
-  async stop(): Promise<{ revoked: boolean }> {
-    this.#clearRenewal();
-    if (this.lifecycle.current === "stopped") {
-      return { revoked: false };
+  async retry(): Promise<DaemonStatus> {
+    return this.lifecycle.current === "running" ? this.status() : this.start();
+  }
+
+  async stop(shutdown = false): Promise<{ stopped: boolean }> {
+    if (shutdown) {
+      this.#closing = true;
+      if (this.#updateTimer) clearInterval(this.#updateTimer);
+      this.#updateTimer = null;
+      this.#checkController?.abort();
+      this.#stageController?.abort();
+      this.#controlController?.abort();
+      if (this.#checkPromise) await this.#checkPromise;
+      if (this.#stagePromise) await this.#stagePromise;
+      if (this.#controlPromise) await this.#controlPromise;
     }
-    if (this.lifecycle.current !== "stopping") {
-      this.lifecycle.move("stopping");
-    }
-    if (this.#bootstrapChild) {
-      this.#bootstrapChild.kill("SIGTERM");
-      this.#bootstrapChild = null;
-    }
-    if (this.#startPromise) {
-      await this.#startPromise;
-      if (this.lifecycle.current !== "stopping") {
-        this.lifecycle.move("stopping");
-      }
-    }
-    let revoked = false;
-    if (this.#readiness) {
+    if (this.lifecycle.current === "stopped") return { stopped: false };
+    if (this.#startPromise) await this.#startPromise;
+    if (this.lifecycle.current !== "stopping") this.lifecycle.move("stopping");
+
+    let stopped = false;
+    const daemon = this.#daemon;
+    if (daemon && daemon.exitCode === null && daemon.signalCode === null) {
+      let current: DaemonCliStatus;
       try {
-        await revokeLease(this.#readiness);
-        revoked = true;
+        current = await this.#daemonStatus();
       } catch {
-        // Lease expiry is the bounded fallback; the daemon remains persistent.
+        this.#errorCode = "daemon_ownership_unverified";
+        this.lifecycle.move("degraded");
+        return { stopped: false };
+      }
+      if (!this.#owns(current, daemon)) {
+        this.#errorCode = "daemon_ownership_unverified";
+        this.lifecycle.move("degraded");
+        return { stopped: false };
+      }
+      stopped = await new Promise<boolean>((resolve) => {
+        const exited = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        const timer = setTimeout(() => {
+          daemon.removeListener("exit", exited);
+          resolve(false);
+        }, 10_000);
+        daemon.once("exit", exited);
+        if (!daemon.kill("SIGTERM")) {
+          clearTimeout(timer);
+          daemon.removeListener("exit", exited);
+          resolve(false);
+        }
+      });
+      if (!stopped) {
+        this.#errorCode = "daemon_stop_failed";
+        this.lifecycle.move("degraded");
+        return { stopped: false };
       }
     }
-    this.#readiness = null;
-    this.#capabilities = [];
+    this.#daemon = null;
+    this.#chatConnected = false;
     this.#errorCode = null;
     this.lifecycle.move("stopped");
-    return { revoked };
+    return { stopped };
   }
 
   snapshot(): DaemonStatus {
-    return publicStatus(
-      this.lifecycle.current,
-      this.#readiness,
-      this.#capabilities,
-      this.#errorCode,
-    );
+    return {
+      state:
+        this.lifecycle.current === "running" && this.#chatConnected
+          ? "ready"
+          : this.lifecycle.current,
+      reachable: this.lifecycle.current === "running",
+      daemonVersion: this.#daemonVersion,
+      protocol: null,
+      configId: null,
+      capabilities: [],
+      errorCode: this.#errorCode,
+    };
   }
 
-  async #bootstrap(): Promise<DaemonStatus> {
-    this.#bootstrapAttempts += 1;
+  getCommandContext(): OpenMinionCommandContext | null {
+    if (this.lifecycle.current !== "running" || !this.#executable) return null;
+    return { executable: this.#executable, args: rootArguments(this.#options) };
+  }
+
+  async #start(): Promise<DaemonStatus> {
+    if (this.#controlPromise) await this.#controlPromise;
+    const startupActivationAllowed = this.#startAttempts === 0;
+    this.#startAttempts += 1;
     this.lifecycle.move("probing");
     this.#errorCode = null;
-    const child = spawn(
-      this.#options.openminionExecutable ?? "openminion",
-      bootstrapArguments(this.#options),
-      { stdio: ["ignore", "pipe", "pipe", "pipe"] },
-    );
-    this.#bootstrapChild = child;
-    this.lifecycle.move("leasing");
     try {
-      const [readinessBytes, stdout, stderr, exitCode] = await withTimeout(
-        Promise.all([
-          collectBounded(child.stdio[3] as Readable | null, MAX_READINESS_BYTES),
-          collectBounded(child.stdout, MAX_HELPER_OUTPUT_BYTES),
-          collectBounded(child.stderr, MAX_HELPER_OUTPUT_BYTES),
-          childExitCode(child),
-        ]),
-        this.#options.startupTimeoutMs ?? 15_000,
-        () => child.kill("SIGTERM"),
+      this.lifecycle.move("starting");
+      let installed = await this.#installation.ensure();
+      this.#executable = installed.path;
+      this.#installedVersion = installed.version;
+      // Public status currently does not report the running runtime version.
+      this.#daemonVersion = null;
+      const state = this.#options.store?.runtimeState();
+      const compatible = (runtime: NonNullable<typeof state>["active"]) =>
+        !runtime ||
+        desktopCompatible(
+          this.#options.desktopVersion ?? "0.0.0",
+          runtime.desktopMinVersion,
+          runtime.desktopMaxVersionExclusive,
+        );
+      const activeCompatible = compatible(state?.active ?? null);
+      const canActivate = Boolean(
+        state?.pending &&
+          startupActivationAllowed &&
+          this.#options.exclusiveRuntime &&
+          !this.#options.openminionExecutable &&
+          this.#options.store!.runtimeAllowed(state.pending) &&
+          compatible(state.pending),
       );
-      if (exitCode !== 0) {
-        throw new Error(bootstrapErrorCode(stderr));
+      if (!activeCompatible && !canActivate) throw new Error("runtime_incompatible");
+      if (
+        !activeCompatible &&
+        (!this.#options.configPath || !(await pathExists(this.#options.configPath)))
+      )
+        throw new Error("runtime_incompatible");
+      await this.#ensureConfig();
+
+      const current = await this.#daemonStatus();
+      if (!activeCompatible && current.reachable) throw new Error("runtime_incompatible");
+      let launchingUpdate = false;
+      if (!current.reachable) {
+        if (
+          current.pid_alive !== false ||
+          current.lifecycle !== "stopped" ||
+          current.endpoint_status !== "unreachable"
+        )
+          throw new Error("daemon_ownership_unverified");
+        if (!this.#options.configPath || !this.#options.homeRoot || !this.#options.dataRoot)
+          throw new Error("daemon_roots_unavailable");
+        const store = this.#options.store;
+        const pending = store?.runtimeState().pending;
+        if (store && pending && canActivate) {
+          // Persist BEFORE the candidate executes against live configuration or data.
+          const candidate = store.beginRuntimeLaunch();
+          installed = { path: candidate.executable, version: candidate.version };
+          this.#executable = candidate.executable;
+          launchingUpdate = true;
+        }
+        const executable = join(
+          dirname(installed.path),
+          process.platform === "win32" ? "openminiond.exe" : "openminiond",
+        );
+        const daemon = (this.#options.spawnDaemon ?? spawn)(
+          executable,
+          ["serve", "--config", this.#options.configPath],
+          {
+            shell: false,
+            stdio: "ignore",
+            env: {
+              ...process.env,
+              OPENMINION_HOME: this.#options.homeRoot,
+              OPENMINION_DATA_ROOT: this.#options.dataRoot,
+            },
+          },
+        );
+        this.#daemon = daemon;
+        let spawnError = false;
+        daemon.once("error", () => {
+          spawnError = true;
+        });
+        const deadline = Date.now() + 10_000;
+        while (true) {
+          const ready = await this.#daemonStatus();
+          if (ready.reachable && this.#owns(ready, daemon)) break;
+          if (
+            spawnError ||
+            daemon.exitCode !== null ||
+            daemon.signalCode !== null ||
+            Date.now() >= deadline
+          )
+            throw new Error("daemon_start_failed");
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
       }
-      if (stdout.length !== 0 || stderr.length !== 0) {
-        throw new Error("unexpected_bootstrap_output");
+      const ready = await this.#daemonStatus();
+      if (!ready.reachable) throw new Error("daemon_unavailable");
+      if (this.#daemon && !this.#owns(ready, this.#daemon))
+        throw new Error("daemon_ownership_unverified");
+
+      this.lifecycle.move("running");
+      // A completed, schema-validated public request proves the chat transport;
+      // reachability alone does not fabricate runtime version/capabilities.
+      this.#chatConnected = (await this.client.list({})).ok;
+      if (launchingUpdate) {
+        if (!this.#chatConnected) throw new Error("runtime_health_failed");
+        this.#options.store!.completeRuntimeLaunch();
+        this.#installedVersion = installed.version;
       }
-      const readiness = parseReadinessRecord(readinessBytes);
-      const capabilities = await fetchCapabilities(readiness);
-      this.#readiness = readiness;
-      this.#capabilities = capabilities;
-      this.lifecycle.move("ready");
-      this.#scheduleRenewal();
-      return this.snapshot();
     } catch (error) {
-      child.kill("SIGTERM");
-      this.#readiness = null;
-      this.#capabilities = [];
-      this.#errorCode = normalizedErrorCode(error);
-      if (this.lifecycle.current !== "degraded") {
-        this.lifecycle.move("degraded");
-      }
-      return this.snapshot();
-    } finally {
-      this.#bootstrapChild = null;
+      this.#errorCode = normalizeErrorCode(error, "daemon_start_failed");
+      if (this.lifecycle.current !== "degraded") this.lifecycle.move("degraded");
+    }
+    return this.snapshot();
+  }
+
+  async #daemonStatus(): Promise<DaemonCliStatus> {
+    const result = await this.#runOpenMinion(["daemon", "status", "--json"]);
+    if (!result.stdout.trim()) throw new Error("invalid_daemon_status");
+    const payload: unknown = JSON.parse(result.stdout);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new Error("invalid_daemon_status");
+    }
+    const reachable = (payload as Record<string, unknown>).reachable;
+    if (typeof reachable !== "boolean" || result.exitCode !== (reachable ? 0 : 1)) {
+      throw new Error("invalid_daemon_status");
+    }
+    return payload as DaemonCliStatus;
+  }
+
+  #owns(status: DaemonCliStatus, daemon: ChildProcess): boolean {
+    if (!this.#options.configPath || !this.#options.dataRoot) return false;
+    try {
+      return (
+        daemon.exitCode === null &&
+        daemon.signalCode === null &&
+        daemon.pid !== undefined &&
+        status.pid === daemon.pid &&
+        status.pid_alive === true &&
+        status.remote_config_path === realpathSync(this.#options.configPath) &&
+        status.remote_data_root === realpathSync(this.#options.dataRoot)
+      );
+    } catch {
+      return false;
     }
   }
 
-  async #recoverOnce(errorCode: string): Promise<void> {
-    this.#errorCode = errorCode;
-    if (this.lifecycle.current !== "degraded") {
-      this.lifecycle.move("degraded");
+  async #ensureConfig(): Promise<void> {
+    if (!this.#options.configPath || (await pathExists(this.#options.configPath))) return;
+    const initialized = await this.#runOpenMinion(["config", "init", "--provider", "echo"]);
+    if (initialized.exitCode !== 0 || !(await pathExists(this.#options.configPath))) {
+      throw new Error("config_initialization_failed");
     }
-    if (this.#recoveryUsed) {
-      return;
-    }
-    this.#recoveryUsed = true;
-    this.#clearRenewal();
-    this.#readiness = null;
-    this.#capabilities = [];
-    await this.start();
+    await configureInitialDaemon(this.#options.configPath);
   }
 
-  #scheduleRenewal(): void {
-    this.#clearRenewal();
-    if (!this.#readiness) {
-      return;
-    }
-    const renewInMs = Math.min(
-      2_147_483_647,
-      Math.max(1_000, Date.parse(this.#readiness.expires_at) - Date.now() - 60_000),
+  #runOpenMinion(args: readonly string[]) {
+    if (!this.#executable) throw new Error("openminion_executable_unavailable");
+    return this.#runCommand(
+      this.#executable,
+      [...rootArguments(this.#options), ...args],
+      this.#options.commandTimeoutMs ?? 30_000,
     );
-    this.#renewalTimer = setTimeout(() => {
-      void this.#renew().catch(() => this.#recoverOnce("lease_renewal_failed"));
-    }, renewInMs);
-    this.#renewalTimer.unref();
-  }
-
-  async #renew(): Promise<void> {
-    if (!this.#readiness) {
-      return;
-    }
-    const expiresAt = await renewLease(this.#readiness, this.#capabilities);
-    this.#readiness = { ...this.#readiness, expires_at: expiresAt };
-    this.#scheduleRenewal();
-  }
-
-  #clearRenewal(): void {
-    if (this.#renewalTimer) {
-      clearTimeout(this.#renewalTimer);
-      this.#renewalTimer = null;
-    }
   }
 }
 
-function bootstrapArguments(options: DaemonSupervisorOptions): string[] {
+function rootArguments(options: DaemonSupervisorOptions): string[] {
   const args: string[] = [];
-  if (options.homeRoot) {
-    args.push("--home-root", options.homeRoot);
-  }
-  if (options.dataRoot) {
-    args.push("--data-root", options.dataRoot);
-  }
-  if (options.configPath) {
-    args.push("--config", options.configPath);
-  }
-  args.push("daemon", "desktop-bootstrap", "--fd", "3");
+  if (options.homeRoot) args.push("--home-root", options.homeRoot);
+  if (options.dataRoot) args.push("--data-root", options.dataRoot);
+  if (options.configPath) args.push("--config", options.configPath);
   return args;
 }
 
-function collectBounded(stream: Readable | null, limit: number): Promise<Buffer> {
-  if (!stream) {
-    return Promise.reject(new Error("bootstrap_pipe_unavailable"));
+function normalizeErrorCode(error: unknown, fallback: string): string {
+  if (error instanceof SyntaxError) return "invalid_daemon_status";
+  if (error instanceof Error && /^[a-z0-9_]+$/.test(error.message)) return error.message;
+  return fallback;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
   }
+}
+
+async function configureInitialDaemon(configPath: string): Promise<void> {
+  const payload: unknown = JSON.parse(await readFile(configPath, "utf-8"));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("config_initialization_failed");
+  }
+  const config = payload as Record<string, unknown>;
+  const runtime =
+    config.runtime && typeof config.runtime === "object" && !Array.isArray(config.runtime)
+      ? (config.runtime as Record<string, unknown>)
+      : {};
+  config.runtime = {
+    ...runtime,
+    ipc_host: "127.0.0.1",
+    ipc_port: await availablePort(),
+    ipc_token: randomBytes(32).toString("base64url"),
+  };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
+  await chmod(configPath, 0o600);
+}
+
+function availablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let total = 0;
-    stream.on("data", (chunk: Buffer | string) => {
-      const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      total += value.length;
-      if (total > limit) {
-        stream.destroy();
-        reject(new Error("bootstrap_output_too_large"));
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("config_initialization_failed"));
         return;
       }
-      chunks.push(value);
+      server.close((error) => (error ? reject(error) : resolve(address.port)));
     });
-    stream.on("end", () => resolve(Buffer.concat(chunks)));
-    stream.on("error", reject);
   });
-}
-
-function childExitCode(child: ChildProcess): Promise<number | null> {
-  return new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code) => resolve(code));
-  });
-}
-
-function withTimeout<T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-  onTimeout: () => void,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      onTimeout();
-      reject(new Error("bootstrap_timeout"));
-    }, timeoutMs);
-    operation.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
-function parseReadinessRecord(value: Buffer): DesktopClientReady {
-  const text = value.toString("utf-8");
-  const lines = text.split("\n");
-  if (lines.length !== 2 || lines[0].length === 0 || lines[1] !== "") {
-    throw new Error("malformed_readiness_record");
-  }
-  return validateReadiness(JSON.parse(lines[0]));
-}
-
-function bootstrapErrorCode(stderr: Buffer): string {
-  const match = stderr.toString("utf-8").match(/^desktop bootstrap failed: ([a-z0-9_]+)\s*$/);
-  return match?.[1] ?? "daemon_bootstrap_failed";
-}
-
-function normalizedErrorCode(error: unknown): string {
-  if (error instanceof SyntaxError) {
-    return "malformed_readiness_record";
-  }
-  if (error instanceof Error && /^[a-z0-9_]+$/.test(error.message)) {
-    return error.message;
-  }
-  return "daemon_bootstrap_failed";
-}
-
-function daemonUrl(readiness: DesktopClientReady, path: string): string {
-  const host = readiness.host === "::1" ? "[::1]" : readiness.host;
-  return `http://${host}:${readiness.port}${path}`;
-}
-
-async function fetchCapabilities(readiness: DesktopClientReady): Promise<string[]> {
-  const response = await new Promise<IncomingMessage>((resolve, reject) => {
-    const request = httpRequest(
-      daemonUrl(readiness, "/v1/client/capabilities"),
-      {
-        method: "GET",
-        headers: clientHeaders(readiness.client_token),
-      },
-      resolve,
-    );
-    request.setTimeout(15_000, () => request.destroy(new Error("daemon_timeout")));
-    request.once("error", reject);
-    request.end();
-  });
-  const payload = await boundedJson(response);
-  if (
-    response.statusCode !== 200 ||
-    payload.ok !== true ||
-    payload.daemon_version !== readiness.daemon_version ||
-    payload.config_id !== readiness.config_id ||
-    payload.protocol_min !== 1 ||
-    payload.protocol_max !== 1 ||
-    payload.protocol !== 1 ||
-    !Array.isArray(payload.capabilities) ||
-    payload.capabilities.length !== DESKTOP_CAPABILITIES.length ||
-    !payload.capabilities.every((value, index) => value === DESKTOP_CAPABILITIES[index])
-  ) {
-    throw new Error("daemon_capability_mismatch");
-  }
-  return payload.capabilities;
-}
-
-async function fetchHealth(readiness: DesktopClientReady): Promise<void> {
-  const response = await new Promise<IncomingMessage>((resolve, reject) => {
-    const request = httpRequest(
-      daemonUrl(readiness, "/v1/health"),
-      { method: "GET", headers: clientHeaders(readiness.client_token) },
-      resolve,
-    );
-    request.setTimeout(2_000, () => request.destroy(new Error("daemon_timeout")));
-    request.once("error", reject);
-    request.end();
-  });
-  const payload = await boundedJson(response);
-  if (response.statusCode !== 200 || payload.ok !== true) {
-    throw new Error("daemon_unhealthy");
-  }
-}
-
-async function renewLease(readiness: DesktopClientReady, capabilities: string[]): Promise<string> {
-  const body = "{}";
-  const response = await new Promise<IncomingMessage>((resolve, reject) => {
-    const headers = clientHeaders(readiness.client_token, true);
-    headers["Content-Length"] = Buffer.byteLength(body).toString();
-    const request = httpRequest(
-      daemonUrl(readiness, "/v1/client/leases/renew"),
-      {
-        method: "POST",
-        headers,
-      },
-      resolve,
-    );
-    request.setTimeout(15_000, () => request.destroy(new Error("daemon_timeout")));
-    request.once("error", reject);
-    request.end(body);
-  });
-  const payload = await boundedJson(response);
-  const lease = payload.lease;
-  const leaseRecord =
-    lease && typeof lease === "object" && !Array.isArray(lease)
-      ? (lease as Record<string, unknown>)
-      : null;
-  const issuedAt =
-    typeof leaseRecord?.issued_at === "string" ? Date.parse(leaseRecord.issued_at) : Number.NaN;
-  const expiresAt =
-    typeof leaseRecord?.expires_at === "string" ? Date.parse(leaseRecord.expires_at) : Number.NaN;
-  if (
-    response.statusCode !== 200 ||
-    payload.ok !== true ||
-    !leaseRecord ||
-    Object.keys(leaseRecord).length !== 6 ||
-    !["client_id", "protocol", "issued_at", "expires_at", "config_id", "capabilities"].every(
-      (key) => key in leaseRecord,
-    ) ||
-    "client_token" in leaseRecord ||
-    leaseRecord.client_id !== readiness.client_id ||
-    leaseRecord.config_id !== readiness.config_id ||
-    leaseRecord.protocol !== 1 ||
-    !Array.isArray(leaseRecord.capabilities) ||
-    leaseRecord.capabilities.length !== capabilities.length ||
-    !leaseRecord.capabilities.every((value, index) => value === capabilities[index]) ||
-    !Number.isFinite(issuedAt) ||
-    !Number.isFinite(expiresAt) ||
-    expiresAt <= Date.now() ||
-    expiresAt <= issuedAt
-  ) {
-    throw new Error("lease_renewal_failed");
-  }
-  return leaseRecord.expires_at as string;
-}
-
-async function revokeLease(readiness: DesktopClientReady): Promise<void> {
-  const body = "{}";
-  const response = await new Promise<IncomingMessage>((resolve, reject) => {
-    const headers = clientHeaders(readiness.client_token, true);
-    headers["Content-Length"] = Buffer.byteLength(body).toString();
-    const request = httpRequest(
-      daemonUrl(readiness, "/v1/client/leases/current"),
-      {
-        method: "DELETE",
-        headers,
-      },
-      resolve,
-    );
-    request.setTimeout(2_000, () => request.destroy(new Error("daemon_timeout")));
-    request.once("error", reject);
-    request.end(body);
-  });
-  const payload = await boundedJson(response);
-  if (response.statusCode !== 200 || payload.ok !== true || payload.revoked !== true) {
-    throw new Error("lease_revocation_failed");
-  }
-}
-
-async function boundedJson(response: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of response) {
-    const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += value.length;
-    if (total > MAX_RESPONSE_BYTES) {
-      response.destroy();
-      throw new Error("daemon_response_too_large");
-    }
-    chunks.push(value);
-  }
-  const payload: unknown = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("invalid_daemon_response");
-  }
-  return payload as Record<string, unknown>;
 }

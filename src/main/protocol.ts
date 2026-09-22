@@ -14,6 +14,7 @@ export type AppAssetPaths = {
   index: string;
   script: string;
   styles: string;
+  logo: string;
   workerHtml: string;
   workerScript: string;
 };
@@ -22,6 +23,7 @@ const contentTypes: Record<keyof AppAssetPaths, string> = {
   index: "text/html; charset=utf-8",
   script: "text/javascript; charset=utf-8",
   styles: "text/css; charset=utf-8",
+  logo: "image/png",
   workerHtml: "text/html; charset=utf-8",
   workerScript: "text/javascript; charset=utf-8",
 };
@@ -40,6 +42,7 @@ export function resolveAppAssets(mainModuleDir: string): AppAssetPaths {
     index: join(rendererRoot, "index.html"),
     script: join(rendererRoot, "app.js"),
     styles: join(rendererRoot, "styles.css"),
+    logo: join(rendererRoot, "logo.png"),
     workerHtml: join(rendererRoot, "capture-worker.html"),
     workerScript: join(rendererRoot, "capture-worker.js"),
   };

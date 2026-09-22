@@ -69,8 +69,10 @@ commands synchronized.
 
 GitHub Actions also lints its workflow definitions, validates new commit
 subjects, runs the normal package gate on Linux and macOS, and builds an
-unsigned macOS package. The repository uses small Node-native hooks rather than
-adding a Python pre-commit runtime to this TypeScript application.
+unsigned macOS package. A manual `packages` run stages unsigned macOS, Windows,
+and Linux outputs in a private draft release for verification or transfer. The
+repository uses small Node-native hooks rather than adding a Python pre-commit
+runtime to this TypeScript application.
 
 Run `npm run package` when packaging or runtime assets change. Native capture
 and real-daemon tests remain explicit acceptance tiers because they require

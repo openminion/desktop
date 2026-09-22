@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const outputRoot = join(repositoryRoot, "dist");
@@ -16,7 +17,46 @@ execFileSync(
   { cwd: repositoryRoot, stdio: "inherit" },
 );
 
+// Bundle the Python-version parser; packaged apps do not ship development dependencies.
+await build({
+  entryPoints: ["src/main/runtime-manifest.ts"],
+  absWorkingDir: repositoryRoot,
+  outfile: join(outputRoot, "src/main/runtime-manifest.js"),
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node24",
+});
+
+// Sandboxed Electron preloads require a single CommonJS file, including shared contracts.
+await build({
+  entryPoints: ["src/preload/index.ts", "src/preload/capture.ts"],
+  absWorkingDir: repositoryRoot,
+  outdir: join(outputRoot, "src/preload"),
+  outExtension: { ".js": ".cjs" },
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  external: ["electron"],
+  target: "node24",
+});
+for (const name of ["index", "capture"]) {
+  rmSync(join(outputRoot, `src/preload/${name}.js`));
+}
+
+await build({
+  entryPoints: ["src/renderer/app.ts"],
+  absWorkingDir: repositoryRoot,
+  outfile: join(rendererOutput, "app.js"),
+  bundle: true,
+  platform: "browser",
+  format: "esm",
+  target: "chrome150",
+});
+for (const name of ["profiles", "tasks", "markdown"]) rmSync(join(rendererOutput, `${name}.js`));
+
 mkdirSync(rendererOutput, { recursive: true });
 for (const asset of ["capture-worker.html", "index.html", "styles.css"]) {
   copyFileSync(join(repositoryRoot, "src/renderer", asset), join(rendererOutput, asset));
 }
+copyFileSync(join(repositoryRoot, "assets/icon.png"), join(rendererOutput, "logo.png"));

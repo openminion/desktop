@@ -1,22 +1,16 @@
-export type DesktopClientReady = {
-  schema_version: 1;
-  event: "desktop.client.ready";
-  host: "127.0.0.1" | "::1";
-  port: number;
-  protocol_min: 1;
-  protocol_max: 1;
-  daemon_version: string;
-  config_id: string;
-  client_id: string;
-  client_token: string;
-  expires_at: string;
-};
-
+import type {
+  ProfileSaveInput,
+  ProfileSettings,
+  ProfileSetupInput,
+  SetupPreset,
+} from "./profiles.js";
+import type { TaskControlInput, TaskControlValue } from "./tasks.js";
+import type { ReportInput, ReportValue } from "./reports.js";
 export type DaemonState =
   | "idle"
   | "probing"
   | "starting"
-  | "leasing"
+  | "running"
   | "ready"
   | "degraded"
   | "stopping"
@@ -47,8 +41,10 @@ export type ErrorV1 = {
 export type ClientResult<T> = { ok: true; value: T } | { ok: false; error: ErrorV1 };
 
 export type SessionStatus = "active" | "idle" | "paused" | "stale" | "closed";
+export type TurnUsageDisplay = "off" | "total" | "input_output" | "input_output_calls";
 
 export type SessionSummaryV1 = {
+  isDraft?: boolean;
   schemaVersion: 1;
   sessionId: string;
   title: string | null;
@@ -59,6 +55,7 @@ export type SessionSummaryV1 = {
   model: { provider: string | null; modelId: string | null };
   projectId: string | null;
   eventCursor: string;
+  turnUsageDisplay?: TurnUsageDisplay;
 };
 
 export type MessageV1 = {
@@ -67,6 +64,8 @@ export type MessageV1 = {
   sessionId: string;
   role: "user" | "assistant";
   body: string;
+  profileName?: string | null;
+  usage?: InferenceUsageV1;
   createdAt: string;
 };
 
@@ -599,15 +598,82 @@ export type CaptureEventV1 =
   | { schemaVersion: 1; kind: "state"; value: CaptureStateV1 }
   | CaptureFrameV1;
 
+export type ChatName = { sessionId: string; title: string };
+
+export type RuntimePin = {
+  source: "pypi" | "binary";
+  version: string;
+  manifestUrl: string;
+  sha256: string;
+};
+
+export type RuntimeControlInput =
+  | { action: "pause" | "resume" | "discard" | "unpin" | "pin-installed" }
+  | { action: "pin"; version: string }
+  | { action: "source"; source: "pypi" | "binary" };
+
+export type RuntimeUpdateStatus = {
+  source: "pypi" | "binary" | "unmanaged";
+  selectedSource: "pypi" | "binary";
+  installedVersion: string | null;
+  availableVersion: string | null;
+  paused: boolean;
+  pinnedVersion: string | null;
+  phase:
+    | "unchecked"
+    | "checking"
+    | "current"
+    | "incompatible"
+    | "available"
+    | "staging"
+    | "pending"
+    | "check_failed"
+    | "recovery_required"
+    | "unmanaged";
+};
+
 export type NativeApi = {
+  runtime: {
+    status(): Promise<RuntimeUpdateStatus>;
+    check(): Promise<RuntimeUpdateStatus>;
+    stage(): Promise<ClientResult<RuntimeUpdateStatus>>;
+    control(input: RuntimeControlInput): Promise<ClientResult<RuntimeUpdateStatus>>;
+  };
+  chatNames: {
+    load(legacyNames: ChatName[]): Promise<ClientResult<ChatName[]>>;
+    save(input: { sessionId: string; title: string | null }): Promise<ClientResult<null>>;
+  };
+  reports: {
+    read(input: ReportInput): Promise<ClientResult<ReportValue>>;
+  };
+  tasks: {
+    control(input: TaskControlInput): Promise<ClientResult<TaskControlValue>>;
+  };
+  profiles: {
+    presets(): Promise<ClientResult<SetupPreset[]>>;
+    setup(
+      input: ProfileSetupInput,
+    ): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus }>>;
+    read(): Promise<ClientResult<ProfileSettings>>;
+    save(
+      input: ProfileSaveInput,
+    ): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus }>>;
+    import(input: {
+      revision: string;
+    }): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus } | null>>;
+  };
   app: {
     info(): Promise<AppInfo>;
+    copyText(text: string): Promise<ClientResult<null>>;
+    openLink(url: string): Promise<ClientResult<null>>;
   };
   daemon: {
+    inspect(kind: "status" | "logs"): Promise<ClientResult<{ text: string }>>;
     status(): Promise<DaemonStatus>;
     retry(): Promise<DaemonStatus>;
   };
   sessions: {
+    export(input: { sessionId: string }): Promise<ClientResult<{ cancelled: boolean }>>;
     list(input: SessionListInput): Promise<ClientResult<SessionListValue>>;
     create(input: SessionCreateInput): Promise<ClientResult<SessionSummaryV1>>;
     load(input: SessionLoadInput): Promise<ClientResult<SessionLoadValue>>;
@@ -657,31 +723,24 @@ export type NativeApi = {
 
 export const PROTOCOL_SCHEME = "openminion";
 export const PROTOCOL_HOST = "app";
-export const CLIENT_TOKEN_HEADER = "X-OpenMinion-Client-Token";
-export const DESKTOP_CAPABILITIES = [
-  "daemon.health",
-  "daemon.ready",
-  "client.capabilities",
-  "client.lease.renew",
-  "client.lease.revoke",
-  "sessions.list",
-  "sessions.create",
-  "sessions.load",
-  "sessions.close",
-  "sessions.events",
-  "turns.submit",
-  "turns.cancel",
-  "turns.tool_progress",
-  "approvals.decide",
-  "media.upload",
-  "media.read",
-  "media.release",
-  "artifacts.catalog.v1",
-  "artifacts.content.v1",
-  "artifacts.detach_restore.v1",
-  "tool_outputs.read.v1",
-] as const;
 export const IPC_CHANNELS = {
+  runtimeStatus: "desktop:runtime:status",
+  runtimeCheck: "desktop:runtime:check",
+  runtimeStage: "desktop:runtime:stage",
+  runtimeControl: "desktop:runtime:control",
+  chatNamesLoad: "desktop:chat-names:load",
+  chatNamesSave: "desktop:chat-names:save",
+  reportsRead: "openminion:reports:read",
+  sessionsExport: "openminion:sessions:export",
+  tasksControl: "openminion:tasks:control",
+  profilesRead: "openminion:profiles:read",
+  profilesPresets: "openminion:profiles:presets",
+  profilesSetup: "openminion:profiles:setup",
+  profilesSave: "openminion:profiles:save",
+  profilesImport: "openminion:profiles:import",
+  copyText: "openminion:copy-text",
+  openLink: "openminion:open-link",
+  daemonInspect: "openminion:daemon-inspect",
   daemonStatus: "openminion:daemon-status",
   daemonRetry: "openminion:daemon-retry",
   sessionsList: "openminion:sessions-list",

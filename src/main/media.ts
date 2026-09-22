@@ -13,7 +13,7 @@ import type {
   MediaReleaseInput,
   MediaReleaseValue,
 } from "../shared/contracts.js";
-import type { OpenMinionClient } from "./openminion-client.js";
+import type { CliClient } from "./cli-client.js";
 
 const MAX_PICKED_FILES = 4;
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -49,11 +49,11 @@ const MEDIA_TYPES = new Map<string, MediaAttachmentV1["mimeType"]>([
 ]);
 
 export class MediaService {
-  readonly #client: OpenMinionClient;
+  readonly #client: Pick<CliClient, "uploadMedia" | "releaseMedia">;
   readonly #pickDialog: PickDialog;
 
   constructor(
-    client: OpenMinionClient,
+    client: Pick<CliClient, "uploadMedia" | "releaseMedia">,
     pickDialog: PickDialog = (options) => dialog.showOpenDialog(options),
   ) {
     this.#client = client;

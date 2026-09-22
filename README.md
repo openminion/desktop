@@ -23,15 +23,16 @@
 </p>
 
 OpenMinion Desktop is the local graphical client for the OpenMinion agent
-runtime. It provides chat, session history, approvals, attachments, artifacts,
-and explicitly selected screen or window context while keeping agent execution,
+runtime. It provides text chat and session history, with preview UI for approvals,
+attachments, artifacts, and screen context, while keeping agent execution,
 credentials, policy, and durable session truth in the OpenMinion daemon.
 
-The application is a development alpha. It currently expects a matching
-OpenMinion development revision that provides the desktop daemon contract. As
-of 2026-09-07, that command is not present on OpenMinion `main`. Signed
-distribution, automatic updates, remote daemon operation, and native input
-control are not available yet.
+The application is a development alpha. On first launch it creates an isolated
+Python environment in the application data directory, installs the pinned
+OpenMinion release from PyPI, creates a local demo config, and starts the
+ordinary OpenMinion daemon. Saved conversations use its existing public CLI; text turns and cancellation
+use its authenticated local API. Signed distribution, Desktop self-updates, remote daemon operation, and
+native input control are not available yet.
 
 ## Read This First
 
@@ -59,10 +60,11 @@ and should be treated as a scam.
 | --- | --- |
 | Application | OpenMinion Desktop |
 | Current line | Development alpha |
-| Current platform | macOS development and unsigned packaging |
+| Current runtime profile | macOS development |
+| Native package targets | macOS, Windows, and Linux |
 | Runtime | Node.js 24, npm 11, and Electron |
-| Connects to | A matching desktop-capable OpenMinion development revision; not current OpenMinion `main` |
-| Best fit | Local chat, session work, approvals, artifacts, and visible context |
+| Managed core | Pinned `openminion==0.0.19` from PyPI |
+| Best fit | Local chat, saved sessions, task controls, and visible-context preview |
 | Not the claim | Signed release, remote operation, or autonomous native control |
 
 ## Common Commands
@@ -72,20 +74,26 @@ npm start
 npm run ci-check
 npm run hooks:run
 npm run package
+npm run make
 ```
 
 `npm start` runs the source-development app. `npm run package` builds and
-inspects an unsigned local macOS application; it is not a public release.
+inspects the native application directory. `npm run make` also creates and
+inspects the native unsigned artifacts: DMG and ZIP on macOS, ZIP on Windows,
+and DEB and ZIP on Linux. These are development artifacts, not public releases.
 
 ## What OpenMinion Desktop Provides
 
-- browse, create, reopen, and close local OpenMinion sessions
+- browse, reopen, and close local OpenMinion sessions; create them with a first message
 - chat with streaming progress and typed terminal outcomes
-- cancel active turns and recover after renderer reload or daemon reconnect
-- review tool progress and make one-time approval decisions
-- attach bounded images and represent unsupported files safely
-- inspect artifacts and tool-output summaries without exposing native paths
-- select a screen or window for explicit observation and grounded guidance
+- inspect OpenMinion work with `/tasks` and pause, resume, or cancel it through core controls
+- cancel active turns and recover completed history after renderer reload or daemon restart
+- preview approvals, attachments, artifacts, and screen context in the UI fixture
+- select a screen or window for local preview when native permission is available
+- install, version-check, start, monitor, and stop an app-owned OpenMinion daemon
+- check compatible runtime metadata and explicitly prepare a verified PyPI or
+  paired-binary runtime for startup-only activation; public binary publication
+  and compatibility certification remain pending
 
 ## What OpenMinion Desktop Does Not Provide
 
@@ -95,17 +103,19 @@ inspects an unsigned local macOS application; it is not a public release.
 - hidden screen capture, always-on observation, or unrestricted native input
 - remote daemon attachment, hosted synchronization, or multi-device control
 - signed, notarized, automatically updating public releases
+- full Focus slash-command parity, connected approvals, attachment sending, or artifact browsing
+- reattachment to an active turn after quitting the application
 
 ## Requirements
 
 - macOS for the current runnable application profile
 - Node.js 24
 - npm 11
-- a matching desktop-capable local OpenMinion checkout or executable
-- a nonblank OpenMinion `runtime.ipc_token`
+- Python 3.11 for the temporary PyPI-based runtime installation path
+- network access on first launch or when the pinned OpenMinion version changes
 
-The normal checks also run on Linux in CI, but Linux and Windows desktop
-packages are not currently certified.
+Native packaging can produce unsigned artifacts on macOS, Windows, and Linux.
+Windows and Linux runtime behavior is not yet certified.
 
 ## Quick Start
 
@@ -123,15 +133,27 @@ Start the development app:
 npm start
 ```
 
-If the compatible `openminion` executable is not already on `PATH`, select it
-explicitly:
+The first launch installs `openminion==0.0.19` under `~/.openminion/desktop`,
+creates a private initial config, and starts an isolated daemon. A setup screen
+offers OpenMinion's provider choices, including MiniMax, model and API-key fields,
+profile import, or an explicit echo demo. Setup uses the ordinary CLI setup
+command and restarts the daemon with the saved profile. The first message tests
+the model connection; saving setup does not make a paid provider request.
+Later launches reuse the environment when its installed version matches the pin.
+Desktop chat names live in SQLite; existing installations retain their recorded
+runtime locations. See [Desktop data](docs/getting-started.md#desktop-data) for
+storage, migration, and backup behavior.
+
+For source development, bypass the managed PyPI installation with an explicit
+executable:
 
 ```bash
-OPENMINION_ODF_EXECUTABLE=/path/to/openminion npm start
+OPENMINION_EXECUTABLE=/path/to/openminion npm start
 ```
 
-The executable must provide `openminion daemon desktop-bootstrap`. The current
-OpenMinion `main` branch does not yet provide that command.
+The override must provide the ordinary `config init` and `daemon
+start/status/stop` commands. Desktop does not require a Desktop-specific command
+inside OpenMinion.
 
 macOS may request Screen Recording permission when observation is used. Denying
 that permission keeps chat available and observation unavailable.
@@ -141,14 +163,14 @@ that permission keeps chat available and observation unavailable.
 | Component | Responsibility |
 | --- | --- |
 | OpenMinion | Agent execution, sessions, messages, tools, policy, credentials, artifacts, and durable state |
-| Desktop main process | Daemon lifecycle, authenticated local communication, file grants, capture, and operating-system access |
+| Desktop main process | Desktop metadata, daemon lifecycle, authenticated local communication, file grants, capture, and operating-system access |
 | Desktop preload | Small typed bridge exposing fixed application operations |
-| Desktop renderer | Chat, session navigation, approvals, artifacts, and visible capture controls |
+| Desktop renderer | Chat, session navigation, task controls, and local capture preview |
 
-Desktop starts or attaches to the existing local daemon through
-`openminion daemon desktop-bootstrap`. The daemon remains authoritative, so the
-CLI and Desktop can work with the same durable sessions without duplicating
-runtime state.
+Desktop manages an isolated OpenMinion installation and daemon through the
+ordinary CLI lifecycle commands. The daemon remains authoritative. A main-only
+command context is available for the pending transport adapter without exposing
+the executable, roots, config, or credentials to the renderer.
 
 ## Security Model
 
@@ -189,8 +211,8 @@ npm run ci-check
 
 Use focused tests while iterating. Run `npm run ci-check` before opening a pull
 request. That command also verifies the required public repository files,
-local links, portable paths, and documented npm commands. Use `npm run package`
-for the unsigned macOS packaging gate.
+local links, portable paths, and documented npm commands. Use `npm run make`
+for the native unsigned packaging gate.
 
 ## Docs and Release
 

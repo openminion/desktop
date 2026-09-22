@@ -27,6 +27,11 @@ describe("preload surface", () => {
     const [name, api] = exposeInMainWorld.mock.calls[0];
     expect(name).toBe("openminion");
     expect(Object.keys(api)).toEqual([
+      "runtime",
+      "chatNames",
+      "reports",
+      "tasks",
+      "profiles",
       "app",
       "daemon",
       "sessions",
@@ -38,9 +43,47 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
-    expect(Object.keys(api.app)).toEqual(["info"]);
-    expect(Object.keys(api.daemon)).toEqual(["status", "retry"]);
-    expect(Object.keys(api.sessions)).toEqual(["list", "create", "load", "close", "events"]);
+    expect(Object.keys(api.runtime)).toEqual(["status", "check", "stage", "control"]);
+    await api.runtime.status();
+    await api.runtime.check();
+    await api.runtime.stage();
+    await api.runtime.control({ action: "pause" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStatus);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeCheck);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStage);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeControl, { action: "pause" });
+    expect(Object.keys(api.chatNames)).toEqual(["load", "save"]);
+    await api.chatNames.load([]);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.chatNamesLoad, []);
+    await api.chatNames.save({ sessionId: "session-1", title: "Planning" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.chatNamesSave, {
+      sessionId: "session-1",
+      title: "Planning",
+    });
+    expect(Object.keys(api.reports)).toEqual(["read"]);
+    await api.reports.read({ kind: "tools" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reportsRead, { kind: "tools" });
+    await api.sessions.export({ sessionId: "session-1" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.sessionsExport, { sessionId: "session-1" });
+    invoke.mockClear();
+    expect(Object.keys(api.tasks)).toEqual(["control"]);
+    await api.tasks.control({ sessionId: "session-1", action: "list" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.tasksControl, {
+      sessionId: "session-1",
+      action: "list",
+    });
+    invoke.mockClear();
+    expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);
+    expect(Object.keys(api.app)).toEqual(["openLink", "copyText", "info"]);
+    expect(Object.keys(api.daemon)).toEqual(["inspect", "status", "retry"]);
+    expect(Object.keys(api.sessions)).toEqual([
+      "export",
+      "list",
+      "create",
+      "load",
+      "close",
+      "events",
+    ]);
     expect(Object.keys(api.turns)).toEqual(["submit", "cancel", "subscribe"]);
     expect(Object.keys(api.approvals)).toEqual(["decide"]);
     expect(Object.keys(api.artifacts)).toEqual(["list", "read", "detach", "restore"]);
@@ -60,7 +103,24 @@ describe("preload surface", () => {
     expect(api).not.toHaveProperty("send");
     expect(api).not.toHaveProperty("invoke");
 
+    await api.profiles.read();
+    await api.profiles.presets();
+    await api.profiles.setup({ presetId: "minimax" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesPresets);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSetup, { presetId: "minimax" });
+    await api.profiles.save({ agentId: "writer" });
+    await api.profiles.import({ revision: "a".repeat(64) });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesRead);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSave, { agentId: "writer" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesImport, { revision: "a".repeat(64) });
+    invoke.mockClear();
     invoke.mockResolvedValue({ state: "ready" });
+    await api.app.copyText("Local reply");
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.copyText, "Local reply");
+    invoke.mockClear();
+    await api.daemon.inspect("logs");
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.daemonInspect, "logs");
+    invoke.mockClear();
     await api.daemon.status();
     await api.daemon.retry();
     await api.sessions.list({ limit: 10 });

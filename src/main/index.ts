@@ -1,10 +1,15 @@
+import type { DesktopStore } from "./desktop-store.js";
+import { failure } from "./openminion-client.js";
 import {
   app,
   BrowserWindow,
+  clipboard,
   desktopCapturer,
+  dialog,
   ipcMain,
   powerMonitor,
   screen,
+  shell,
   session,
   systemPreferences,
   type DisplayMediaRequestHandlerHandlerRequest,
@@ -16,6 +21,7 @@ import {
   type WebFrameMain,
 } from "electron";
 import { join } from "node:path";
+import { writeFile } from "node:fs/promises";
 import {
   CAPTURE_WORKER_CONFIG_CHANNEL,
   CAPTURE_WORKER_EVENT_CHANNEL,
@@ -52,7 +58,34 @@ export function registerIpcHandlers(
   files = new FileGrantService(supervisor.client, media),
   capture = new CaptureService(),
   observation = new ObservationService(capture, media),
+  store?: DesktopStore,
 ): void {
+  ipcMain.handle(IPC_CHANNELS.runtimeStatus, (event) =>
+    !isAppInvocation(event) ? forbiddenResult() : supervisor.runtimeStatus(),
+  );
+  ipcMain.handle(IPC_CHANNELS.runtimeCheck, (event) =>
+    !isAppInvocation(event) ? forbiddenResult() : supervisor.checkRuntime(),
+  );
+  ipcMain.handle(IPC_CHANNELS.runtimeStage, (event) =>
+    !isAppInvocation(event) ? forbiddenResult() : supervisor.stageRuntime(),
+  );
+  ipcMain.handle(IPC_CHANNELS.runtimeControl, (event, input: unknown) =>
+    !isAppInvocation(event) ? forbiddenResult() : supervisor.controlRuntime(input),
+  );
+  ipcMain.handle(IPC_CHANNELS.chatNamesLoad, (event, input: unknown) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.load(input)
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
+  ipcMain.handle(IPC_CHANNELS.chatNamesSave, (event, input: unknown) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.save(input)
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
   const dispatchDesktopTurn = async (
     input: TurnSubmitInput,
     sourceFrame: WebFrameMain | null,
@@ -187,6 +220,111 @@ export function registerIpcHandlers(
     return true;
   };
 
+  ipcMain.handle(IPC_CHANNELS.tasksControl, (event, input: unknown) =>
+    isAppInvocation(event) ? supervisor.client.controlTasks(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.reportsRead, (event, input: unknown) =>
+    isAppInvocation(event) ? supervisor.client.readReport(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.sessionsExport, async (event, input: unknown) => {
+    if (!isAppInvocation(event)) return forbiddenResult();
+    const transcript = await supervisor.client.exportTranscript(input);
+    if (!transcript.ok) return transcript;
+    const selected = await dialog.showSaveDialog({
+      title: "Export conversation",
+      defaultPath: "conversation.md",
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (selected.canceled || !selected.filePath) return { ok: true, value: { cancelled: true } };
+    try {
+      await writeFile(selected.filePath, transcript.value, { mode: 0o600 });
+      return { ok: true, value: { cancelled: false } };
+    } catch {
+      return failure(
+        "export_failed",
+        "Could not save the conversation. Choose a writable location.",
+      );
+    }
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.openLink,
+    async (event, input: unknown): Promise<ClientResult<null>> => {
+      if (!isAppInvocation(event)) return forbiddenResult();
+      if (typeof input !== "string" || input.length > 8192)
+        return failure("invalid_request", "Choose a web link.");
+      try {
+        const url = new URL(input);
+        if (!["https:", "http:"].includes(url.protocol) || url.username || url.password)
+          return failure(
+            "invalid_request",
+            "Only web links without embedded credentials can be opened.",
+          );
+        await shell.openExternal(url.href);
+        return { ok: true, value: null };
+      } catch {
+        return failure("open_link_failed", "Could not open this link in your browser.");
+      }
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.copyText, (event, text: unknown): ClientResult<null> => {
+    if (!isAppInvocation(event)) return forbiddenResult();
+    if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 1024 * 1024) {
+      return {
+        ok: false,
+        error: {
+          code: "invalid_request",
+          message: "Choose up to 1 MB of text to copy.",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      };
+    }
+    clipboard.writeText(text);
+    return { ok: true, value: null };
+  });
+  ipcMain.handle(IPC_CHANNELS.profilesRead, (event) =>
+    isAppInvocation(event) ? supervisor.readProfiles() : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.profilesPresets, (event) =>
+    isAppInvocation(event) ? supervisor.setupPresets() : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.profilesSetup, (event, input: unknown) =>
+    isAppInvocation(event)
+      ? supervisor.applyProfiles((profiles, executable) => profiles.setup(input, executable))
+      : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.profilesSave, (event, input: unknown) =>
+    isAppInvocation(event)
+      ? supervisor.applyProfiles((profiles, executable) => profiles.save(input, executable))
+      : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.profilesImport, async (event, input: unknown) => {
+    if (!isAppInvocation(event)) return forbiddenResult();
+    if (
+      !input ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      Object.keys(input).length !== 1 ||
+      !("revision" in input) ||
+      typeof input.revision !== "string" ||
+      !/^[a-f0-9]{64}$/.test(input.revision)
+    )
+      return failure("invalid_request", "Reopen Settings before importing profiles.");
+    const revision = input.revision;
+    const selected = await dialog.showOpenDialog({
+      title: "Import OpenMinion profiles and runtime keys",
+      buttonLabel: "Import profiles",
+      filters: [{ name: "OpenMinion JSON profiles", extensions: ["json"] }],
+      properties: ["openFile"],
+    });
+    if (selected.canceled) return { ok: true, value: null };
+    return supervisor.applyProfiles((profiles, executable) =>
+      profiles.importFile(selected.filePaths[0], revision, executable),
+    );
+  });
+  ipcMain.handle(IPC_CHANNELS.daemonInspect, (event, kind) =>
+    isAppInvocation(event) ? supervisor.inspect(kind) : forbiddenResult(),
+  );
   ipcMain.handle(IPC_CHANNELS.daemonStatus, () => supervisor.status());
   ipcMain.handle(IPC_CHANNELS.daemonRetry, () => supervisor.retry());
   ipcMain.handle(IPC_CHANNELS.sessionsList, (event, input) =>
@@ -440,7 +578,7 @@ export class ElectronCapturePlatform implements CapturePlatform {
         sandbox: true,
         backgroundThrottling: false,
         session: this.#session,
-        preload: join(import.meta.dirname, "../preload/capture.js"),
+        preload: join(import.meta.dirname, "../preload/capture.cjs"),
       },
     });
     worker.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -670,18 +808,21 @@ export async function createWindow(
   appSession: Session,
   rendererLost?: () => void,
 ): Promise<BrowserWindow> {
+  const icon = join(import.meta.dirname, "../renderer/logo.png");
+  app.dock?.setIcon(icon);
   const window = new BrowserWindow({
+    icon,
     width: 1180,
     height: 800,
     minWidth: 760,
     minHeight: 560,
-    backgroundColor: "#0c111a",
+    backgroundColor: "#202020",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       session: appSession,
-      preload: join(import.meta.dirname, "../preload/index.js"),
+      preload: join(import.meta.dirname, "../preload/index.cjs"),
     },
   });
   let loaded = false;
@@ -690,14 +831,13 @@ export async function createWindow(
   });
   await window.loadURL("openminion://app/");
   loaded = true;
-  void supervisor.start();
+  void supervisor.start().then(() => supervisor.startUpdateChecks());
   return window;
 }
 
 export async function launchDesktop(
-  supervisor = new DaemonSupervisor({
-    openminionExecutable: process.env.OPENMINION_ODF_EXECUTABLE,
-  }),
+  supervisor = createDesktopSupervisor(app.getPath("userData")),
+  store?: DesktopStore,
 ): Promise<BrowserWindow> {
   const appSession = session.fromPartition("persist:openminion");
   const capturePlatform = new ElectronCapturePlatform(appSession);
@@ -709,7 +849,7 @@ export async function launchDesktop(
   activeFileGrants = files;
   activeCapture = capture;
   activeObservation = observation;
-  registerIpcHandlers(supervisor, media, files, capture, observation);
+  registerIpcHandlers(supervisor, media, files, capture, observation, store);
   registerAppProtocol(appSession, undefined, capture);
   let rendererCleanupStarted = false;
   const rendererLost = () => {
@@ -789,7 +929,7 @@ export function registerQuitLifecycle(
     stopping = true;
     void closeObservation()
       .then(() => Promise.allSettled([closeFiles(), closeCapture()]))
-      .then(() => supervisor.stop())
+      .then(() => supervisor.stop(true))
       .finally(() => {
         readyToQuit = true;
         appInstance.quit();
@@ -801,12 +941,18 @@ let activeFileGrants: FileGrantService | null = null;
 let activeCapture: CaptureService | null = null;
 let activeObservation: ObservationService | null = null;
 
-const supervisor = new DaemonSupervisor({
-  openminionExecutable: process.env.OPENMINION_ODF_EXECUTABLE,
-});
-
-app.whenReady().then(() => launchDesktop(supervisor));
-registerQuitLifecycle(app, supervisor);
-app.on("window-all-closed", () => {
-  app.quit();
-});
+export function createDesktopSupervisor(
+  userDataRoot: string,
+  store?: DesktopStore,
+): DaemonSupervisor {
+  return new DaemonSupervisor({
+    runtimeRoot: join(userDataRoot, "runtime"),
+    homeRoot: userDataRoot,
+    dataRoot: join(userDataRoot, "data"),
+    configPath: join(userDataRoot, "agents.json"),
+    openminionExecutable: process.env.OPENMINION_EXECUTABLE,
+    store,
+    desktopVersion: app.getVersion(),
+    exclusiveRuntime: store !== undefined && userDataRoot === app.getPath("userData"),
+  });
+}
