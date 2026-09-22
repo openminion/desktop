@@ -1031,6 +1031,13 @@ describe("renderer status view", () => {
         agentFilter: "Writer",
         sessionId: session.sessionId,
       });
+      read.mockResolvedValue({ ok: true, value: { kind: "skills", text: "Skill: Example" } });
+      page.element("composer").value = "/skills example";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Skill: Example"),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "example" });
       let finishReport!: (value: unknown) => void;
       read.mockImplementationOnce(
         () =>
@@ -1052,7 +1059,7 @@ describe("renderer status view", () => {
       page.element("composer").value = "/tools enable search";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Command arguments");
-      expect(read).toHaveBeenCalledTimes(3);
+      expect(read).toHaveBeenCalledTimes(4);
       read.mockImplementationOnce(
         () =>
           new Promise((resolve) => {

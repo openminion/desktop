@@ -77,6 +77,7 @@ export const DESKTOP_COMMANDS = [
   { name: "/tasks", description: "Inspect and control OpenMinion work" },
   { name: "/agents", description: "List agents or find one by ID or name" },
   { name: "/tools", description: "Show available tools" },
+  { name: "/skills", description: "List skills or inspect one by ID" },
   { name: "/tokens", description: "Show durable token usage details" },
   { name: "/export", description: "Export the saved conversation" },
   { name: "/status", description: "Show connection, task, agent, and model" },
@@ -1537,6 +1538,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       args.length &&
       command !== "/tasks" &&
       command !== "/agents" &&
+      command !== "/skills" &&
       !(command === "/new" && args.join(" ") === "session")
     ) {
       hideCommandMenu();
@@ -1553,13 +1555,19 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     switch (command) {
       case "/agents":
       case "/tools":
-      case "/tokens": {
+      case "/tokens":
+      case "/skills": {
         if (command === "/agents" && args.length && chat.active) {
           showCommandResult("Agents", "Finish or stop this turn before inspecting an agent.");
           break;
         }
-        const kind = command.slice(1) as "agents" | "tools" | "tokens";
-        const titles = { agents: "Agents", tools: "Tools", tokens: "Token usage" };
+        const kind = command.slice(1) as "agents" | "tools" | "tokens" | "skills";
+        const titles = {
+          agents: "Agents",
+          tools: "Tools",
+          tokens: "Token usage",
+          skills: "Skills",
+        };
         if (kind === "tokens" && !selected) {
           showCommandResult(titles[kind], "No active session.");
           break;
@@ -1569,8 +1577,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const request = commandResultGeneration;
         const result = await api.reports.read({
           kind,
-          ...(sessionId ? { sessionId } : {}),
+          ...(sessionId && kind !== "skills" ? { sessionId } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
+          ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
         });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
         if (elements.commandPanel.hidden) break;

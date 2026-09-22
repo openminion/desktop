@@ -72,7 +72,7 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
   root; existing Python environments and profiles remain at their recorded
   locations. Schema version checks preserve data across compatible upgrades.
 
-- Connected Focus agent/tool inventories, durable token reports, and Markdown
+- Connected Focus agent/tool/skill inventories, exact skill details, durable token reports, and Markdown
   conversation export through existing public OpenMinion operations.
 - Show daemon progress details and time since the last update during quiet waits.
 

@@ -38,6 +38,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/tasks`, `/task` | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID, use the returned Pause, Resume, and Cancel controls, or create scheduled work in the inline form. |
 | `/agents`, `/agent` | Read the daemon's agent discovery list. An exact ID or display name filters the list; this does not change the session's agent. |
 | `/tools`, `/tool` | Show the daemon's tool inventory and reported availability. Exposure changes are not connected. |
+| `/skills` | List the OpenMinion skill catalog or inspect one exact skill ID through the public daemon API. Skill admission and mutation are not connected. |
 | `/tokens` | Request the selected session's canonical durable token report. Pinned PyPI may report daemon-created sessions unavailable; no usage is fabricated. |
 | `/export` | Save the selected conversation as Markdown through a native file chooser and the CLI transcript exporter. |
 | `/status` | Show connection, selected task, active agent, reported model, and turn status. |
@@ -78,7 +79,7 @@ link explicitly opens the system browser. Other URL schemes are unavailable.
 Unchanged message elements stay mounted during status updates so text selection
 and reading position can be retained.
 
-Except for task commands, `/agents <exact-id-or-name>`, and `/new session`, commands currently take no arguments. Bare agent/tool queries, token reports, and export remain available during a turn. Agent filtering waits for the turn to finish, matching Focus admission. Export includes only messages already saved by OpenMinion. Model/provider
+Except for task commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill queries, token reports, and export remain available during a turn. Agent filtering waits for the turn to finish, matching Focus admission. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
 The composer remains editable during a turn so you can write a draft or run a
@@ -102,13 +103,13 @@ status. Full tool activity and approval presentation remain separate gaps.
 Focus's canonical command catalog is owned by OpenMinion's CLI presentation
 layer. Its handlers operate on the CLI runtime. Desktop's CLI-backed client
 connects text turns, saved sessions, task inventory/lifecycle controls,
-agent/tool inventories, token reports, and transcript export; approvals, media,
+agent/tool/skill inventories, token reports, and transcript export; approvals, media,
 artifacts, and broader Focus commands remain pending.
 
 | Focus command family | Required Desktop adaptation before it is connected |
 | --- | --- |
 | Model changes, `/effort` | Present configured model choices and explicitly update an admitted session's model/effort. Return the effective settings; keep credentials daemon-owned. |
-| Tool exposure changes, `/mcp`, `/skills` | Expose canonical tool-policy changes, live MCP status, and Focus skill inventory. Bare `/tools` is connected. |
+| Tool exposure changes, `/mcp`, skill admission/mutation | Expose canonical tool-policy changes, live MCP status, and skill lifecycle controls. Bare `/tools` and skill list/detail are connected. |
 | `/permissions`, `/readonly` | Read and update session policy with canonical validation and visible effective policy. |
 | `/context`, `/context-review`, `/compact` | Query the context owner and request supported session compaction. The files panel is not a substitute for context-budget inspection. |
 | `/cost` | Return live session usage and supported cost accounting. `/tokens` is connected to durable CLI accounting; it is not a live-cost substitute. |

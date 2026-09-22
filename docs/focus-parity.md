@@ -33,8 +33,8 @@ and the rich CLI renderer differ.
 ## Current Differences
 
 This is a source assessment, not end-to-end parity certification. The current
-Desktop installs and runs ordinary OpenMinion and connects text turns and saved
-history through its public CLI/API. The broader Focus command surface, approvals,
+Desktop installs and runs ordinary OpenMinion and connects text turns, saved
+history, and skill catalog/detail reads through its public CLI/API. The broader Focus command surface, approvals,
 media, and artifacts still require Desktop integration.
 
 | Surface | Current Desktop gap | Required outcome |
@@ -133,6 +133,11 @@ reads `GET /v1/tools`, the daemon's live inventory. These narrow bridges return
 only public IDs, labels, names, and enabled flags. Tool exposure arguments remain
 unconnected. Filtering an agent waits for an active turn to finish; bare queries
 remain available.
+
+`/skills` and `/skills <exact-id>` read the public `GET /v1/skills` catalog and
+`GET /v1/skills/{id}` detail routes in the pinned runtime. The renderer receives
+only the report text, not arbitrary HTTP or process access. Skill lifecycle
+operations and configured-only skill entries remain unconnected.
 
 `/tokens` invokes `status tokens --session-id` and displays the canonical report
 without recalculating usage. Live acceptance found that pinned PyPI returns

@@ -343,6 +343,14 @@ async function check() {
         .sort(),
     );
     assert.ok((await reportCommand("/tool", "Tools")).includes(tools.value.tools[0].name));
+    const cliSkills = await runCommand(executable, [...args, "skill", "list", "--json"], 30_000);
+    assert.equal(cliSkills.exitCode, 0);
+    const skillIds = JSON.parse(cliSkills.stdout).skills.map((skill) => skill.skill_id);
+    const skillText = await reportCommand("/skills", "Skills");
+    if (skillIds.length) {
+      assert.ok(skillText.includes(skillIds[0]));
+      assert.ok((await reportCommand(`/skills ${skillIds[0]}`, "Skills")).includes(skillIds[0]));
+    } else assert.equal(skillText, "(no skills)");
     const tokens = await runCommand(
       executable,
       [...args, "status", "tokens", "--session-id", sessionId],

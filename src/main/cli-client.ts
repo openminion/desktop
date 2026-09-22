@@ -143,7 +143,11 @@ export class CliClient {
   readReport(input: unknown): Promise<ClientResult<ReportValue>> {
     return this.#control(async () => {
       const value = requireRecord(input);
-      if (Object.keys(value).some((key) => !["kind", "sessionId", "agentFilter"].includes(key)))
+      if (
+        Object.keys(value).some(
+          (key) => !["kind", "sessionId", "agentFilter", "skillId"].includes(key),
+        )
+      )
         throw protocolError("invalid_request", "Choose a supported report.");
       if (this.#configuring)
         throw protocolError("settings_busy", "Wait for Settings to finish applying.");
@@ -154,6 +158,15 @@ export class CliClient {
           value.agentFilter.length > 512)
       )
         throw protocolError("invalid_request", "Choose an exact agent ID or name.");
+      if (
+        value.skillId !== undefined &&
+        (value.kind !== "skills" ||
+          typeof value.skillId !== "string" ||
+          !value.skillId.trim() ||
+          value.skillId.length > 512 ||
+          /[\s\0/]/.test(value.skillId))
+      )
+        throw protocolError("invalid_request", "Choose an exact skill ID.");
       if (value.kind === "agents") {
         const payload = await this.#request("/v1/agents");
         if (payload.ok !== true)
@@ -192,6 +205,50 @@ export class CliClient {
             .sort((a, b) => a.name.localeCompare(b.name)),
         };
       }
+      if (value.kind === "skills") {
+        if (value.sessionId !== undefined)
+          throw protocolError("invalid_request", "Skill discovery does not take a session ID.");
+        if (value.skillId) {
+          const payload = await this.#request(`/v1/skills/${encodeURIComponent(value.skillId)}`);
+          if (payload.ok !== true)
+            throw protocolError("report_unavailable", "Skill details are unavailable.");
+          const skill = requireRecord(payload.skill);
+          const sections = requireRecord(skill.sections ?? {});
+          const lines = [
+            `Skill: ${optionalString(skill.display_name ?? null) || requireString(skill.name)}`,
+            `  id       ${requireString(skill.skill_id)}`,
+            `  status   ${requireString(skill.status)}`,
+            `  scope    ${requireString(skill.scope)}`,
+            `  risk     ${requireString(skill.risk_class)}`,
+            `  version  ${requireString(skill.version_hash)}`,
+          ];
+          const tools = requireArray(skill.tools ?? []).map(requireString);
+          const tags = requireArray(skill.tags ?? []).map(requireString);
+          if (tools.length) lines.push(`  tools    ${tools.join(", ")}`);
+          if (tags.length) lines.push(`  tags     ${tags.join(", ")}`);
+          for (const [key, content] of Object.entries(sections)) {
+            if (typeof content === "string" && content.trim())
+              lines.push(
+                "",
+                `${key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}:`,
+                content.trim(),
+              );
+          }
+          return { kind: "skills", text: lines.join("\n") };
+        }
+        const payload = await this.#request("/v1/skills");
+        if (payload.ok !== true)
+          throw protocolError("report_unavailable", "Skill discovery is unavailable.");
+        const skills = requireArray(payload.skills)
+          .map((item) => requireString(requireRecord(item).skill_id))
+          .slice(0, 20);
+        return {
+          kind: "skills",
+          text: skills.length
+            ? `Skills:\n${skills.map((id) => `  - ${id} · catalog`).join("\n")}\nUse /skills <skill-id> to view details.`
+            : "(no skills)",
+        };
+      }
       if (value.kind === "tokens") {
         const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
         if (sessionId.startsWith("-") || sessionId.includes("\0"))
@@ -210,7 +267,7 @@ export class CliClient {
           );
         return { kind: "tokens", text: result.stdout };
       }
-      throw protocolError("invalid_request", "Choose agents, tools, or tokens.");
+      throw protocolError("invalid_request", "Choose agents, tools, tokens, or skills.");
     });
   }
 

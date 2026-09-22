@@ -38,6 +38,24 @@ describe("PyPI CLI client", () => {
         ],
       },
     });
+    expect(await client.readReport({ kind: "skills" })).toEqual({
+      ok: true,
+      value: {
+        kind: "skills",
+        text: "Skills:\n  - example · catalog\nUse /skills <skill-id> to view details.",
+      },
+    });
+    expect(await client.readReport({ kind: "skills", skillId: "example" })).toMatchObject({
+      ok: true,
+      value: {
+        kind: "skills",
+        text: expect.stringContaining("Instructions:\nUse the approved tool."),
+      },
+    });
+    expect(await client.readReport({ kind: "skills", skillId: "../private" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
     expect(await client.readReport({ kind: "tools", agentFilter: "writer" })).toMatchObject({
       ok: false,
     });
@@ -45,7 +63,7 @@ describe("PyPI CLI client", () => {
       ok: false,
     });
     expect(await client.readReport({ kind: "arbitrary" })).toMatchObject({ ok: false });
-    expect(fixture.requests).toHaveLength(4);
+    expect(fixture.requests).toHaveLength(6);
     expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
   });
 
@@ -709,13 +727,31 @@ async function executableFixture(mode = "normal") {
                 ok: true,
                 agents: [{ agent_id: "writer", display_name: "Writer", secret: "private" }],
               }
-            : {
-                ok: true,
-                tools: [
-                  { name: "search", enabled: true, private: "private" },
-                  { name: "disabled", enabled: false },
-                ],
-              },
+            : req.url === "/v1/skills"
+              ? { ok: true, skills: [{ skill_id: "example", private: "private" }] }
+              : req.url === "/v1/skills/example"
+                ? {
+                    ok: true,
+                    skill: {
+                      skill_id: "example",
+                      name: "Example",
+                      status: "active",
+                      scope: "agent",
+                      risk_class: "low",
+                      version_hash: "abc123",
+                      tools: [],
+                      tags: [],
+                      sections: { instructions: "Use the approved tool." },
+                      private: "private",
+                    },
+                  }
+                : {
+                    ok: true,
+                    tools: [
+                      { name: "search", enabled: true, private: "private" },
+                      { name: "disabled", enabled: false },
+                    ],
+                  },
         ),
       );
       return;
