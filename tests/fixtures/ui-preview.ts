@@ -196,6 +196,7 @@ const profileSettings = {
   credentials: [],
 };
 const previewNames = new Map<string, string>();
+let previewQuietTools = false;
 const api: NativeApi = {
   runtime: {
     control: async () => ({
@@ -243,6 +244,13 @@ const api: NativeApi = {
     save: async ({ sessionId, title }) => {
       if (title === null) previewNames.delete(sessionId);
       else previewNames.set(sessionId, title);
+      return { ok: true, value: null };
+    },
+  },
+  presentation: {
+    load: async () => ({ ok: true, value: { quietTools: previewQuietTools } }),
+    save: async ({ quietTools }) => {
+      previewQuietTools = quietTools;
       return { ok: true, value: null };
     },
   },

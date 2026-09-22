@@ -261,6 +261,12 @@ async function check() {
       );
     for (const [alias, name] of Object.entries(DESKTOP_ALIASES))
       assert.ok(focusCommands.find((item) => item.name === name)?.aliases.includes(alias), alias);
+    const missingCommands = focusCommands.filter(
+      (item) => !DESKTOP_COMMANDS.some((command) => command.name === item.name),
+    );
+    console.log(
+      `PARTIAL: Desktop lists ${DESKTOP_COMMANDS.length}/${focusCommands.length} installed Focus commands; ${missingCommands.length} are not in the Desktop menu. This catalog check does not verify argument or effect parity.`,
+    );
     const parityContract = await readFile(
       new URL("../../docs/focus-parity.md", import.meta.url),
       "utf8",
@@ -379,7 +385,7 @@ async function check() {
     }
     await evaluate("document.querySelector('#close-command').click()");
     console.log(
-      "PASS: installed Focus catalog/aliases, daemon tools, canonical tokens, and native transcript export.",
+      "PASS: Desktop subset names/aliases exist in installed Focus; daemon tools, canonical tokens, and native transcript export checked.",
     );
     await fill("/tasks");
     await evaluate("document.querySelector('#send').click()");

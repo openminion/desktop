@@ -35,6 +35,10 @@ import type {
 
 function mount(api: NativeApi, root: Document): Promise<void> {
   api.chatNames ??= namesApi();
+  api.presentation ??= {
+    load: async () => ({ ok: true, value: { quietTools: false } }),
+    save: async () => ({ ok: true, value: null }),
+  };
   api.runtime ??= {
     status: async () => ({
       source: "pypi",
@@ -88,6 +92,33 @@ function namesApi(): NativeApi["chatNames"] {
 }
 
 describe("renderer computer observation", () => {
+  it("loads and saves quiet/normal as Desktop presentation preferences", async () => {
+    const save = vi.fn<NativeApi["presentation"]["save"]>(async () => ({ ok: true, value: null }));
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: { status: async () => status({ state: "degraded" }) },
+      turns: { subscribe: () => () => {} },
+      presentation: {
+        load: vi.fn(async () => ({ ok: true, value: { quietTools: true } })),
+        save,
+      },
+    } as unknown as NativeApi;
+    const page = new FixtureDocument();
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      await mount(api, page.asDocument());
+      expect(api.presentation.load).toHaveBeenCalledOnce();
+      page.element("composer").value = "/normal";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: false }));
+      page.element("composer").value = "/quiet";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: true }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("projects paused/pinned preparation and dispatches narrow runtime controls", async () => {
     const page = new FixtureDocument();
     const current = {

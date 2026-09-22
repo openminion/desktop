@@ -142,7 +142,7 @@ New installations use the same location from source and from a packaged app:
 
 ```text
 ~/.openminion/desktop/
-  desktop.sqlite    Desktop chat names and recorded installation paths
+  desktop.sqlite    Desktop chat names, display preferences and installation paths
   browser/          Electron browser state and cache
   logs/             Application logs
   runtime/          Managed Python environment
@@ -150,10 +150,13 @@ New installations use the same location from source and from a packaged app:
   data/             Core-managed conversations and runtime state
 ```
 
-The database contains presentation metadata, not copies of conversations or API
-keys. Its schema version supports ordered future migrations. An app that finds
-a newer schema refuses to open it and asks for a compatible version; it never
-resets existing data. Replacing the application bundle preserves this directory.
+The database contains presentation metadata (including the quiet/normal tool
+display preference), not copies of conversations or API keys. OpenMinion owns
+the separate `data/` and `agents.json` contents under Desktop's directory;
+the ordinary CLI's data remains separate. SQLite schema versions support
+ordered migrations. An app that finds a newer schema refuses to open it and
+asks for a compatible version; it never resets existing data. Replacing the
+application bundle preserves this directory.
 Signing, automatic updates, and cross-platform distribution are still pending.
 
 Existing installations keep their runtime and browser files in their previous

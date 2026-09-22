@@ -103,6 +103,14 @@ async function checkStorage() {
             : [{ sessionId: "legacy-one", title: "New planning" }],
       });
       if (phase === "migrate") {
+        assert.deepEqual(await evaluate("window.openminion.presentation.load()"), {
+          ok: true,
+          value: { quietTools: false },
+        });
+        assert.equal(
+          (await evaluate("window.openminion.presentation.save({quietTools:true})")).ok,
+          true,
+        );
         assert.equal(
           (
             await evaluate(
@@ -121,8 +129,12 @@ async function checkStorage() {
         );
         await evaluate("localStorage.setItem('openminion.task-name:legacy-reset','Stale name')");
       }
+      assert.deepEqual(await evaluate("window.openminion.presentation.load()"), {
+        ok: true,
+        value: { quietTools: true },
+      });
       const db = new DatabaseSync(join(desktopRoot, "desktop.sqlite"), { readOnly: true });
-      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 3);
+      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 4);
       assert.equal(db.prepare("SELECT runtime_home FROM installation").get().runtime_home, legacy);
       db.close();
       assert.equal(readFileSync(join(legacy, "runtime", "keep"), "utf8"), "existing environment");

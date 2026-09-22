@@ -23,6 +23,10 @@ const api: NativeApi = {
     load: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesLoad, input),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesSave, input),
   },
+  presentation: {
+    load: () => ipcRenderer.invoke(IPC_CHANNELS.presentationLoad),
+    save: (input) => ipcRenderer.invoke(IPC_CHANNELS.presentationSave, input),
+  },
   reports: { read: (input) => ipcRenderer.invoke(IPC_CHANNELS.reportsRead, input) },
   tasks: {
     control: (input) => ipcRenderer.invoke(IPC_CHANNELS.tasksControl, input),

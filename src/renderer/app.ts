@@ -632,6 +632,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       // SQLite records the completed import, so a leftover key cannot restore a reset name.
     }
   }
+  const savedPresentation = await api.presentation.load();
   const taskName = (session: SessionSummaryV1): string =>
     names.get(session.sessionId) || session.title || "Untitled task";
   let savingName = false;
@@ -659,7 +660,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   >();
   let hiddenMessageCount = 0;
-  let quietTools = false;
+  let quietTools = savedPresentation.ok ? savedPresentation.value.quietTools : false;
   let commandIndex = 0;
   let commandDraft: string | null = null;
   let commandsDismissed = false;
@@ -1732,11 +1733,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         }
         break;
       case "/quiet":
-        quietTools = true;
+      case "/normal": {
+        const next = command === "/quiet";
+        const result = await api.presentation.save({ quietTools: next });
+        if (result.ok) quietTools = next;
+        else showCommandResult("Display preference", result.error.message);
         break;
-      case "/normal":
-        quietTools = false;
-        break;
+      }
     }
     renderChat();
     return true;

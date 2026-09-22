@@ -86,6 +86,20 @@ export function registerIpcHandlers(
         ? store.save(input)
         : failure("storage_unavailable", "Desktop storage is unavailable."),
   );
+  ipcMain.handle(IPC_CHANNELS.presentationLoad, (event) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.loadPresentation()
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
+  ipcMain.handle(IPC_CHANNELS.presentationSave, (event, input: unknown) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.savePresentation(input)
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
   const dispatchDesktopTurn = async (
     input: TurnSubmitInput,
     sourceFrame: WebFrameMain | null,

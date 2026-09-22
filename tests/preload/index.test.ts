@@ -29,6 +29,7 @@ describe("preload surface", () => {
     expect(Object.keys(api)).toEqual([
       "runtime",
       "chatNames",
+      "presentation",
       "reports",
       "tasks",
       "profiles",
@@ -60,6 +61,11 @@ describe("preload surface", () => {
       sessionId: "session-1",
       title: "Planning",
     });
+    expect(Object.keys(api.presentation)).toEqual(["load", "save"]);
+    await api.presentation.load();
+    await api.presentation.save({ quietTools: true });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.presentationLoad);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.presentationSave, { quietTools: true });
     expect(Object.keys(api.reports)).toEqual(["read"]);
     await api.reports.read({ kind: "tools" });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reportsRead, { kind: "tools" });

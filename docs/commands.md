@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-09-13
+Last updated: 2026-09-22
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -44,8 +44,8 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/model` | Show the model facts reported by the daemon; changing models is not supported here yet. |
 | `/copy` | Copy the latest visible assistant reply, including a currently streaming reply. Never fall back to user input or cleared replies. Focus tool-output copying still needs integration. Clipboard writes are capped at 1 MB. |
 | `/clear`, `/cls` | Clear the visible chat while idle. Saved history remains in OpenMinion; selecting the task restores it. |
-| `/quiet` | Hide tool activity cards while keeping approvals visible. |
-| `/normal` | Restore tool activity cards. |
+| `/quiet` | Hide tool activity cards while keeping approvals visible; saved as a Desktop display preference. |
+| `/normal` | Restore tool activity cards; saved as a Desktop display preference. |
 
 Files, screenshots, cancellation, task closing, and reconnection use their
 existing GUI controls. Their former Desktop-only slash shortcuts were removed
@@ -128,7 +128,9 @@ execute arbitrary CLI strings or forward slash commands as chat prompts.
 Renderer tests cover command discovery, keyboard handling, draft preservation,
 unsupported-command rejection, response streaming, and task switching. Main
 and preload tests cover clipboard writes and fixed task controls, scope binding,
-credential projection, invalid inputs, and concurrent operation admission. The macOS Electron
-smoke checks the actual command menu and help panel with the sandboxed preload.
-Real-daemon integration remains a separate tier described in
-[Testing and Validation](testing-and-validation.md).
+credential projection, invalid inputs, and concurrent operation admission. The
+macOS Electron smoke checks the actual command menu and help panel with the
+sandboxed preload. The installed-runtime test checks that Desktop's listed
+command names and aliases exist in Focus; it does not prove complete menu,
+argument, or effect parity. Real-daemon integration remains a separate tier
+described in [Testing and Validation](testing-and-validation.md).
