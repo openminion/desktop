@@ -1,7 +1,7 @@
 # OpenMinion Desktop Screen Context
 
 Status: current behavior and proposed direction
-Last updated: 2026-09-08
+Last updated: 2026-09-21
 
 Purpose: keep screen context a first-class part of the chat interface while
 distinguishing today's screenshot workflow from future streaming and control.
@@ -14,8 +14,8 @@ composer shows its thumbnail and source name. While previewing, the picker
 hides its candidate grid and region editor; **Change source** returns to
 selection.
 
-Preview pixels remain local in the current app. The visible inclusion,
-guidance, and **Automatic watch** controls are disabled because screenshot
+Preview pixels remain local in the current app. The inclusion, guidance, and
+**Automatic watch** controls are hidden because screenshot
 delivery is not connected to OpenMinion or a model. The preview is not a
 frozen attachment or a permanent screenshot timeline. Pausing, stopping, or
 changing tasks clears its transient state.
@@ -45,8 +45,8 @@ direction, not implemented features or a release commitment.
 - Keep the screen action beside the composer, independently of file settings.
 - Distinguish local preview, selected images, sending, and automatic sharing.
 - Extend the same context area with explicit image counts or sharing status
-  when those capabilities exist. Any earlier preview control stays disabled and
-  clearly labeled as planned without implying active delivery.
+  when those capabilities exist. Until then, only local preview is shown;
+  no control should imply active delivery.
 - Keep source selection, removal, pause, and stop reachable without resizing
   the conversation into a fixed right panel.
 - Keep the message, attachments, and send controls aligned from the supported

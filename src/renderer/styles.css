@@ -985,7 +985,7 @@ details[open] > summary .summary-chevron {
 }
 
 .chat-panel {
-  --conversation-gutter: clamp(16px, 4vw, 64px);
+  --conversation-gutter: max(16px, calc(50% - 500px));
   display: grid;
   min-height: 0;
   min-width: 0;
@@ -1431,10 +1431,6 @@ details[open] > summary .summary-chevron {
   background: #292929;
   box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
   white-space: nowrap;
-}
-
-.composer:focus-within {
-  border-color: rgb(255 255 255 / 28%);
 }
 
 .command-menu {

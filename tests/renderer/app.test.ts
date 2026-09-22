@@ -880,8 +880,8 @@ describe("renderer status view", () => {
       try {
         const page = new FixtureDocument();
         const mounted = mount(api, page.asDocument());
-        await vi.waitFor(() => expect(page.element("composer").disabled).toBe(true));
-        expect(page.element("new-session").disabled).toBe(true);
+        await vi.waitFor(() => expect(page.element("new-session").disabled).toBe(true));
+        expect(page.element("composer").disabled).toBe(false);
         expect(page.element("send").disabled).toBe(true);
         expect(page.element("chat-progress").hidden).toBe(true);
         resolveStatus(status({ state: "starting" }));
@@ -895,13 +895,16 @@ describe("renderer status view", () => {
         expect(submit).not.toHaveBeenCalled();
         resolveRetry(status({ state: "degraded" }));
         await mounted;
+        expect(page.element("include-screenshot-control").hidden).toBe(true);
+        expect(page.element("ask-guidance").hidden).toBe(true);
+        expect(page.element("watch-settings").hidden).toBe(true);
         expect(page.element("readiness-title").textContent).toBe("Chat isn’t connected yet");
         expect(page.element("readiness-actions").hidden).toBe(false);
         expect(page.element("composer").disabled).toBe(false);
         expect(page.element("send").disabled).toBe(true);
         page.element("readiness-retry").click();
         expect(retry).toHaveBeenCalledTimes(2);
-        expect(page.element("composer").disabled).toBe(true);
+        expect(page.element("composer").disabled).toBe(false);
         expect(page.element("readiness-actions").hidden).toBe(true);
         resolveRetry(status({ state, reachable: true, capabilities: ["turns.text"] }));
         await vi.waitFor(() => expect(page.element("recovery").hidden).toBe(true));
@@ -2735,6 +2738,7 @@ describe("renderer status view", () => {
         await vi.waitFor(() => expect(page.element("guidance-card").hidden).toBe(false));
       };
       expect(page.element("include-current-view").disabled).toBe(false);
+      expect(page.element("include-screenshot-control").hidden).toBe(false);
       expect(page.element("screen-context-status").textContent).toContain("Local preview only");
       page.element("composer").value = "What is visible?";
       page.element("include-current-view").checked = true;
@@ -3548,6 +3552,7 @@ class FixtureDocument {
     "send",
     "cancel",
     "ask-guidance",
+    "watch-settings",
     "guidance-card",
     "guidance-state",
     "guidance-preview",
@@ -3556,6 +3561,7 @@ class FixtureDocument {
     "guidance-status",
     "attachments",
     "include-current-view",
+    "include-screenshot-control",
     "screen-context-summary",
     "screen-context-name",
     "screen-context-status",

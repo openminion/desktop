@@ -226,7 +226,7 @@ export function statusView(status: DaemonStatus): StatusView {
       label: "Connected",
       summary:
         status.state === "ready"
-          ? "Ready for messages and screen context."
+          ? "Ready for messages."
           : "Connected to your local OpenMinion daemon.",
       tone: "ready",
       showRetry: false,
@@ -245,7 +245,7 @@ export function statusView(status: DaemonStatus): StatusView {
   if (status.state === "degraded") {
     return {
       label: "Not connected",
-      summary: "Reconnect to send messages and use screen context.",
+      summary: "Reconnect to send messages.",
       tone: "degraded",
       showRetry: true,
       showRecovery: true,
@@ -872,6 +872,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const renderObservation = () => {
+    elements.includeScreenshotControl.hidden = !richContextReady;
+    elements.askGuidance.hidden = !richContextReady;
+    elements.watchSettings.hidden = !richContextReady;
     const writable = Boolean(
       richContextReady && selected && selected.status !== "closed" && observationApi,
     );
@@ -1812,7 +1815,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.cancel.title = chat.stopRequested ? "Waiting for OpenMinion to stop" : "Stop response";
     elements.send.hidden = chat.active && !isCommand;
     elements.composerHint.textContent = connecting
-      ? "Chat will be available when OpenMinion is ready"
+      ? "Keep drafting while OpenMinion starts"
       : chat.active
         ? "You can keep drafting while OpenMinion works"
         : "Enter to send · Shift+Enter for new line";
@@ -1825,8 +1828,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           : conversationLoading
             ? "Waiting for conversation history"
             : "Send message (Enter)";
-    elements.composer.disabled = connecting;
-    elements.composer.placeholder = connecting ? "Waiting for OpenMinion…" : "Message OpenMinion…";
+    elements.composer.disabled = false;
+    elements.composer.placeholder = connecting
+      ? "Write a message while OpenMinion starts…"
+      : "Message OpenMinion…";
     elements.closeSession.disabled =
       !writable || conversationLoading || chat.active || attachmentPending;
     elements.attachImage.disabled =
@@ -2968,6 +2973,7 @@ function rendererElements(root: Document) {
     send: required(root, "send") as HTMLButtonElement,
     cancel: required(root, "cancel") as HTMLButtonElement,
     askGuidance: required(root, "ask-guidance") as HTMLButtonElement,
+    watchSettings: required(root, "watch-settings"),
     guidanceCard: required(root, "guidance-card"),
     guidanceState: required(root, "guidance-state"),
     guidancePreview: required(root, "guidance-preview") as HTMLImageElement,
@@ -2975,6 +2981,7 @@ function rendererElements(root: Document) {
     guidanceText: required(root, "guidance-text"),
     guidanceStatus: required(root, "guidance-status"),
     includeCurrentView: required(root, "include-current-view") as HTMLInputElement,
+    includeScreenshotControl: required(root, "include-screenshot-control"),
     attachments: required(root, "attachments"),
     attachImage: required(root, "attach-image") as HTMLButtonElement,
     attachFile: required(root, "attach-file") as HTMLButtonElement,

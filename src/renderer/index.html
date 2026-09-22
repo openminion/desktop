@@ -233,7 +233,7 @@
               <p id="guidance-text" class="guidance-text"></p>
             </section>
             <p id="guidance-status" class="capture-note" aria-live="polite" hidden>
-              Write an instruction and keep a current frame to ask for guidance.
+              Write a message to start. You can also preview a screen or window locally.
             </p>
           </div>
           <form id="composer-form" class="composer">
@@ -247,7 +247,7 @@
                 <strong id="screen-context-name"></strong>
                 <p id="screen-context-status"></p>
               </div>
-              <label class="observation-send-toggle" for="include-current-view">
+              <label id="include-screenshot-control" class="observation-send-toggle" for="include-current-view" hidden>
                 <input id="include-current-view" type="checkbox" aria-describedby="screen-context-status" disabled />
                 Include screenshot
               </label>
@@ -275,7 +275,7 @@
                   <button id="attach-image" class="quiet-button" type="button" popovertarget="attachment-menu" popovertargetaction="hide" disabled>Attach image</button>
                   <button id="attach-file" class="quiet-button" type="button" popovertarget="attachment-menu" popovertargetaction="hide" disabled>Attach file</button>
                 </div>
-                <button class="quiet-button screen-context-button" type="button" popovertarget="screen-panel" title="Include a screenshot from a screen or window">
+                <button class="quiet-button screen-context-button" type="button" popovertarget="screen-panel" title="Preview a screen or window locally">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
                   Screenshot
                 </button>
@@ -305,7 +305,7 @@
             <summary>
               <span>
                 <strong>Screenshot</strong>
-                <small>One image with your next message</small>
+                <small>Preview a screen or window locally</small>
               </span>
               <span class="tool-summary-meta">
                 <span id="capture-state" class="capture-state">Idle</span>
@@ -363,7 +363,7 @@
                   <button id="change-capture" class="quiet-button" type="button">Change source</button>
                   <button id="stop-capture" class="quiet-button" type="button">Stop</button>
                 </div>
-                <button id="ask-guidance" class="quiet-button" type="button" disabled>Ask for guidance</button>
+                <button id="ask-guidance" class="quiet-button" type="button" hidden disabled>Ask for guidance</button>
               </section>
               <div class="observation-previews">
                 <figure id="observation-selected" hidden>
@@ -375,7 +375,7 @@
                   <figcaption id="observation-sent-facts"></figcaption>
                 </figure>
               </div>
-              <details class="watch-settings">
+              <details id="watch-settings" class="watch-settings" hidden>
                 <summary>
                   <span>
                     <strong>Automatic watch</strong>

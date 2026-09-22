@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Keep chat drafts editable during startup, center the conversation on wide
+  windows, and show only local screen preview controls until screenshot delivery exists.
+
 - Added explicit PyPI/native runtime source selection while preserving the
   actual source identity of the currently installed runtime.
 

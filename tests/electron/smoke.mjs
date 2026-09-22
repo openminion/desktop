@@ -45,6 +45,12 @@ async function check() {
     }
     assert.equal(await evaluate("document.querySelector('#retry').hidden"), false);
     assert.equal(await evaluate("document.querySelector('#composer').disabled"), false);
+    assert.equal(
+      await evaluate("document.querySelector('#include-screenshot-control').hidden"),
+      true,
+    );
+    assert.equal(await evaluate("document.querySelector('#ask-guidance').hidden"), true);
+    assert.equal(await evaluate("document.querySelector('#watch-settings').hidden"), true);
     assert.equal(await evaluate("document.querySelector('#new-session').disabled"), false);
     await evaluate("document.querySelector('#new-session').click()");
     assert.equal(await evaluate("document.activeElement.id"), "composer");
@@ -120,7 +126,10 @@ async function check() {
         overflow:document.documentElement.scrollWidth > innerWidth, viewportWidth:innerWidth, viewportHeight:innerHeight};
     })()`);
       assert.equal(bounds.overflow, false);
-      assert.ok(bounds.result.top >= bounds.timeline.bottom, "Results follow the conversation");
+      assert.ok(
+        bounds.result.top >= bounds.timeline.bottom,
+        `Results follow the conversation: ${JSON.stringify(bounds)}`,
+      );
       assert.equal(bounds.insideConversation, true, "Results belong to the chat scroll area");
       assert.equal(bounds.resultOverflow, "visible", "Results have no separate scrollbar");
       assert.ok(bounds.conversationBottom <= bounds.composerTop, "Chat cannot cover the composer");
@@ -145,6 +154,21 @@ async function check() {
       assert.ok(bounds.attachment.right <= bounds.screenshot.left);
       assert.ok(bounds.screenshot.bottom <= bounds.viewportHeight);
       widths.push(bounds.width);
+      const screenPanel = await evaluate(`(() => {
+        document.querySelector('.screen-context-button').click();
+        const panel = document.querySelector('#screen-panel');
+        const bounds = panel.getBoundingClientRect();
+        panel.hidePopover();
+        return {left:bounds.left, right:bounds.right, top:bounds.top, bottom:bounds.bottom,
+          width:innerWidth, height:innerHeight};
+      })()`);
+      assert.ok(
+        screenPanel.left >= 0 &&
+          screenPanel.right <= screenPanel.width &&
+          screenPanel.top >= 0 &&
+          screenPanel.bottom <= screenPanel.height,
+        "Screen options must fit the resized window",
+      );
       assert.equal(
         await evaluate("document.querySelector('#close-session').textContent.trim()"),
         "Close task",
@@ -206,7 +230,8 @@ async function check() {
       assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep this draft");
       assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), true);
     }
-    assert.ok(widths[2] > widths[1] + 400, "Composer must grow with a wider window");
+    assert.ok(widths[2] > widths[1], "Composer must grow before reaching its reading width");
+    assert.ok(widths[2] <= 1001, "Composer must stay readable in a wide window");
     const scrolling = await evaluate(`(() => {
       const conversation = document.querySelector('#conversation');
       const result = document.querySelector('#command-panel');
