@@ -1,12 +1,14 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-22
+Last updated: 2026-09-25
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Update the managed PyPI runtime baseline to OpenMinion 0.0.27.
+- Add command-specific help, fixed installed-runtime `/graph` help, and native `/editor` composition guidance.
 - Allow repairing model credentials in Settings after the daemon exits, while
   continuing to reject profile changes when another live process owns the daemon.
 

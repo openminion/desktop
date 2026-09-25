@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-09-13
+Last updated: 2026-09-25
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -76,16 +76,16 @@ All canonical command families need coverage:
 | --- | --- |
 | `/help`, `/` | Canonical catalog and help |
 | `/new`, `/new session`, `/sessions`, `/session`, `/resume` | Directory-scoped session creation, inventory, binding, and history |
-| `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Room membership and routing |
+| `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Room membership, handoff, messaging, start, and routing |
 | `/agents`, `/agent`, `/model`, `/effort` | Agent inspection/selection, configured model choices, effective effort |
 | `/delegate`, `/goal`, `/project`, `/tasks`, `/task`, `/queue` | Existing delegation, goal, project, durable task, and prompt-queue owners |
 | `/tools`, `/tool`, `/mcp`, `/skills` | Configured tool, server, and skill inventory and supported changes |
 | `/permissions`, `/readonly` | Canonical policy queries, updates, and effective mode |
 | `/context`, `/context-review`, `/compact`, `/cost`, `/tokens` | Context evidence, supported compaction, live/durable usage, available cost |
-| `/memory`, `/graph`, `/telemetry`, `/trace`, `/overview` | Owner reports and supported operations, with renderer availability preserved |
+| `/memory`, `/telemetry`, `/trace`, `/overview` | Owner reports and supported operations, with renderer availability preserved; `/graph` guidance is connected while graph workflows remain pending |
 | `/init`, `/browser`, `/undo`, `/diff`, `/review` | Existing workspace/browser operations with policy and audit boundaries |
 | `/clear`, `/cls`, `/copy`, `/quiet`, `/normal`, `/verbose`, `/details`, `/expand` | Canonical transcript content and presentation semantics |
-| `/status`, `/theme`, `/statusline`, `/export`, `/editor`, `/exit`, `/quit` | Status, presentation preferences, supported guidance, and exit intent |
+| `/status`, `/theme`, `/statusline`, `/export`, `/editor`, `/exit`, `/quit` | Status, presentation preferences, supported guidance, and exit intent; `/editor` has a native Desktop equivalent |
 
 ## Connected Setup And Session Identity
 
@@ -103,7 +103,7 @@ broader `/resume` picker remain separate gaps.
 
 ## Connected Task Controls
 
-On pinned PyPI 0.0.19, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
+On pinned PyPI 0.0.27, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
 CLI calls. Main derives agent scope from the selected canonical session and passes
 its session ID. Focus's task report and these CLI commands share OpenMinion's task
 surface; Desktop does not copy lifecycle transitions, task ownership, or scheduler
@@ -119,20 +119,25 @@ canonical task list. Core owns schedule validation and execution. Pending
 decisions, non-scheduled task creation and richer run-history inspection still
 need integration.
 
-Pinned PyPI 0.0.19 includes `/close`; Desktop now routes that command to its
+Pinned PyPI 0.0.27 includes `/close`; Desktop routes that command to its
 existing canonical Close operation. `/resume` remains unavailable because the
 current saved-task picker does not establish Focus directory and non-empty
 history filtering. Broader catalog discovery remains a gap.
 
 ## Connected Reports And Export
 
-On pinned PyPI 0.0.19, `/agents` (`/agent`) reads `GET /v1/agents`, backed by
+On pinned PyPI 0.0.27, `/agents` (`/agent`) reads `GET /v1/agents`, backed by
 Focus's agent-discovery owner. An exact ID or display name filters the returned
 list; Desktop does not interpret it as agent selection. `/tools` (`/tool`)
 reads `GET /v1/tools`, the daemon's live inventory. These narrow bridges return
 only public IDs, labels, names, and enabled flags. Tool exposure arguments remain
 unconnected. Filtering an agent waits for an active turn to finish; bare queries
 remain available.
+
+Bare `/mcp` reads the selected agent's existing runtime capability report and
+shows configured/exposed server names plus MCP tool counts. It does not replace
+Focus's richer live server details, browse/authentication flows, or lifecycle
+operations; those remain pending.
 
 `/skills` and `/skills <exact-id>` read the public `GET /v1/skills` catalog and
 `GET /v1/skills/{id}` detail routes in the pinned runtime. The renderer receives
@@ -156,7 +161,7 @@ operate on interactive-runtime state. The pinned public CLI/daemon surface does
 not provide a general Focus command dispatcher. Separate CLI reports or config
 changes cannot stand in for those session operations.
 
-The pinned 0.0.19 package already contains public session turn-input queue,
+The pinned 0.0.27 package contains public session turn-input queue,
 approval-resume, trace stream attachment, and runtime capability routes. Desktop
 must qualify and consume their exact semantics before calling those workflows
 connected or declaring a missing-core blocker. An approval grant alone does not
@@ -173,9 +178,9 @@ identity, graphs, diagnostics, data maintenance and operator utilities. Preserve
 canonical effects while presenting friendly labels and controls; an instruction
 to switch to CLI does not complete a GUI workflow.
 
-As assessed on 2026-09-12, the pinned 0.0.19 parser registers 44 command families
-and 243 leaf paths. Current source has 51 built-in Focus commands; the pin has
-50. Desktop advertises 14 built-ins with partial semantics.
+The 2026-09-12 assessment recorded 44 CLI command families and 243 leaf paths.
+The paired 0.0.27 runtime has 55 built-in Focus commands. Desktop advertises 18
+built-ins with partial semantics.
 Bundled/user/project custom commands and shell intent add separate qualification
 requirements. These counts are a dated source inventory, not execution proof.
 Every static and dynamic GUI control needs an effective action, scope/error

@@ -70,13 +70,18 @@ export type RecoveredSession = {
 export type ActivityItem = ToolProgressV1 | ApprovalEventV1;
 
 export const DESKTOP_COMMANDS = [
-  { name: "/help", description: "Show commands currently connected in Desktop" },
+  {
+    name: "/help",
+    description: "Show commands currently connected in Desktop",
+    usage: "/help [connected-command]",
+  },
   { name: "/new", description: "Start a new session" },
   { name: "/sessions", description: "Pick a session" },
   { name: "/close", description: "Close the current session" },
   { name: "/tasks", description: "Inspect and control OpenMinion work" },
   { name: "/agents", description: "List agents or find one by ID or name" },
   { name: "/tools", description: "Show available tools" },
+  { name: "/mcp", description: "Show configured and exposed MCP servers" },
   { name: "/skills", description: "List skills or inspect one by ID" },
   { name: "/tokens", description: "Show durable token usage details" },
   { name: "/export", description: "Export the saved conversation" },
@@ -86,6 +91,8 @@ export const DESKTOP_COMMANDS = [
   { name: "/clear", description: "Clear the visible chat; keep saved history" },
   { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
   { name: "/normal", description: "Show tool activity" },
+  { name: "/graph", description: "Show installed OpenMinion graph help" },
+  { name: "/editor", description: "Show Desktop composer shortcuts" },
 ] as const;
 
 export const DESKTOP_ALIASES: Record<string, string> = {
@@ -1539,6 +1546,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       command !== "/tasks" &&
       command !== "/agents" &&
       command !== "/skills" &&
+      command !== "/help" &&
       !(command === "/new" && args.join(" ") === "session")
     ) {
       hideCommandMenu();
@@ -1556,17 +1564,21 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       case "/agents":
       case "/tools":
       case "/tokens":
-      case "/skills": {
+      case "/skills":
+      case "/mcp":
+      case "/graph": {
         if (command === "/agents" && args.length && chat.active) {
           showCommandResult("Agents", "Finish or stop this turn before inspecting an agent.");
           break;
         }
-        const kind = command.slice(1) as "agents" | "tools" | "tokens" | "skills";
+        const kind = command.slice(1) as "agents" | "tools" | "tokens" | "skills" | "mcp" | "graph";
         const titles = {
           agents: "Agents",
           tools: "Tools",
           tokens: "Token usage",
           skills: "Skills",
+          mcp: "MCP",
+          graph: "Graph viewer",
         };
         if (kind === "tokens" && !selected) {
           showCommandResult(titles[kind], "No active session.");
@@ -1577,7 +1589,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const request = commandResultGeneration;
         const result = await api.reports.read({
           kind,
-          ...(sessionId && kind !== "skills" ? { sessionId } : {}),
+          ...(sessionId && !["skills", "mcp", "graph"].includes(kind) ? { sessionId } : {}),
+          ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
           ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
         });
@@ -1641,7 +1654,19 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           );
         break;
       }
-      case "/help":
+      case "/help": {
+        if (args.length) {
+          const requested = args[0].startsWith("/") ? args[0] : `/${args[0]}`;
+          const canonical = DESKTOP_ALIASES[requested] ?? requested;
+          const item = DESKTOP_COMMANDS.find((candidate) => candidate.name === canonical);
+          showCommandResult(
+            "Command help",
+            item
+              ? `${item.name} — ${item.description}\n${"usage" in item ? item.usage : item.name}`
+              : `${requested} is not connected in Desktop. Type /help for supported commands.`,
+          );
+          break;
+        }
         showCommandResult(
           "Focus commands — partial integration",
           "Desktop presents OpenMinion Focus. Only the commands below are connected so far; model selection and other Focus operations still require integration. Type / and use ↑ / ↓. Enter runs a command; Tab completes its name. Escape dismisses the menu. Use // for a message beginning with /.",
@@ -1657,6 +1682,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           });
           elements.commandResult.append(button);
         }
+        break;
+      }
+      case "/editor":
+        showCommandResult(
+          "Desktop composer",
+          "Continue typing in the composer. Press Shift+Enter for a new line, Enter to send, and Escape to dismiss command results.",
+        );
         break;
       case "/new": {
         const button = elements.newSession;

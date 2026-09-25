@@ -230,8 +230,8 @@ If the daemon stops while the window stays open, click the connection indicator
 at the bottom of the sidebar. Opening its details checks the current connection;
 use **Reconnect** when offered. Your unsent message stays in the composer.
 
-With PyPI 0.0.19, **Stop** requests cancellation, but an in-flight provider
-request can still complete. Desktop displays the outcome reported by the daemon.
+**Stop** requests cancellation. Desktop waits for and displays the outcome
+reported by the daemon rather than treating the request itself as completion.
 
 Text chat and completed conversation history work in the real app. Attachment
 sending, artifact browsing, approval decisions, and automatic watch remain
@@ -256,9 +256,8 @@ a matching speaker prefix out of the displayed answer and copied reply; saved
 transcripts remain unchanged. Completed replies show their saved duration and
 usage below the answer, for example **22s · 18.4k tokens**. Token detail follows
 the agent's CLI `turn_usage_display` setting when the runtime exports it:
-total, input/output, or input/output plus model calls. PyPI 0.0.19 does not
-export that preference, so Desktop shows total tokens. These statistics survive
-reopening a chat, including histories from PyPI 0.0.19. Missing usage is not estimated, and
+total, input/output, or input/output plus model calls. These statistics survive
+reopening a chat. Missing usage is not estimated, and
 Desktop does not invent a cost when the runtime does not report one.
 
 Progress uses a subtle working indicator, while

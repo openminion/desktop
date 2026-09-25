@@ -56,6 +56,18 @@ describe("PyPI CLI client", () => {
       ok: false,
       error: { code: "invalid_request" },
     });
+    expect(await client.readReport({ kind: "mcp", agentId: "writer" })).toEqual({
+      ok: true,
+      value: {
+        kind: "mcp",
+        text: [
+          "MCP:",
+          "  configured  local",
+          "  exposed     local",
+          "  tools       2 exposed · 3 registered",
+        ].join("\n"),
+      },
+    });
     expect(await client.readReport({ kind: "tools", agentFilter: "writer" })).toMatchObject({
       ok: false,
     });
@@ -63,7 +75,7 @@ describe("PyPI CLI client", () => {
       ok: false,
     });
     expect(await client.readReport({ kind: "arbitrary" })).toMatchObject({ ok: false });
-    expect(fixture.requests).toHaveLength(6);
+    expect(fixture.requests).toHaveLength(7);
     expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
   });
 
@@ -87,6 +99,11 @@ describe("PyPI CLI client", () => {
       "--session-id",
       "session-1",
     ]);
+    expect(await client.readReport({ kind: "graph" })).toEqual({
+      ok: true,
+      value: { kind: "graph", text: "Canonical report\n" },
+    });
+    expect(run.mock.calls.at(-1)?.[1]).toEqual(["--config", "/private/config", "graph", "--help"]);
     expect(await client.exportTranscript({ sessionId: "session-1" })).toEqual({
       ok: true,
       value: "Canonical report\n",
@@ -109,7 +126,7 @@ describe("PyPI CLI client", () => {
       ok: false,
     });
     expect(await client.exportTranscript({ sessionId: "--help" })).toMatchObject({ ok: false });
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(3);
     const draft = await client.create({});
     if (!draft.ok) throw new Error("Draft not created");
     expect(await client.exportTranscript({ sessionId: draft.value.sessionId })).toMatchObject({
@@ -727,31 +744,46 @@ async function executableFixture(mode = "normal") {
                 ok: true,
                 agents: [{ agent_id: "writer", display_name: "Writer", secret: "private" }],
               }
-            : req.url === "/v1/skills"
-              ? { ok: true, skills: [{ skill_id: "example", private: "private" }] }
-              : req.url === "/v1/skills/example"
-                ? {
-                    ok: true,
-                    skill: {
-                      skill_id: "example",
-                      name: "Example",
-                      status: "active",
-                      scope: "agent",
-                      risk_class: "low",
-                      version_hash: "abc123",
-                      tools: [],
-                      tags: [],
-                      sections: { instructions: "Use the approved tool." },
-                      private: "private",
+            : req.url === "/v1/runtime/capabilities?agent_id=writer"
+              ? {
+                  ok: true,
+                  capabilities: {
+                    tools: {
+                      mcp_exposure: {
+                        configured_servers: ["local"],
+                        exposed_servers: ["local"],
+                        exposed_runtime_tool_count: 2,
+                        registered_runtime_tool_count: 3,
+                      },
                     },
-                  }
-                : {
-                    ok: true,
-                    tools: [
-                      { name: "search", enabled: true, private: "private" },
-                      { name: "disabled", enabled: false },
-                    ],
+                    mcp: { failed_servers: {} },
                   },
+                }
+              : req.url === "/v1/skills"
+                ? { ok: true, skills: [{ skill_id: "example", private: "private" }] }
+                : req.url === "/v1/skills/example"
+                  ? {
+                      ok: true,
+                      skill: {
+                        skill_id: "example",
+                        name: "Example",
+                        status: "active",
+                        scope: "agent",
+                        risk_class: "low",
+                        version_hash: "abc123",
+                        tools: [],
+                        tags: [],
+                        sections: { instructions: "Use the approved tool." },
+                        private: "private",
+                      },
+                    }
+                  : {
+                      ok: true,
+                      tools: [
+                        { name: "search", enabled: true, private: "private" },
+                        { name: "disabled", enabled: false },
+                      ],
+                    },
         ),
       );
       return;

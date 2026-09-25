@@ -351,6 +351,13 @@ async function check() {
       assert.ok(skillText.includes(skillIds[0]));
       assert.ok((await reportCommand(`/skills ${skillIds[0]}`, "Skills")).includes(skillIds[0]));
     } else assert.equal(skillText, "(no skills)");
+    const mcpText = await reportCommand("/mcp", "MCP");
+    assert.ok(mcpText.startsWith("MCP:\n"));
+    assert.ok(mcpText.includes("configured"));
+    assert.ok(mcpText.includes("registered"));
+    const graphHelp = await runCommand(executable, [...args, "graph", "--help"], 30_000);
+    assert.equal(graphHelp.exitCode, 0);
+    assert.equal(await reportCommand("/graph", "Graph viewer"), graphHelp.stdout);
     const tokens = await runCommand(
       executable,
       [...args, "status", "tokens", "--session-id", sessionId],

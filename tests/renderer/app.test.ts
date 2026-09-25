@@ -1038,6 +1038,16 @@ describe("renderer status view", () => {
         expect(page.element("command-result").children[0]?.textContent).toBe("Skill: Example"),
       );
       expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "example" });
+      read.mockResolvedValue({
+        ok: true,
+        value: { kind: "mcp", text: "MCP:\n  configured  local" },
+      });
+      page.element("composer").value = "/mcp";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain("configured"),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "mcp", agentId: session.activeAgentId });
       let finishReport!: (value: unknown) => void;
       read.mockImplementationOnce(
         () =>
@@ -1059,7 +1069,7 @@ describe("renderer status view", () => {
       page.element("composer").value = "/tools enable search";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Command arguments");
-      expect(read).toHaveBeenCalledTimes(4);
+      expect(read).toHaveBeenCalledTimes(5);
       read.mockImplementationOnce(
         () =>
           new Promise((resolve) => {
@@ -1114,6 +1124,28 @@ describe("renderer status view", () => {
       expect(page.element("command-title").textContent).toBe(
         "Focus commands — partial integration",
       );
+      page.element("composer").value = "/help graph";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-title").textContent).toBe("Command help");
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "/graph — Show installed OpenMinion graph help",
+      );
+      read.mockResolvedValue({
+        ok: true,
+        value: { kind: "graph", text: "usage: openminion graph" },
+      });
+      page.element("composer").value = "/graph";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-title").textContent).toBe("Graph viewer");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "usage: openminion graph",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "graph" });
+      page.element("composer").value = "/editor";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-title").textContent).toBe("Desktop composer");
       for (const command of ["/files", "/screenshot", "/cancel", "/retry", "/resume"]) {
         page.element("composer").value = command;
         page.element("composer").dispatch("keydown", { key: "Enter" });

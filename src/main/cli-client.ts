@@ -145,7 +145,7 @@ export class CliClient {
       const value = requireRecord(input);
       if (
         Object.keys(value).some(
-          (key) => !["kind", "sessionId", "agentFilter", "skillId"].includes(key),
+          (key) => !["kind", "sessionId", "agentFilter", "agentId", "skillId"].includes(key),
         )
       )
         throw protocolError("invalid_request", "Choose a supported report.");
@@ -167,6 +167,15 @@ export class CliClient {
           /[\s\0/]/.test(value.skillId))
       )
         throw protocolError("invalid_request", "Choose an exact skill ID.");
+      if (
+        value.agentId !== undefined &&
+        (value.kind !== "mcp" ||
+          typeof value.agentId !== "string" ||
+          !value.agentId.trim() ||
+          value.agentId.length > 512 ||
+          /[\s\0]/.test(value.agentId))
+      )
+        throw protocolError("invalid_request", "Choose an exact agent ID.");
       if (value.kind === "agents") {
         const payload = await this.#request("/v1/agents");
         if (payload.ok !== true)
@@ -249,6 +258,47 @@ export class CliClient {
             : "(no skills)",
         };
       }
+      if (value.kind === "mcp") {
+        if (value.sessionId !== undefined)
+          throw protocolError("invalid_request", "MCP status does not take a session ID.");
+        const query = value.agentId ? `?agent_id=${encodeURIComponent(value.agentId)}` : "";
+        const payload = await this.#request(`/v1/runtime/capabilities${query}`);
+        if (payload.ok !== true)
+          throw protocolError("report_unavailable", "MCP status is unavailable.");
+        const capabilities = requireRecord(payload.capabilities);
+        const tools = requireRecord(capabilities.tools);
+        const exposure = requireRecord(tools.mcp_exposure);
+        const mcp = requireRecord(capabilities.mcp);
+        const configured = requireArray(exposure.configured_servers).map(requireString);
+        const exposed = requireArray(exposure.exposed_servers).map(requireString);
+        const failed = requireRecord(mcp.failed_servers);
+        const exposedCount = exposure.exposed_runtime_tool_count;
+        const registeredCount = exposure.registered_runtime_tool_count;
+        if (typeof exposedCount !== "number" || typeof registeredCount !== "number")
+          throw protocolError("invalid_daemon_response", "Expected MCP tool counts.");
+        const lines = [
+          "MCP:",
+          `  configured  ${configured.join(", ") || "(none)"}`,
+          `  exposed     ${exposed.join(", ") || "(none)"}`,
+          `  tools       ${exposedCount} exposed · ${registeredCount} registered`,
+        ];
+        for (const [name, item] of Object.entries(failed))
+          lines.push(`  failed      ${name}: ${requireString(requireRecord(item).message)}`);
+        return { kind: "mcp", text: lines.join("\n") };
+      }
+      if (value.kind === "graph") {
+        if (value.sessionId !== undefined)
+          throw protocolError("invalid_request", "Graph help does not take a session ID.");
+        const context = this.#requireContext();
+        const result = await this.#run(
+          context.executable,
+          [...context.args, "graph", "--help"],
+          30_000,
+        );
+        if (result.exitCode !== 0)
+          throw protocolError("report_unavailable", "Graph help is unavailable.");
+        return { kind: "graph", text: result.stdout };
+      }
       if (value.kind === "tokens") {
         const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
         if (sessionId.startsWith("-") || sessionId.includes("\0"))
@@ -267,7 +317,10 @@ export class CliClient {
           );
         return { kind: "tokens", text: result.stdout };
       }
-      throw protocolError("invalid_request", "Choose agents, tools, tokens, or skills.");
+      throw protocolError(
+        "invalid_request",
+        "Choose agents, tools, tokens, skills, MCP, or graph.",
+      );
     });
   }
 
