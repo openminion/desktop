@@ -21,7 +21,7 @@ const loaded = new Promise((resolve) => {
 const timeout = setTimeout(() => {
   console.error("Electron startup check timed out");
   app.exit(1);
-}, 20000);
+}, 30000);
 
 await import("../../dist/src/main/bootstrap.js");
 void check();
@@ -31,6 +31,50 @@ async function check() {
   try {
     const window = await loaded;
     const evaluate = (source) => window.webContents.executeJavaScript(source);
+    const settled = () =>
+      evaluate(
+        "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+    const waitFor = async (condition) => {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (await evaluate(condition)) return;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      console.error(
+        await evaluate(
+          "JSON.stringify({active:document.activeElement?.id,display:document.querySelector('#chat-display')?.value,status:document.querySelector('#chat-display-status')?.textContent,dialog:document.querySelector('#profile-dialog')?.open})",
+        ),
+      );
+      assert.fail(`Did not settle: ${condition}`);
+    };
+    const key = async (keyCode, modifiers = []) => {
+      window.focus();
+      window.webContents.focus();
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
+      await settled();
+    };
+    const click = async (id) => {
+      const point = await evaluate(`(() => {
+        const element = document.getElementById(${JSON.stringify(id)});
+        element.scrollIntoView({block:'nearest'});
+        const bounds = element.getBoundingClientRect();
+        return {x:Math.round(bounds.x + bounds.width / 2), y:Math.round(bounds.y + bounds.height / 2)};
+      })()`);
+      window.webContents.sendInputEvent({
+        type: "mouseDown",
+        button: "left",
+        clickCount: 1,
+        ...point,
+      });
+      window.webContents.sendInputEvent({
+        type: "mouseUp",
+        button: "left",
+        clickCount: 1,
+        ...point,
+      });
+      await settled();
+    };
     assert.deepEqual(preloadErrors, []);
     assert.equal(await evaluate("typeof window.openminion?.daemon.status"), "function");
     assert.equal(await evaluate("typeof window.require"), "undefined");
@@ -217,9 +261,7 @@ async function check() {
           (await window.webContents.capturePage()).toPNG(),
         );
       }
-      await evaluate(
-        "document.querySelector('#composer').dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown'}))",
-      );
+      await key("Down");
       assert.equal(
         await evaluate("document.querySelector('#command-menu .active').id"),
         "command-option-1",
@@ -276,6 +318,187 @@ async function check() {
     );
     assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
     assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
+
+    // Real unavailable-runtime Settings must retain diagnostics and local preferences.
+    await click("show-settings");
+    await waitFor(
+      "document.querySelector('#profile-dialog').open && !document.querySelector('#close-settings').disabled",
+    );
+    assert.equal(await evaluate("document.querySelector('#settings-profiles').hidden"), false);
+    assert.equal(await evaluate("document.querySelector('#profile-save').disabled"), true);
+    assert.notEqual(await evaluate("document.querySelector('#profile-status').textContent"), "");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
+    await key("k", [process.platform === "darwin" ? "meta" : "control"]);
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
+    await click("settings-chat-button");
+    assert.equal(await evaluate("document.querySelector('#settings-chat').hidden"), false);
+    assert.equal(await evaluate("document.querySelector('#settings-profiles').hidden"), true);
+    await evaluate(`
+      { const display = document.querySelector('#chat-display');
+      display.focus();
+      display.value = 'quiet';
+      display.dispatchEvent(new Event('change', {bubbles:true})); }
+    `);
+    await waitFor("document.querySelector('#chat-display-status').textContent.includes('Saved')");
+    assert.equal(await evaluate("document.querySelector('#chat-display').value"), "quiet");
+    assert.equal((await evaluate("window.openminion.presentation.load()")).value.quietTools, true);
+    await click("settings-runtime-button");
+    assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
+    assert.equal(
+      await evaluate(
+        "document.querySelector('#settings-runtime-button').getAttribute('aria-pressed')",
+      ),
+      "true",
+    );
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+      [1600, 1000],
+    ]) {
+      window.setContentSize(width, height);
+      await evaluate("document.querySelector('.runtime-update-options').open = true");
+      await settled();
+      const layout = await evaluate(`(() => {
+        const dialog = document.querySelector('#profile-dialog');
+        const body = dialog.querySelector('.settings-body');
+        body.scrollTop = body.scrollHeight;
+        const bounds = dialog.getBoundingClientRect();
+        const heading = dialog.querySelector('.settings-heading').getBoundingClientRect();
+        const close = document.querySelector('#close-settings').getBoundingClientRect();
+        const action = document.querySelector('#show-daemon-status').getBoundingClientRect();
+        const icon = document.querySelector('#show-daemon-status svg').getBoundingClientRect();
+        const last = document.querySelector('#pin-runtime-version');
+        last.scrollIntoView({block:'nearest'});
+        const pin = last.getBoundingClientRect();
+        return {bounds:bounds.toJSON(), heading:heading.toJSON(), close:close.toJSON(), pin:pin.toJSON(),
+          action:action.toJSON(), icon:icon.toJSON(),
+          width:innerWidth, height:innerHeight, overflow:dialog.scrollWidth > dialog.clientWidth,
+          bodyOverflow:getComputedStyle(body).overflowY, bodyBottom:body.getBoundingClientRect().bottom};
+      })()`);
+      assert.ok(layout.bounds.left >= 0 && layout.bounds.right <= layout.width);
+      assert.ok(layout.bounds.top >= 0 && layout.bounds.bottom <= layout.height);
+      assert.equal(layout.overflow, false, "Settings has no horizontal overflow");
+      assert.equal(layout.bodyOverflow, "auto");
+      assert.ok(layout.action.height <= 36, "Runtime action remains compact");
+      assert.ok(
+        Math.abs(
+          layout.icon.y + layout.icon.height / 2 - layout.action.y - layout.action.height / 2,
+        ) < 1,
+        "Runtime action icon stays centered alongside its label",
+      );
+      assert.ok(
+        layout.heading.top >= 0 && layout.close.bottom <= layout.height,
+        "Header and Close remain reachable while scrolling",
+      );
+      assert.ok(
+        layout.pin.bottom <= layout.bodyBottom + 1,
+        "Last update action is reachable by scrolling",
+      );
+      for (let step = 0; step < 12; step += 1) {
+        await key("Tab");
+        assert.equal(
+          await evaluate(
+            "Boolean(document.activeElement.closest('#settings-profiles, #settings-chat'))",
+          ),
+          false,
+          "Hidden Settings sections cannot receive keyboard focus",
+        );
+      }
+      if (process.env.OPENMINION_E2E_ARTIFACTS) {
+        mkdirSync(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
+        writeFileSync(
+          join(process.env.OPENMINION_E2E_ARTIFACTS, `settings-runtime-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+    }
+    await click("show-daemon-status");
+    await waitFor("document.querySelector('#diagnostics-dialog').open");
+    await key(",", [process.platform === "darwin" ? "meta" : "control"]);
+    assert.equal(await evaluate("document.querySelectorAll('dialog[open]').length"), 2);
+    await key("Escape");
+    await waitFor("!document.querySelector('#diagnostics-dialog').open");
+    assert.equal(await evaluate("document.querySelector('#profile-dialog').open"), true);
+    assert.equal(await evaluate("document.activeElement.id"), "show-daemon-status");
+    await click("close-settings");
+    await waitFor("!document.querySelector('#profile-dialog').open");
+    assert.equal(await evaluate("document.activeElement.id"), "show-settings");
+
+    await evaluate("document.querySelector('#connection-details').open = true");
+    await click("show-runtime-settings");
+    await waitFor(
+      "document.querySelector('#profile-dialog').open && !document.querySelector('#close-settings').disabled",
+    );
+    assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
+    await key("Escape");
+    assert.equal(await evaluate("document.activeElement.id"), "show-runtime-settings");
+    await evaluate("document.querySelector('#composer').focus()");
+    await key(",", [process.platform === "darwin" ? "meta" : "control"]);
+    await waitFor(
+      "document.querySelector('#profile-dialog').open && !document.querySelector('#close-settings').disabled",
+    );
+    assert.equal(await evaluate("document.querySelector('#settings-profiles').hidden"), false);
+    await key("Escape");
+    assert.equal(await evaluate("document.activeElement.id"), "composer");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
+
+    // A renderer reload reads the same real SQLite preference through main/preload.
+    const reloaded = new Promise((resolve) => window.webContents.once("did-finish-load", resolve));
+    window.webContents.reload();
+    await reloaded;
+    await waitFor("!document.querySelector('#retry').hidden");
+    await click("show-settings");
+    await waitFor(
+      "document.querySelector('#profile-dialog').open && !document.querySelector('#close-settings').disabled",
+    );
+    await click("settings-chat-button");
+    assert.equal(await evaluate("document.querySelector('#chat-display').value"), "quiet");
+    await evaluate(`
+      { const display = document.querySelector('#chat-display');
+      display.focus();
+      display.value = 'normal';
+      display.dispatchEvent(new Event('change', {bubbles:true})); }
+    `);
+    await waitFor("document.querySelector('#chat-display-status').textContent.includes('Saved')");
+    assert.equal((await evaluate("window.openminion.presentation.load()")).value.quietTools, false);
+    await click("close-settings");
+    await evaluate("document.querySelector('#rename-dialog').showModal()");
+    await key(",", [process.platform === "darwin" ? "meta" : "control"]);
+    assert.equal(
+      await evaluate("document.querySelector('#profile-dialog').open"),
+      false,
+      "Settings shortcut does not compete with another dialog",
+    );
+    await key("Escape");
+    // Real readable configuration with a missing CLI produces a distinct setup-catalog failure.
+    writeFileSync(
+      join(temporaryRoot, "agents.json"),
+      JSON.stringify({ agents: { openminion: { name: "openminion", provider: "echo" } } }),
+      { mode: 0o600 },
+    );
+    const profile = await evaluate("window.openminion.profiles.read()");
+    assert.equal(profile.ok, true);
+    assert.equal(profile.value.setupRequired, true);
+    const presets = await evaluate("window.openminion.profiles.presets()");
+    assert.equal(presets.ok, false);
+    assert.equal(presets.error.code, "setup_unavailable");
+    await click("show-settings");
+    await waitFor(
+      "document.querySelector('#profile-dialog').open && !document.querySelector('#close-settings').disabled",
+    );
+    assert.equal(await evaluate("document.querySelector('#settings-profiles').hidden"), false);
+    assert.equal(await evaluate("document.querySelector('#setup-fields').hidden"), false);
+    assert.equal(await evaluate("document.querySelector('#profile-save').disabled"), true);
+    assert.notEqual(await evaluate("document.querySelector('#profile-status').textContent"), "");
+    await click("settings-runtime-button");
+    assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
+    await click("settings-chat-button");
+    assert.equal(await evaluate("document.querySelector('#settings-chat').hidden"), false);
+    await click("close-settings");
+    await waitFor("!document.querySelector('#profile-dialog').open");
+    console.log(
+      "SET-01/03/04/05 passed: profile/setup failure navigation, DOM select change with real SQLite reload, native keyboard/focus and responsive layout.",
+    );
 
     const worker = new BrowserWindow({
       show: false,

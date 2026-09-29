@@ -1,7 +1,7 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-09-17
+Last updated: 2026-09-29
 
 Purpose: provide the package-local bootstrap and first-run path for the
 OpenMinion Desktop source repository.
@@ -53,7 +53,7 @@ credential-free echo config, assigns an authenticated loopback daemon endpoint,
 and starts the daemon. Later launches reuse the environment while its version
 matches the pin.
 
-Open connection details and choose **Python package** or **Native runtime** under
+Open **Settings → Runtime** and choose **Python package** or **Native runtime** under
 **Update options**, then use **Check updates**. When a certified compatible
 record is available, **Prepare update** stages it separately; quit
 and reopen Desktop to activate it before daemon startup. Binary records contain
@@ -73,7 +73,7 @@ another update channel and never upgrades a running app.
 
 ### Hold And Pin Runtime Upgrades
 
-Expand **Update options** in connection details for source selection,
+Expand **Update options** in **Settings → Runtime** for source selection,
 **Pause upgrades**, **Resume upgrades**, **Pin installed runtime**,
 **Set version pin**, **Remove pin**, and
 **Discard prepared update**. A pause survives quit/reopen and blocks both
@@ -182,7 +182,14 @@ root focuses the existing app instead of starting another managed daemon.
 
 ## Agent Profiles and Keys
 
-Click **Settings** above the connection indicator in the sidebar.
+Click **Settings** above the connection indicator in the sidebar, or press
+**⌘ / Ctrl + ,**. Use **Profiles** for model and tool credentials, **Chat display**
+for Normal/Quiet tool activity and keyboard help, and **Runtime** for status,
+logs, versions, and update controls. Connection details also has a **Runtime settings**
+shortcut. Quiet hides tool activity but keeps approval requests visible; it shares
+its saved preference with `/quiet` and `/normal`. Display changes apply immediately.
+Profile changes require **Save and apply**. Switching sections keeps unsaved
+profile edits; closing Settings discards them.
 When the default profile is missing a key required by its provider, Desktop also
 opens Settings on startup so you can complete it before chatting.
 

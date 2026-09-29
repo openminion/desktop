@@ -1526,6 +1526,9 @@ class CaptureFixtureElement {
 class CaptureFixtureDocument {
   addEventListener = vi.fn();
   private static readonly ids = [
+    "settings-runtime-button",
+    "chat-display",
+    "chat-display-status",
     "status-dot",
     "status-summary",
     "retry",

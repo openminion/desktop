@@ -1,11 +1,15 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-25
+Last updated: 2026-09-29
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Organize Settings into Profiles, Chat display, and Runtime. Expose the existing
+  saved Normal/Quiet preference, keyboard help, and a ⌘ / Ctrl + , shortcut.
+  Runtime diagnostics and update controls now live together in Settings.
 
 - Update the managed PyPI runtime baseline to OpenMinion 0.0.27.
 - Add command-specific help, fixed installed-runtime `/graph` help, and native `/editor` composition guidance.

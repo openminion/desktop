@@ -64,6 +64,27 @@ async function check() {
         `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent + ' / ' + document.querySelector('#profile-status').textContent + ' / command: ' + document.querySelector('#command-title').textContent + ' / ' + document.querySelector('#command-result').textContent.slice(0, 500) + ' / open: ' + !document.querySelector('#command-panel').hidden + ' / timeline: ' + document.querySelector('#timeline').textContent.slice(-1800)")}`,
       );
     };
+    const click = async (id) => {
+      const point = await evaluate(`(() => {
+        const element = document.getElementById(${JSON.stringify(id)});
+        element.scrollIntoView({block:'nearest'});
+        const rect = element.getBoundingClientRect();
+        return {x:Math.round(rect.x + rect.width / 2), y:Math.round(rect.y + rect.height / 2)};
+      })()`);
+      window.webContents.sendInputEvent({
+        type: "mouseDown",
+        button: "left",
+        clickCount: 1,
+        ...point,
+      });
+      window.webContents.sendInputEvent({
+        type: "mouseUp",
+        button: "left",
+        clickCount: 1,
+        ...point,
+      });
+      await evaluate("new Promise(resolve => requestAnimationFrame(resolve))");
+    };
     const fill = async (text) =>
       evaluate(
         `document.querySelector('#composer').value = ${JSON.stringify(text)}; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#composer').focus()`,
@@ -99,9 +120,11 @@ async function check() {
         "if (document.querySelector('#diagnostics-dialog').open) document.querySelector('#close-diagnostics').click()",
       );
       await evaluate("document.querySelector('#connection-details').open = true");
-      await evaluate(
-        `document.querySelector('#show-daemon-${kind}').focus(); document.querySelector('#show-daemon-${kind}').click()`,
-      );
+      if (!(await evaluate("document.querySelector('#profile-dialog').open")))
+        await click("show-runtime-settings");
+      await waitFor("!document.querySelector('#close-settings').disabled");
+      await click("settings-runtime-button");
+      await click(`show-daemon-${kind}`);
       await waitFor(
         "!document.querySelector('#show-daemon-status').disabled && !!document.querySelector('.diagnostic-output')",
       );
@@ -210,10 +233,14 @@ async function check() {
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
     await waitFor("!document.querySelector('#diagnostics-dialog').open");
+    assert.equal(await evaluate("document.querySelector('#profile-dialog').open"), true);
+    assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
     await waitFor("document.activeElement.id === 'show-daemon-status'");
     console.log(
       "PASS: separate modal daemon diagnostics match CLI output; Refresh, Copy, Close, Escape, compact buttons and chat preservation pass at three sizes.",
     );
+    await evaluate("document.querySelector('#close-settings').click()");
+    await waitFor("!document.querySelector('#profile-dialog').open");
     await fill("   ");
     assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
     await fill("First line");
@@ -655,7 +682,9 @@ async function check() {
       await evaluate("document.querySelector('#composer').value"),
       "Draft preserved across outage",
     );
-    await evaluate("document.querySelector('#close-diagnostics').click()");
+    await click("close-diagnostics");
+    await click("close-settings");
+    await waitFor("!document.querySelector('#profile-dialog').open");
     console.log(
       "PASS: GUI diagnostics work during an outage without restarting the daemon or changing the draft.",
     );

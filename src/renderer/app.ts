@@ -669,6 +669,21 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   >();
   let hiddenMessageCount = 0;
   let quietTools = savedPresentation.ok ? savedPresentation.value.quietTools : false;
+  const display = required(root, "chat-display") as HTMLSelectElement;
+  const displayStatus = required(root, "chat-display-status");
+  display.value = quietTools ? "quiet" : "normal";
+  const saveDisplay = async (next: boolean) => {
+    display.disabled = true;
+    displayStatus.textContent = "Saving…";
+    const result = await api.presentation.save({ quietTools: next });
+    if (result.ok) quietTools = next;
+    display.value = quietTools ? "quiet" : "normal";
+    display.disabled = false;
+    displayStatus.textContent = result.ok ? "Saved." : result.error.message;
+    renderChat();
+    return result;
+  };
+  display.addEventListener("change", () => void saveDisplay(display.value === "quiet"));
   let commandIndex = 0;
   let commandDraft: string | null = null;
   let commandsDismissed = false;
@@ -1403,7 +1418,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.diagnosticsDialog.addEventListener("close", () => {
     if (elements.diagnosticsDialog.open) return;
     diagnosticsGeneration += 1;
-    const focusTarget = diagnosticsTrigger.disabled ? elements.showConnection : diagnosticsTrigger;
+    const focusTarget = diagnosticsTrigger.disabled
+      ? elements.settingsRuntimeButton
+      : diagnosticsTrigger;
     focusTarget.focus();
   });
   const inspectDaemon = async (kind: "status" | "logs") => {
@@ -1776,9 +1793,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       case "/quiet":
       case "/normal": {
         const next = command === "/quiet";
-        const result = await api.presentation.save({ quietTools: next });
-        if (result.ok) quietTools = next;
-        else showCommandResult("Display preference", result.error.message);
+        const result = await saveDisplay(next);
+        if (!result.ok) showCommandResult("Display preference", result.error.message);
         break;
       }
     }
@@ -2688,7 +2704,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
   elements.showCommands.addEventListener("click", openCommands);
   root.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      event.key.toLowerCase() === "k" &&
+      !root.querySelector("dialog[open]")
+    ) {
       event.preventDefault();
       openCommands();
     }
@@ -2956,6 +2976,7 @@ function rendererElements(root: Document) {
     diagnosticsTitle: required(root, "diagnostics-title"),
     diagnosticsResult: required(root, "diagnostics-result"),
     closeDiagnostics: required(root, "close-diagnostics"),
+    settingsRuntimeButton: required(root, "settings-runtime-button") as HTMLButtonElement,
     showDaemonStatus: required(root, "show-daemon-status") as HTMLButtonElement,
     showDaemonLogs: required(root, "show-daemon-logs") as HTMLButtonElement,
     runtimeUpdateStatus: required(root, "runtime-update-status"),

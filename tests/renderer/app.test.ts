@@ -108,12 +108,36 @@ describe("renderer computer observation", () => {
     try {
       await mount(api, page.asDocument());
       expect(api.presentation.load).toHaveBeenCalledOnce();
+      expect(page.element("chat-display").value).toBe("quiet");
       page.element("composer").value = "/normal";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: false }));
       page.element("composer").value = "/quiet";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: true }));
+      await vi.waitFor(() => expect(page.element("chat-display").value).toBe("quiet"));
+      page.element("chat-display").value = "normal";
+      page.element("chat-display").dispatch("change");
+      await vi.waitFor(() =>
+        expect(page.element("chat-display-status").textContent).toBe("Saved."),
+      );
+      expect(page.element("chat-display").value).toBe("normal");
+      save.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "storage_error",
+          message: "Could not save preference",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      page.element("chat-display").value = "quiet";
+      page.element("chat-display").dispatch("change");
+      await vi.waitFor(() =>
+        expect(page.element("chat-display-status").textContent).toBe("Could not save preference"),
+      );
+      expect(page.element("chat-display").value).toBe("normal");
+      expect(page.element("chat-display").disabled).toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -601,7 +625,7 @@ describe("renderer status view", () => {
       resolve({ ok: true, value: { text: "Late status" } });
       await vi.waitFor(() => expect(page.element("show-daemon-logs").disabled).toBe(false));
       expect(page.element("diagnostics-dialog").open).toBe(false);
-      expect(page.element("show-connection").focus).toHaveBeenCalled();
+      expect(page.element("settings-runtime-button").focus).toHaveBeenCalled();
       expect(result.descendants().some((item) => item.textContent === "Late status")).toBe(false);
       expect(page.element("composer").value).toBe("Keep my draft");
     } finally {
@@ -1869,7 +1893,7 @@ describe("renderer status view", () => {
     expect(applyActivityEvent(settled, requested)).toEqual(settled);
   });
 
-  it("recovers one canonical approval card without replay", async () => {
+  it.each([false, true])("restores approvals without replay (quiet=%s)", async (quietTools) => {
     const session = sessionSummary();
     const submit = vi.fn();
     let finishDecision: ((value: unknown) => void) | undefined;
@@ -1942,6 +1966,10 @@ describe("renderer status view", () => {
         submit,
         cancel: vi.fn(),
         subscribe: vi.fn().mockReturnValue(vi.fn()),
+      },
+      presentation: {
+        load: async () => ({ ok: true, value: { quietTools } }),
+        save: vi.fn(),
       },
       approvals: { decide },
       media: { pick: vi.fn(), release: vi.fn() },
@@ -3557,6 +3585,9 @@ class FixtureDocument {
     },
   };
   private static readonly requiredIds = [
+    "chat-display",
+    "chat-display-status",
+    "settings-runtime-button",
     "status-dot",
     "status-summary",
     "retry",

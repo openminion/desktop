@@ -35,53 +35,129 @@
     </dialog>
     <dialog id="profile-dialog" class="settings-dialog" aria-labelledby="settings-title">
       <div class="settings-heading">
-        <div><p id="settings-eyebrow" class="eyebrow">Settings</p><h2 id="settings-title">Agent profiles</h2></div>
+        <div><p id="settings-eyebrow" class="eyebrow">OpenMinion</p><h2 id="settings-title">Settings</h2></div>
         <button id="close-settings" type="button" class="icon-only-button" aria-label="Close settings">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
         </button>
       </div>
-      <p id="profile-intro" class="settings-note">Use the same profiles as Focus and CLI. Finish running chats before applying changes; OpenMinion will restart.</p>
-      <form id="profile-form">
-        <fieldset id="setup-fields" hidden>
-          <legend>Set up your first agent</legend>
-          <label for="setup-provider">Provider</label>
-          <select id="setup-provider"></select>
-          <div class="settings-grid">
-            <div><label for="setup-model">Model</label><input id="setup-model" maxlength="2048" required /></div>
-            <div><label for="setup-endpoint">Provider URL</label><input id="setup-endpoint" type="url" maxlength="2048" spellcheck="false" required /></div>
+      <nav class="settings-nav" aria-label="Settings sections">
+        <button id="settings-profiles-button" type="button" aria-pressed="true" aria-controls="settings-profiles">Profiles</button>
+        <button id="settings-chat-button" type="button" aria-pressed="false" aria-controls="settings-chat">Chat display</button>
+        <button id="settings-runtime-button" type="button" aria-pressed="false" aria-controls="settings-runtime">Runtime</button>
+      </nav>
+      <div class="settings-body">
+        <section id="settings-profiles" aria-labelledby="settings-profiles-heading">
+          <h3 id="settings-profiles-heading">Agent profiles</h3>
+          <p id="profile-intro" class="settings-note">Use the same profiles as Focus and CLI. Finish running chats before applying changes; OpenMinion will restart.</p>
+          <form id="profile-form">
+            <fieldset id="setup-fields" hidden>
+              <legend>Set up your first agent</legend>
+              <label for="setup-provider">Provider</label>
+              <select id="setup-provider"></select>
+              <div class="settings-grid">
+                <div><label for="setup-model">Model</label><input id="setup-model" maxlength="2048" required /></div>
+                <div><label for="setup-endpoint">Provider URL</label><input id="setup-endpoint" type="url" maxlength="2048" spellcheck="false" required /></div>
+              </div>
+              <label for="setup-key">API key</label>
+              <input id="setup-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
+              <p class="settings-note">Your first message tests the connection. Setup does not make a paid model request.</p>
+            </fieldset>
+            <fieldset id="profile-fields" disabled>
+              <legend class="sr-only">Profile settings</legend>
+              <label for="profile-agent">Agent</label>
+              <select id="profile-agent"></select>
+              <p id="profile-provider" class="settings-note"></p>
+              <div class="settings-grid">
+                <div><label for="profile-model">Model</label><input id="profile-model" maxlength="2048" /></div>
+                <div><label for="profile-endpoint">Provider URL</label><input id="profile-endpoint" type="url" maxlength="2048" spellcheck="false" /></div>
+              </div>
+              <label for="profile-key">Model API key</label>
+              <input id="profile-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
+              <label class="settings-checkbox"><input id="profile-key-remove" type="checkbox" />Remove saved model key for this agent</label>
+              <label class="settings-checkbox"><input id="profile-default" type="checkbox" />Use this agent for new tasks</label>
+              <details class="settings-tools">
+                <summary>Search and web tool keys</summary>
+                <p class="settings-note">Shared across agents. A model key does not include search access. “Set” means saved, not verified with the provider.</p>
+                <div id="profile-tools" class="settings-grid"></div>
+              </details>
+            </fieldset>
+            <p id="profile-status" class="settings-note" role="status" aria-live="polite"></p>
+            <div class="settings-actions">
+              <button id="setup-demo" class="quiet-button" type="button" hidden>Try echo demo</button>
+              <button id="profile-import" class="quiet-button" type="button" disabled>Import profiles…</button>
+              <button id="profile-save" type="submit" disabled>Save and apply</button>
+            </div>
+          </form>
+          <p id="profile-import-note" class="settings-note">Import adds profiles, replaces matching agent IDs, and merges runtime keys. Desktop’s connection and conversation storage stay in place. JSON files only.</p>
+          <p class="settings-note">Keys are saved in your private local OpenMinion configuration. Leave a key blank to keep it. Close discards unsaved edits.</p>
+        </section>
+        <section id="settings-chat" aria-labelledby="settings-chat-heading" hidden>
+          <h3 id="settings-chat-heading">Chat display</h3>
+          <label for="chat-display">Tool activity</label>
+          <select id="chat-display" aria-describedby="chat-display-note">
+            <option value="normal">Normal — show tool activity</option>
+            <option value="quiet">Quiet — hide tool activity</option>
+          </select>
+          <p id="chat-display-note" class="settings-note">Applies immediately to Desktop chats and is saved on this device. Approval requests stay visible. You can also use /normal and /quiet.</p>
+          <p id="chat-display-status" class="settings-note" role="status"></p>
+          <h3>Keyboard shortcuts</h3>
+          <dl class="keyboard-shortcuts">
+            <div><dt>Send a message</dt><dd>Enter</dd></div>
+            <div><dt>New line</dt><dd>Shift + Enter</dd></div>
+            <div><dt>Command menu</dt><dd>⌘ / Ctrl + K</dd></div>
+            <div><dt>Settings</dt><dd>⌘ / Ctrl + ,</dd></div>
+            <div><dt>Dismiss a menu or dialog</dt><dd>Esc</dd></div>
+          </dl>
+        </section>
+        <section id="settings-runtime" aria-labelledby="settings-runtime-heading" hidden>
+          <h3 id="settings-runtime-heading">Runtime</h3>
+          <p class="settings-note">Manage the local OpenMinion runtime used by this Desktop installation.</p>
+          <div class="daemon-actions">
+            <button id="show-daemon-status" class="quiet-button diagnostic-control" type="button">
+              <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" /></svg>
+              Daemon status
+            </button>
+            <button id="show-daemon-logs" class="quiet-button diagnostic-control" type="button">
+              <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" /></svg>
+              View logs
+            </button>
           </div>
-          <label for="setup-key">API key</label>
-          <input id="setup-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
-          <p class="settings-note">Your first message tests the connection. Setup does not make a paid model request.</p>
-        </fieldset>
-        <fieldset id="profile-fields" disabled>
-          <legend class="sr-only">Profile settings</legend>
-          <label for="profile-agent">Agent</label>
-          <select id="profile-agent"></select>
-          <p id="profile-provider" class="settings-note"></p>
-          <div class="settings-grid">
-            <div><label for="profile-model">Model</label><input id="profile-model" maxlength="2048" /></div>
-            <div><label for="profile-endpoint">Provider URL</label><input id="profile-endpoint" type="url" maxlength="2048" spellcheck="false" /></div>
+          <p id="runtime-update-status" class="settings-note" role="status">Runtime updates have not been checked.</p>
+          <div class="daemon-actions">
+            <button id="check-runtime-update" class="quiet-button" type="button">
+              <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5 8a7 7 0 0 1 12-3l3 3M4 16l3 3a7 7 0 0 0 12-3" /></svg>
+              Check updates
+            </button>
+            <button id="stage-runtime-update" class="quiet-button" type="button" hidden>Prepare update</button>
           </div>
-          <label for="profile-key">Model API key</label>
-          <input id="profile-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
-          <label class="settings-checkbox"><input id="profile-key-remove" type="checkbox" />Remove saved model key for this agent</label>
-          <label class="settings-checkbox"><input id="profile-default" type="checkbox" />Use this agent for new tasks</label>
-          <details class="settings-tools">
-            <summary>Search and web tool keys</summary>
-            <p class="settings-note">Shared across agents. A model key does not include search access. “Set” means saved, not verified with the provider.</p>
-            <div id="profile-tools" class="settings-grid"></div>
+          <details class="connection-help runtime-update-options">
+            <summary>Update options</summary>
+            <label for="runtime-update-source">Update source</label>
+            <select id="runtime-update-source">
+              <option value="pypi">Python package</option>
+              <option value="binary">Native runtime</option>
+            </select>
+            <div class="daemon-actions">
+              <button id="pause-runtime-update" class="quiet-button" type="button">Pause upgrades</button>
+              <button id="discard-runtime-update" class="quiet-button" type="button" hidden>Discard prepared update</button>
+              <button id="pin-installed-runtime" class="quiet-button" type="button">Pin installed runtime</button>
+              <button id="unpin-runtime" class="quiet-button" type="button" hidden>Remove pin</button>
+            </div>
+            <label for="runtime-pin-version">Exact published runtime version</label>
+            <input id="runtime-pin-version" type="text" placeholder="0.0.21" autocomplete="off" />
+            <button id="pin-runtime-version" class="quiet-button" type="button">Set version pin</button>
           </details>
-        </fieldset>
-        <p id="profile-status" class="settings-note" role="status" aria-live="polite"></p>
-        <div class="settings-actions">
-          <button id="setup-demo" class="quiet-button" type="button" hidden>Try echo demo</button>
-          <button id="profile-import" class="quiet-button" type="button" disabled>Import profiles…</button>
-          <button id="profile-save" type="submit" disabled>Save and apply</button>
-        </div>
-      </form>
-      <p id="profile-import-note" class="settings-note">Import adds profiles, replaces matching agent IDs, and merges runtime keys. Desktop’s connection and conversation storage stay in place. JSON files only.</p>
-      <p class="settings-note">Keys are saved in your private local OpenMinion configuration. Leave a key blank to keep it. Close discards unsaved edits.</p>
+          <details class="connection-help">
+            <summary>Technical details</summary>
+            <dl class="runtime-facts">
+              <div><dt>Runtime</dt><dd id="daemon-version">Unavailable</dd></div>
+              <div><dt>Protocol</dt><dd id="protocol-version">Unavailable</dd></div>
+              <div><dt>Desktop</dt><dd id="shell-version"></dd></div>
+            </dl>
+            <p>Daemon status and logs use this Desktop installation’s OpenMinion runtime. Reconnect does not replay prompts or actions.</p>
+          </details>
+        </section>
+      </div>
     </dialog>
     <main class="shell">
       <section id="workspace" class="workspace" aria-label="OpenMinion workspace">
@@ -123,50 +199,7 @@
                 Finding your local OpenMinion daemon…
               </p>
               <button id="retry" class="quiet-button" type="button" hidden>Reconnect</button>
-              <div class="daemon-actions">
-                <button id="show-daemon-status" class="quiet-button diagnostic-control" type="button">
-                  <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" /></svg>
-                  Daemon status
-                </button>
-                <button id="show-daemon-logs" class="quiet-button diagnostic-control" type="button">
-                  <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" /></svg>
-                  View logs
-                </button>
-              </div>
-              <p id="runtime-update-status" class="settings-note" role="status">Runtime updates have not been checked.</p>
-              <div class="daemon-actions">
-                <button id="check-runtime-update" class="quiet-button" type="button">
-                  <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5 8a7 7 0 0 1 12-3l3 3M4 16l3 3a7 7 0 0 0 12-3" /></svg>
-                  Check updates
-                </button>
-                <button id="stage-runtime-update" class="quiet-button" type="button" hidden>Prepare update</button>
-              </div>
-              <details class="connection-help runtime-update-options">
-                <summary>Update options</summary>
-                <label for="runtime-update-source">Update source</label>
-                <select id="runtime-update-source">
-                  <option value="pypi">Python package</option>
-                  <option value="binary">Native runtime</option>
-                </select>
-                <div class="daemon-actions">
-                  <button id="pause-runtime-update" class="quiet-button" type="button">Pause upgrades</button>
-                  <button id="discard-runtime-update" class="quiet-button" type="button" hidden>Discard prepared update</button>
-                  <button id="pin-installed-runtime" class="quiet-button" type="button">Pin installed runtime</button>
-                  <button id="unpin-runtime" class="quiet-button" type="button" hidden>Remove pin</button>
-                </div>
-                <label for="runtime-pin-version">Exact published runtime version</label>
-                <input id="runtime-pin-version" type="text" placeholder="0.0.21" autocomplete="off" />
-                <button id="pin-runtime-version" class="quiet-button" type="button">Set version pin</button>
-              </details>
-              <details class="connection-help">
-                <summary>Technical details</summary>
-                <dl class="runtime-facts">
-                  <div><dt>Runtime</dt><dd id="daemon-version">Unavailable</dd></div>
-                  <div><dt>Protocol</dt><dd id="protocol-version">Unavailable</dd></div>
-                  <div><dt>Desktop</dt><dd id="shell-version"></dd></div>
-                </dl>
-                <p>Daemon status and logs use this Desktop installation’s OpenMinion runtime. Reconnect does not replay prompts or actions.</p>
-              </details>
+              <button id="show-runtime-settings" class="quiet-button" type="button">Runtime settings</button>
             </div>
           </details>
         </aside>

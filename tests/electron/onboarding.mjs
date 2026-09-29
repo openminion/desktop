@@ -123,9 +123,16 @@ async function check() {
     window.setContentSize(760, 560);
     await waitFor("window.innerWidth === 760");
     await capture("01-welcome.png");
-    await evaluate(
-      "document.querySelector('#setup-key').value='discarded-fixture-key'; document.querySelector('#close-settings').click()",
-    );
+    assert.equal(await evaluate("document.querySelector('#settings-profiles').hidden"), false);
+    await evaluate("document.querySelector('#setup-key').value='discarded-fixture-key'");
+    for (const section of ["chat", "runtime", "profiles"]) {
+      await evaluate(`document.querySelector('#settings-${section}-button').click()`);
+      assert.equal(
+        await evaluate("document.querySelector('#setup-key').value"),
+        "discarded-fixture-key",
+      );
+    }
+    await evaluate("document.querySelector('#close-settings').click()");
     await waitFor(
       "!document.querySelector('#profile-dialog').open && document.querySelector('#setup-key').value === ''",
     );
@@ -328,9 +335,19 @@ async function check() {
       "document.querySelector('#profile-dialog').open && document.querySelector('#profile-status').textContent.includes('Add the API key')",
     );
     assert.equal(await evaluate("document.querySelector('#profile-model').value"), "edited-model");
-    await evaluate(
-      "document.querySelector('#profile-key').value='replacement-private-key'; document.querySelector('#profile-save').click()",
-    );
+    await evaluate("document.querySelector('#profile-key').value='replacement-private-key'");
+    for (const section of ["runtime", "chat", "profiles"]) {
+      await evaluate(`document.querySelector('#settings-${section}-button').click()`);
+      assert.equal(
+        await evaluate("document.querySelector('#profile-key').value"),
+        "replacement-private-key",
+      );
+      assert.equal(
+        await evaluate("document.querySelector('#profile-model').value"),
+        "edited-model",
+      );
+    }
+    await evaluate("document.querySelector('#profile-save').click()");
     await waitFor(
       "document.querySelector('#profile-status').textContent.startsWith('Saved and applied')",
     );
