@@ -779,7 +779,12 @@ async function check() {
     window.reload();
     await reloaded;
     await waitFor("document.querySelectorAll('#session-list button').length === 2");
-    await evaluate("document.querySelectorAll('#session-list button')[1].click()");
+    assert.equal(await evaluate("document.querySelector('#session-search').value"), "");
+    await click("session-search");
+    await window.webContents.insertText(sessionId);
+    await waitFor("document.querySelectorAll('#session-list button').length === 1");
+    await evaluate("document.querySelector('#session-list button').click()");
+    await click("clear-session-search");
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Published runtime GUI proof')",
     );
