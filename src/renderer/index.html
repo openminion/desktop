@@ -179,6 +179,14 @@
             New task
           </button>
           <p class="sidebar-label">Tasks</p>
+          <div class="session-search">
+            <label class="sr-only" for="session-search">Search tasks by name or session ID</label>
+            <input id="session-search" type="search" placeholder="Search tasks" autocomplete="off" spellcheck="false" aria-controls="session-list" />
+            <button id="clear-session-search" class="icon-only-button" type="button" aria-label="Clear task search" title="Clear task search" hidden>
+              <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
+            </button>
+          </div>
+          <p id="session-search-count" class="sidebar-label" role="status" hidden></p>
           <nav id="session-list" class="session-list" aria-label="Sessions">
             <p class="empty-note">Your tasks will appear here.</p>
           </nav>

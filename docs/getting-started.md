@@ -136,6 +136,14 @@ configured. Saving setup does not contact the model provider; the first message
 tests access. Use `npm run preview` for sample approval, file,
 artifact, and screen-context interactions that are not connected to PyPI yet.
 
+## Find A Task
+
+Use **Search tasks** in the sidebar to filter the loaded task list by its displayed
+name or session ID. Matching ignores case and treats punctuation literally.
+Clear the field or press Escape to restore the list. Filtering keeps the current
+conversation and draft open, even when its task is hidden. It does not search
+message contents, and the query is not saved when Desktop closes.
+
 ## Desktop Data
 
 New installations use the same location from source and from a packaged app:

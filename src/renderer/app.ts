@@ -1994,11 +1994,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   };
   const renderSessionList = () => {
+    const query = elements.sessionSearch.value.trim().toLowerCase();
+    const visible = query
+      ? sessions.filter(
+          (session) =>
+            taskName(session).toLowerCase().includes(query) ||
+            session.sessionId.toLowerCase().includes(query),
+        )
+      : sessions;
+    elements.clearSessionSearch.hidden = elements.sessionSearch.value.length === 0;
+    elements.sessionSearchCount.hidden = !query;
+    elements.sessionSearchCount.textContent = query
+      ? `${visible.length} of ${sessions.length} tasks`
+      : "";
     sessionSpinners.clear();
     renderSessions(
       root,
       elements.sessionList,
-      sessions,
+      visible,
       selected?.sessionId ?? null,
       taskName,
       sessionSpinners,
@@ -2006,10 +2019,27 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const next = sessions.find((item) => item.sessionId === id);
         if (next) void selectSession(next);
       },
+      sessions.length && query
+        ? "No matching tasks. Try another name or session ID."
+        : "Your tasks will appear here.",
     );
 
     updateSessionActivity();
   };
+
+  const clearSessionSearch = () => {
+    elements.sessionSearch.value = "";
+    renderSessionList();
+    elements.sessionSearch.focus();
+  };
+  elements.sessionSearch.addEventListener("input", renderSessionList);
+  elements.clearSessionSearch.addEventListener("click", clearSessionSearch);
+  elements.sessionSearch.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      clearSessionSearch();
+    }
+  });
 
   const selectSession = async (
     session: SessionSummaryV1,
@@ -3005,6 +3035,9 @@ function rendererElements(root: Document) {
     screenContextStatus: required(root, "screen-context-status"),
     screenContextPreview: required(root, "screen-context-preview") as HTMLImageElement,
     sessionList: required(root, "session-list"),
+    sessionSearch: required(root, "session-search") as HTMLInputElement,
+    clearSessionSearch: required(root, "clear-session-search"),
+    sessionSearchCount: required(root, "session-search-count"),
     newSession: required(root, "new-session") as HTMLButtonElement,
     closeSession: required(root, "close-session") as HTMLButtonElement,
     currentTitle: required(root, "current-title"),
@@ -3407,6 +3440,7 @@ function renderSessions(
   taskName: (session: SessionSummaryV1) => string,
   spinners: Map<string, HTMLElement>,
   select: (sessionId: string) => void,
+  emptyMessage: string,
 ): void {
   const items: HTMLElement[] = sessions.map((session) => {
     const button = root.createElement("button");
@@ -3427,7 +3461,7 @@ function renderSessions(
   if (!items.length) {
     const empty = root.createElement("p");
     empty.className = "empty-note";
-    empty.textContent = "Your tasks will appear here.";
+    empty.textContent = emptyMessage;
     items.push(empty);
   }
   list.replaceChildren(...items);

@@ -144,6 +144,47 @@ async function check() {
       false,
     );
     assert.equal((await evaluate("window.openminion.app.copyText({invalid:true})")).ok, false);
+    await click("session-search");
+    await window.webContents.insertText("no tasks");
+    await settled();
+    assert.equal(await evaluate("document.activeElement.id"), "session-search");
+    assert.equal(
+      await evaluate("document.querySelector('#session-search-count').textContent"),
+      "0 of 0 tasks",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#session-list').textContent.trim()"),
+      "Your tasks will appear here.",
+    );
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+      [1600, 1000],
+    ]) {
+      window.setContentSize(width, height);
+      await settled();
+      const searchBounds = await evaluate(`(() => {
+        const input = document.querySelector('#session-search');
+        const clear = document.querySelector('#clear-session-search');
+        const list = document.querySelector('#session-list');
+        return { input:input.getBoundingClientRect().toJSON(), clear:clear.getBoundingClientRect().toJSON(), list:list.getBoundingClientRect().toJSON(), overflow:document.documentElement.scrollWidth > innerWidth };
+      })()`);
+      assert.equal(searchBounds.overflow, false);
+      assert.ok(searchBounds.clear.right <= searchBounds.input.right);
+      assert.ok(searchBounds.clear.bottom <= searchBounds.input.bottom);
+      assert.ok(searchBounds.list.top >= searchBounds.input.bottom);
+      assert.ok(searchBounds.list.height > 0);
+    }
+    await click("clear-session-search");
+    assert.equal(await evaluate("document.activeElement.id"), "session-search");
+    assert.equal(await evaluate("document.querySelector('#session-search').value"), "");
+    await window.webContents.insertText("Again");
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#session-search').value"), "");
+    assert.equal(await evaluate("document.activeElement.id"), "session-search");
+    console.log(
+      "PASS: native task search typing, empty catalog, Clear/Escape focus and three window sizes.",
+    );
     for (const [width, height] of [
       [760, 560],
       [1180, 800],

@@ -794,6 +794,34 @@ h2 {
   color: #ffd9d9;
 }
 
+.session-search {
+  position: relative;
+  margin: 0 4px;
+}
+
+.session-search input {
+  width: 100%;
+  height: 34px;
+  padding: 6px 34px 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+
+#session-search-count {
+  padding-top: 6px;
+}
+
+.session-search input::placeholder {
+  color: var(--muted);
+}
+
+.session-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
 .session-list {
   display: flex;
   min-height: 0;
@@ -1054,6 +1082,14 @@ details[open] > summary .summary-chevron {
   border-color: var(--line);
   background: #292929;
   color: var(--text);
+}
+
+.session-search .icon-only-button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 28px;
+  min-height: 28px;
 }
 
 .conversation {

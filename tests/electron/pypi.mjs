@@ -623,6 +623,81 @@ async function check() {
       await evaluate("document.querySelector('#composer').value"),
       "Unsent draft for second task",
     );
+    await click("session-search");
+    await window.webContents.insertText(sessionId.toUpperCase());
+    await waitFor("document.querySelectorAll('#session-list button').length === 1");
+    assert.equal(await evaluate("document.activeElement.id"), "session-search");
+    assert.equal(
+      await evaluate("document.querySelector('#session-search-count').textContent"),
+      "1 of 2 tasks",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Unsent draft for second task",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('#timeline').textContent.includes('Second task via keyboard')",
+      ),
+      true,
+    );
+    // Tab past Clear to the matching task and open it with native keyboard input.
+    app.focus({ steal: true });
+    window.focus();
+    window.webContents.focus();
+    await waitFor("document.hasFocus()");
+    await click("session-search");
+    for (const selector of ["#clear-session-search", "#session-list button"]) {
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Tab" });
+      await waitFor(`document.activeElement.matches(${JSON.stringify(selector)})`);
+    }
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+    await waitFor(
+      "document.querySelector('#timeline').textContent.includes('Published runtime GUI proof')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Unsent draft for first task",
+    );
+    await fill("Continue task found by sidebar search");
+    await key("Return");
+    await waitFor(
+      "document.querySelectorAll('.message').length === 4 && document.querySelector('#cancel').hidden",
+    );
+    const searchTranscript = await runCommand(
+      executable,
+      [...args, "export", "transcript", "--session-id", sessionId, "--format", "jsonl"],
+      30000,
+    );
+    assert.equal(searchTranscript.exitCode, 0);
+    assert.match(searchTranscript.stdout, /Continue task found by sidebar search/);
+    assert.equal((await evaluate("window.openminion.sessions.list({})")).value.sessions.length, 2);
+    assert.equal(
+      await evaluate("document.querySelector('#session-search').value"),
+      sessionId.toUpperCase(),
+    );
+    if (process.env.OPENMINION_E2E_ARTIFACTS) {
+      await writeFile(
+        join(process.env.OPENMINION_E2E_ARTIFACTS, "task-search.png"),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+    }
+    await click("clear-session-search");
+    assert.equal(await evaluate("document.activeElement.id"), "session-search");
+    await evaluate("document.querySelectorAll('#session-list button')[0].click()");
+    await waitFor(
+      "document.querySelector('#timeline').textContent.includes('Second task via keyboard')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Unsent draft for second task",
+    );
+    console.log(
+      "PASS: native sidebar ID search, keyboard selection, preserved drafts, same-session continuation and CLI transcript readback.",
+    );
     await command("/clear", "Chat cleared");
     assert.equal(await evaluate("document.querySelectorAll('.message').length"), 0);
     assert.equal(
@@ -925,6 +1000,17 @@ async function check() {
     })()`);
     assert.match(sidebarActivity.label, /Working/);
     assert.equal(sidebarActivity.animation, "session-spin");
+    await click("session-search");
+    await window.webContents.insertText("no matching task");
+    await waitFor("document.querySelectorAll('.session-item').length === 0");
+    assert.equal(await evaluate("document.querySelector('#cancel').disabled"), false);
+    await click("clear-session-search");
+    assert.equal(
+      await evaluate(
+        "!!document.querySelector('.session-item.selected .session-spinner:not([hidden])')",
+      ),
+      true,
+    );
     await evaluate(
       "[...document.querySelectorAll('.session-item')].find(row => !row.classList.contains('selected')).click()",
     );

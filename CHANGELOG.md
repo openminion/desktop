@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Search loaded tasks by friendly name or session ID in the sidebar, preserving
+  the open chat, drafts and running work while filtering.
+
 - Organize Settings into Profiles, Chat display, and Runtime. Expose the existing
   saved Normal/Quiet preference, keyboard help, and a ⌘ / Ctrl + , shortcut.
   Runtime diagnostics and update controls now live together in Settings.
