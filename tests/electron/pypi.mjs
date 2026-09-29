@@ -784,10 +784,12 @@ async function check() {
     await window.webContents.insertText(sessionId);
     await waitFor("document.querySelectorAll('#session-list button').length === 1");
     await evaluate("document.querySelector('#session-list button').click()");
-    await click("clear-session-search");
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Published runtime GUI proof')",
     );
+    await click("session-search");
+    await key("Escape");
+    await waitFor("document.querySelector('#session-search').value === ''");
     assert.match(
       await evaluate("document.querySelector('#timeline').textContent"),
       /Published runtime GUI proof/,
