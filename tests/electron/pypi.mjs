@@ -805,7 +805,7 @@ async function check() {
       `document.querySelector('#composer').value = 'GUI follow-up after restart'; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#send').click()`,
     );
     await waitFor(
-      "document.querySelectorAll('.message').length === 4 && document.querySelector('#cancel').hidden && document.querySelector('#timeline').getAttribute('aria-busy') === 'false'",
+      "document.querySelectorAll('.message').length === 6 && document.querySelector('#cancel').hidden && document.querySelector('#timeline').getAttribute('aria-busy') === 'false'",
     );
     await evaluate("window.historyObserver.disconnect()");
     assert.equal(await evaluate("window.historyFlashes"), 0);
@@ -832,7 +832,7 @@ async function check() {
     assert.equal(
       (await evaluate(`window.openminion.sessions.load({sessionId:${JSON.stringify(sessionId)}})`))
         .value.messages.length,
-      4,
+      6,
     );
     // Only this isolated test config talks to this local controlled provider.
     let providerMode = "hold";
