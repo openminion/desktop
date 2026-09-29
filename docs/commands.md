@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-09-25
+Last updated: 2026-09-29
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -10,6 +10,9 @@ Desktop is the GUI representation of Focus/CLI. The current subset is an
 integration gap, not a separate product command set. Names, arguments, defaults,
 and runtime effects must follow Focus. The [Focus Parity Contract](focus-parity.md)
 defines the canonical owners, known differences, daemon handoff, and acceptance.
+Terminal scripting modes, pipes, shell composition, completion and
+invocation-only flags remain CLI-only after their user-visible effects are
+mapped; their syntax is not duplicated as Desktop controls.
 
 ## Using Commands
 
@@ -49,7 +52,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/quiet` | Hide tool activity cards while keeping approvals visible; saved as a Desktop display preference. |
 | `/normal` | Restore tool activity cards; saved as a Desktop display preference. |
 | `/graph` | Show the installed OpenMinion CLI's graph help through a fixed read-only invocation. This is guidance, not an embedded graph workflow. |
-| `/editor` | Show the native Desktop composer shortcuts. |
+| `/editor` | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.27 runtime. |
 
 Files, screenshots, cancellation, task closing, and reconnection use their
 existing GUI controls. Their former Desktop-only slash shortcuts were removed
@@ -120,7 +123,7 @@ artifacts, and broader Focus commands remain pending.
 | `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership, handoff, messaging, start, and routing operations for admitted sessions. |
 | `/goal`, `/project`, `/delegate`, `/queue` | Expose the existing goal, project, delegation, and queue owners; do not create Desktop-owned execution queues. |
 | `/init`, `/diff`, `/review`, `/undo`, `/browser` | Expose scoped workspace/browser operations and their existing permission and audit boundaries. |
-| `/theme`, `/statusline`, `/verbose`, `/details`, `/expand`, `/exit`, `/quit` | Additional Desktop presentation or native interactions; terminal-specific behavior requires an explicit Desktop equivalent. `/editor` has a native composer-help equivalent. |
+| `/theme`, `/statusline`, `/verbose`, `/details`, `/expand`, `/editor`, `/exit`, `/quit` | Additional Desktop presentation or native interactions. Current Focus `/editor` composes an unsent draft through an external editor; Desktop shortcut guidance alone is not equivalent. |
 
 These are pending integration requirements, not shipped methods. Desktop must
 use fixed, validated public OpenMinion CLI or HTTP operations and keep executable

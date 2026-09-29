@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-09-17
+Last updated: 2026-09-29
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -17,7 +17,7 @@ in [README.md](README.md), [SUPPORT.md](SUPPORT.md), and `docs/`.
 ## Desktop-daemon boundary
 
 The Desktop main process owns installation and lifecycle. It currently installs
-the pinned `openminion==0.0.19` PyPI package into app-managed storage and calls
+the pinned `openminion==0.0.27` PyPI package into app-managed storage and calls
 the ordinary `config init` and `daemon status/logs` commands. Main starts the
 public `openminiond serve` entrypoint as a foreground child and retains its
 process handle. It signals that child only after rechecking the PID and canonical
@@ -32,7 +32,7 @@ runtime roots, and configuration path outside renderer control.
 
 ## Current integration status
 
-Lifecycle integration works with the public PyPI `0.0.19` command surface and
+Lifecycle integration works with the public PyPI `0.0.27` command surface and
 has real-daemon start/status/stop proof. Desktop main invokes fixed `sessions
 list/show/close` and `export transcript` operations for saved conversations.
 Text turns use authenticated loopback `POST /v1/turn/stream`; cancellation uses

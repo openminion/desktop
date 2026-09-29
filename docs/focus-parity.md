@@ -1,18 +1,23 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-09-25
+Last updated: 2026-09-29
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
 
 ## Product Contract
 
-Focus/CLI is authoritative. Desktop must expose the same supported operations,
-command names, aliases, argument parsing, defaults, session scope, busy-turn
-rules, permissions, and durable effects. Buttons, pickers, and panels present
-these operations graphically. Missing functionality is unfinished integration,
-not an intentional Desktop variant.
+Focus/CLI is authoritative for shared semantic capabilities. Desktop must expose
+the same supported outcomes, canonical names and aliases where commands are
+shown, defaults, session scope, busy-turn rules, permissions, and durable
+effects. Buttons, pickers, panels and composer commands may present those
+capabilities differently. Stdin/pipe composition, scripting output modes, shell
+completion, invocation-only flags and terminal rendering remain terminal-only
+only after profile, session, directory, theme and every other visible effect has
+a Desktop or shared-state disposition.
+Missing shared functionality is unfinished integration, not an intentional
+Desktop variant.
 
 The canonical OpenMinion owners are:
 
@@ -25,10 +30,11 @@ The canonical OpenMinion owners are:
   `src/openminion/cli/interactive/terminal/transcript.py`: transcript operations.
 
 Inspect the actual handlers as well as the catalog: a help entry alone does not
-prove an operation works in Focus. For example, Focus's `/editor` currently
-returns composition guidance. Match that supported behavior without inventing
-external-editor execution. Preserve explicit renderer availability where Focus
-and the rich CLI renderer differ.
+prove an operation works in Focus. Current Focus `/editor` opens an external
+editor and loads the returned text as an unsent draft; the pinned 0.0.27 Desktop
+runtime and Desktop's shortcut guidance do not provide that behavior yet.
+Preserve explicit renderer availability where Focus and the rich CLI renderer
+differ.
 
 ## Current Differences
 
@@ -85,7 +91,7 @@ All canonical command families need coverage:
 | `/memory`, `/telemetry`, `/trace`, `/overview` | Owner reports and supported operations, with renderer availability preserved; `/graph` guidance is connected while graph workflows remain pending |
 | `/init`, `/browser`, `/undo`, `/diff`, `/review` | Existing workspace/browser operations with policy and audit boundaries |
 | `/clear`, `/cls`, `/copy`, `/quiet`, `/normal`, `/verbose`, `/details`, `/expand` | Canonical transcript content and presentation semantics |
-| `/status`, `/theme`, `/statusline`, `/export`, `/editor`, `/exit`, `/quit` | Status, presentation preferences, supported guidance, and exit intent; `/editor` has a native Desktop equivalent |
+| `/status`, `/theme`, `/statusline`, `/export`, `/editor`, `/exit`, `/quit` | Status, presentation preferences, external-editor draft composition, and exit intent; the current Desktop `/editor` guidance is not yet equivalent to current Focus |
 
 ## Connected Setup And Session Identity
 
@@ -171,15 +177,18 @@ code, start another interactive session, or duplicate those owners.
 
 ## Full GUI Workflow Scope
 
-Parity includes the entire public CLI command tree and semantic arguments, not
-only the slash menu. Guided and Advanced GUI workflows must cover configuration,
-services, channels/pairings, schedules, projects/delegation, extensions, memory,
-identity, graphs, diagnostics, data maintenance and operator utilities. Preserve
-canonical effects while presenting friendly labels and controls; an instruction
-to switch to CLI does not complete a GUI workflow.
+Parity covers every public semantic CLI/Focus capability, not every parser leaf
+or terminal mechanic. Each capability needs a native GUI workflow, composer
+workflow, shared-state mapping, presentation equivalent, version-unavailable
+record, confirmed-gap record, or reviewed terminal-only disposition. Guided and
+Advanced GUI workflows must cover applicable configuration, services,
+channels/pairings, schedules, projects/delegation, extensions, memory, identity,
+graphs, diagnostics, data maintenance and operator utilities. Preserve canonical
+effects while presenting friendly labels and controls; an instruction to switch
+to CLI does not complete a Desktop-supported workflow.
 
 The 2026-09-12 assessment recorded 44 CLI command families and 243 leaf paths.
-The paired 0.0.27 runtime has 55 built-in Focus commands. Desktop advertises 18
+The paired 0.0.27 runtime has 55 built-in Focus commands. Desktop advertises 19
 built-ins with partial semantics.
 Bundled/user/project custom commands and shell intent add separate qualification
 requirements. These counts are a dated source inventory, not execution proof.
@@ -193,12 +202,12 @@ working directory, provider fixture, and equivalent isolated session state.
 Do not use the locally installed CLI version as a substitute for the matched
 daemon revision.
 
-For every canonical command and alias, cover its supported arguments, invalid
-arguments, disconnected state, busy-turn behavior, permission decisions, and
-effective state changes. Exercise pickers and other interactive continuations,
-not only bare read-only forms. Assert catalog agreement so additions cannot
-silently drift. Compare semantic results and durable effects rather than
-terminal formatting.
+For every Desktop-supported semantic capability, cover valid and invalid input,
+disconnected state, busy-turn behavior, permission decisions, and effective
+state changes. Exercise pickers and other interactive continuations, not only
+bare read-only forms. Assert catalog drift so additions require a disposition
+instead of silently disappearing. Compare semantic results and durable effects
+rather than terminal formatting.
 
 Use actual Electron plus the daemon for GUI acceptance, including keyboard
 entry, narrow-window controls, cancellation, task switching, and restart
