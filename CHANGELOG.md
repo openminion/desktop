@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Shorten Settings and rename guidance and remove redundant hover help, keeping
+  icon hints, keyboard shortcuts, credential instructions, and restart notices.
+
 - Distinguish the installed runtime from daemon-reported metadata in Settings.
   Label the Electron version accurately and remove the outdated version-pin example.
 

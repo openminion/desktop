@@ -109,7 +109,7 @@ export function mountProfiles(
     get<HTMLElement>("profile-import-note").hidden = value.setupRequired;
     get<HTMLElement>("profile-intro").textContent = value.setupRequired
       ? "Connect your model to start chatting, or import an existing OpenMinion profile."
-      : "Use the same profiles as Focus and CLI. Finish running chats before applying changes; OpenMinion will restart.";
+      : "Finish running chats before saving. Applying changes restarts OpenMinion.";
     fields.hidden = value.setupRequired;
     demo.hidden = !value.setupRequired || !value.agents.some((agent) => agent.provider === "echo");
     get<HTMLElement>("settings-title").textContent = value.setupRequired

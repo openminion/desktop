@@ -21,7 +21,7 @@
     <dialog id="rename-dialog" class="rename-dialog" aria-labelledby="rename-title" aria-describedby="rename-description">
       <form id="rename-form">
         <h2 id="rename-title">Rename chat</h2>
-        <p id="rename-description">Give this conversation a name. Saved in Desktop on this device.</p>
+        <p id="rename-description">Names are saved on this device.</p>
         <label for="task-name">Chat name</label>
         <input id="task-name" type="text" maxlength="120" required autocomplete="off" />
         <p class="rename-identity">Session ID: <span id="rename-session-id"></span></p>
@@ -48,7 +48,7 @@
       <div class="settings-body">
         <section id="settings-profiles" aria-labelledby="settings-profiles-heading">
           <h3 id="settings-profiles-heading">Agent profiles</h3>
-          <p id="profile-intro" class="settings-note">Use the same profiles as Focus and CLI. Finish running chats before applying changes; OpenMinion will restart.</p>
+          <p id="profile-intro" class="settings-note">Finish running chats before saving. Applying changes restarts OpenMinion.</p>
           <form id="profile-form">
             <fieldset id="setup-fields" hidden>
               <legend>Set up your first agent</legend>
@@ -88,8 +88,8 @@
               <button id="profile-save" type="submit" disabled>Save and apply</button>
             </div>
           </form>
-          <p id="profile-import-note" class="settings-note">Import adds profiles, replaces matching agent IDs, and merges runtime keys. Desktop’s connection and conversation storage stay in place. JSON files only.</p>
-          <p class="settings-note">Keys are saved in your private local OpenMinion configuration. Leave a key blank to keep it. Close discards unsaved edits.</p>
+          <p id="profile-import-note" class="settings-note">Import a JSON file to add profiles, replace matching agent IDs, and merge runtime keys.</p>
+          <p class="settings-note">Keys are saved locally. Leave a key blank to keep it. Closing discards unsaved edits.</p>
         </section>
         <section id="settings-chat" aria-labelledby="settings-chat-heading" hidden>
           <h3 id="settings-chat-heading">Chat display</h3>
@@ -98,7 +98,7 @@
             <option value="normal">Normal — show tool activity</option>
             <option value="quiet">Quiet — hide tool activity</option>
           </select>
-          <p id="chat-display-note" class="settings-note">Applies immediately to Desktop chats and is saved on this device. Approval requests stay visible. You can also use /normal and /quiet.</p>
+          <p id="chat-display-note" class="settings-note">Saved on this device. Quiet mode keeps approval requests visible. Also available with /normal and /quiet.</p>
           <p id="chat-display-status" class="settings-note" role="status"></p>
           <h3>Keyboard shortcuts</h3>
           <dl class="keyboard-shortcuts">
@@ -111,7 +111,6 @@
         </section>
         <section id="settings-runtime" aria-labelledby="settings-runtime-heading" hidden>
           <h3 id="settings-runtime-heading">Runtime</h3>
-          <p class="settings-note">Manage the local OpenMinion runtime used by this Desktop installation.</p>
           <div class="daemon-actions">
             <button id="show-daemon-status" class="quiet-button diagnostic-control" type="button">
               <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" /></svg>
@@ -156,7 +155,6 @@
               <div><dt>Electron</dt><dd id="shell-version"></dd></div>
             </dl>
             <p>A connected daemon may not report its version or protocol. Its version can differ from the installed runtime.</p>
-            <p>Daemon status and logs use this Desktop installation’s OpenMinion runtime. Reconnect does not replay prompts or actions.</p>
           </details>
         </section>
       </div>
@@ -172,7 +170,7 @@
                 <h1>OpenMinion</h1>
               </div>
             </div>
-            <span class="sr-only" title="The desktop connects only to your local OpenMinion daemon">
+            <span class="sr-only">
               Local only
             </span>
           </header>
@@ -285,7 +283,7 @@
             </p>
           </div>
           <form id="composer-form" class="composer">
-            <button id="jump-latest" class="jump-latest quiet-button" type="button" hidden title="Jump to latest message">↓ Jump to latest</button>
+            <button id="jump-latest" class="jump-latest quiet-button" type="button" hidden>↓ Jump to latest</button>
             <div id="command-menu" class="command-menu" role="listbox" aria-label="Commands" hidden></div>
             <section id="screen-context-summary" class="screen-context-summary" aria-label="Screenshot context" hidden>
               <div class="screen-context-thumbnail">
