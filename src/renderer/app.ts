@@ -2187,6 +2187,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         "A runtime update was interrupted after launch began. Recovery needs review; Desktop will not downgrade your data automatically.",
       unmanaged: "Runtime is managed outside Desktop. Updates are not applied here.",
     };
+    elements.installedRuntimeVersion.textContent = status.installedVersion ?? "Not detected";
     const installed = status.installedVersion
       ? `Installed: OpenMinion ${status.installedVersion} (${status.source}). `
       : "";
@@ -2307,8 +2308,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.statusSummary.textContent = view.summary;
     elements.retry.hidden = !view.showRetry;
     renderReadiness(view.summary);
-    elements.daemonVersion.textContent = status.daemonVersion ?? "Unavailable";
-    elements.protocolVersion.textContent = status.protocol?.toString() ?? "Unavailable";
+    elements.daemonVersion.textContent = status.daemonVersion ?? "Not reported";
+    elements.protocolVersion.textContent = status.protocol?.toString() ?? "Not reported";
     elements.connectionLabel.textContent = view.label;
     renderChat();
   };
@@ -3026,6 +3027,7 @@ function rendererElements(root: Document) {
     readinessActions: required(root, "readiness-actions"),
     readinessRetry: required(root, "readiness-retry"),
     readinessSettings: required(root, "readiness-settings"),
+    installedRuntimeVersion: required(root, "installed-runtime-version"),
     daemonVersion: required(root, "daemon-version"),
     protocolVersion: required(root, "protocol-version"),
     shellVersion: required(root, "shell-version"),

@@ -156,6 +156,14 @@ async function check() {
       await evaluate("document.querySelector('#session-list').textContent.trim()"),
       "Your tasks will appear here.",
     );
+    assert.equal(
+      await evaluate("document.querySelector('#shell-version').previousElementSibling.textContent"),
+      "Electron",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#runtime-pin-version').placeholder"),
+      "Enter a published version",
+    );
     for (const [width, height] of [
       [760, 560],
       [1180, 800],

@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Distinguish the installed runtime from daemon-reported metadata in Settings.
+  Label the Electron version accurately and remove the outdated version-pin example.
+
 - Search loaded tasks by friendly name or session ID in the sidebar, preserving
   the open chat, drafts and running work while filtering.
 

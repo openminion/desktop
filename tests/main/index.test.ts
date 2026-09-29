@@ -1556,6 +1556,7 @@ class CaptureFixtureDocument {
     "readiness-actions",
     "readiness-retry",
     "readiness-settings",
+    "installed-runtime-version",
     "daemon-version",
     "protocol-version",
     "shell-version",

@@ -144,16 +144,18 @@
               <button id="unpin-runtime" class="quiet-button" type="button" hidden>Remove pin</button>
             </div>
             <label for="runtime-pin-version">Exact published runtime version</label>
-            <input id="runtime-pin-version" type="text" placeholder="0.0.21" autocomplete="off" />
+            <input id="runtime-pin-version" type="text" placeholder="Enter a published version" autocomplete="off" />
             <button id="pin-runtime-version" class="quiet-button" type="button">Set version pin</button>
           </details>
           <details class="connection-help">
             <summary>Technical details</summary>
             <dl class="runtime-facts">
-              <div><dt>Runtime</dt><dd id="daemon-version">Unavailable</dd></div>
-              <div><dt>Protocol</dt><dd id="protocol-version">Unavailable</dd></div>
-              <div><dt>Desktop</dt><dd id="shell-version"></dd></div>
+              <div><dt>Installed runtime</dt><dd id="installed-runtime-version">Not detected</dd></div>
+              <div><dt>Daemon version</dt><dd id="daemon-version">Not reported</dd></div>
+              <div><dt>Protocol</dt><dd id="protocol-version">Not reported</dd></div>
+              <div><dt>Electron</dt><dd id="shell-version"></dd></div>
             </dl>
+            <p>A connected daemon may not report its version or protocol. Its version can differ from the installed runtime.</p>
             <p>Daemon status and logs use this Desktop installation’s OpenMinion runtime. Reconnect does not replay prompts or actions.</p>
           </details>
         </section>

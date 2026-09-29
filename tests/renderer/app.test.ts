@@ -171,6 +171,10 @@ describe("renderer computer observation", () => {
         "Upgrades are paused, including prepared updates",
       );
       expect(page.element("runtime-update-status").textContent).toContain("Pinned to 0.0.21");
+      expect(page.element("installed-runtime-version").textContent).toBe("0.0.21");
+      expect(page.element("daemon-version").textContent).toBe("Not reported");
+      expect(page.element("protocol-version").textContent).toBe("Not reported");
+      expect(page.element("shell-version").textContent).toBe("test");
       expect(page.element("pause-runtime-update").textContent).toBe("Resume upgrades");
       expect(page.element("stage-runtime-update").disabled).toBe(true);
       expect(page.element("discard-runtime-update").hidden).toBe(false);
@@ -228,8 +232,15 @@ describe("renderer computer observation", () => {
         expect(page.element("runtime-update-status").textContent).toContain(
           "Installed: OpenMinion 0.0.19 (pypi)",
         );
-        current = { ...current, availableVersion: phase === "available" ? "1.0.0" : null, phase };
+        expect(page.element("installed-runtime-version").textContent).toBe("0.0.19");
+        current = {
+          ...current,
+          installedVersion: null,
+          availableVersion: phase === "available" ? "1.0.0" : null,
+          phase,
+        };
         await vi.advanceTimersByTimeAsync(2_000);
+        expect(page.element("installed-runtime-version").textContent).toBe("Not detected");
         expect(page.element("check-runtime-update").disabled).toBe(false);
         expect(page.element("runtime-update-status").textContent).toContain(
           phase === "available" ? "1.0.0 is available" : "Could not check",
@@ -3732,6 +3743,7 @@ class FixtureDocument {
     "readiness-actions",
     "readiness-retry",
     "readiness-settings",
+    "installed-runtime-version",
     "daemon-version",
     "protocol-version",
     "shell-version",
