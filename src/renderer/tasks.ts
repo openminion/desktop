@@ -1,14 +1,55 @@
-import type { RuntimeTask, ScheduleInput, TaskAction } from "../shared/tasks.js";
+import type { ScheduleInput, TaskAction, TaskControlValue, TaskRun } from "../shared/tasks.js";
 
 export function renderTasks(
   root: Document,
   container: HTMLElement,
-  tasks: RuntimeTask[],
+  value: TaskControlValue,
   busy: boolean,
   onAction: (action: TaskAction, taskId?: string) => void,
   onSchedule: (schedule: ScheduleInput) => Promise<string | undefined>,
 ): void {
-  for (const task of tasks) {
+  if (value.scheduler) {
+    const readiness = root.createElement("section");
+    readiness.className = "task-readiness";
+    readiness.textContent = [
+      `Scheduler: ${value.scheduler.state}`,
+      value.scheduler.state === "ready"
+        ? "Scheduled work is ready to run."
+        : "Saved schedules remain manageable, but execution readiness is degraded.",
+      value.scheduler.reason && `Reason: ${value.scheduler.reason}`,
+      value.scheduler.lastHeartbeatAt && `Last heartbeat: ${value.scheduler.lastHeartbeatAt}`,
+      value.scheduler.checkCommand && `Check: ${value.scheduler.checkCommand}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    container.append(readiness);
+  }
+
+  if (value.pendingActions.length) {
+    const decisions = root.createElement("section");
+    decisions.className = "task-decisions";
+    const heading = root.createElement("h3");
+    heading.textContent = "Pending decisions";
+    decisions.append(heading);
+    for (const pending of value.pendingActions) {
+      const details = root.createElement("p");
+      details.textContent = [
+        `Decision: ${pending.decisionId}`,
+        pending.taskId && `Task: ${pending.taskId}`,
+        pending.tool && `Tool: ${pending.tool}`,
+        pending.reason && `Reason: ${pending.reason}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      decisions.append(details);
+      const guidance = root.createElement("p");
+      guidance.textContent = "Resolve this approval in Focus.";
+      decisions.append(guidance);
+    }
+    container.append(decisions);
+  }
+
+  for (const task of value.tasks) {
     const card = root.createElement("section");
     card.className = "runtime-task";
     const title = root.createElement("h3");
@@ -22,17 +63,30 @@ export function renderTasks(
       task.dueAt && `Next: ${task.dueAt}`,
       task.operatorState && `Operator state: ${task.operatorState}`,
       task.resumeAction && `Resume: ${task.resumeAction}`,
+      task.sessionTarget && `Session target: ${task.sessionTarget}`,
     ]
       .filter(Boolean)
       .join("\n");
     card.append(title, details);
+    if (task.recentRuns.length) {
+      const runs = root.createElement("section");
+      runs.className = "task-runs";
+      const heading = root.createElement("h4");
+      heading.textContent = "Recent runs";
+      runs.append(heading);
+      for (const run of task.recentRuns) runs.append(renderRun(root, run));
+      card.append(runs);
+    }
     for (const action of ["show", ...task.validActions] as const) {
       const button = root.createElement("button");
       button.type = "button";
       button.className = "secondary-tool";
-      button.textContent = { show: "Refresh", pause: "Pause", resume: "Resume", cancel: "Cancel" }[
-        action
-      ];
+      button.textContent = {
+        show: "Details",
+        pause: "Pause",
+        resume: "Resume",
+        cancel: "Cancel",
+      }[action];
       button.disabled = busy && action !== "show";
       button.addEventListener("click", () => onAction(action, task.id));
       card.append(button);
@@ -148,4 +202,33 @@ export function renderTasks(
   refresh.textContent = "Refresh work list";
   refresh.addEventListener("click", () => onAction("list"));
   container.append(refresh);
+}
+
+function renderRun(root: Document, run: TaskRun): HTMLElement {
+  const details = root.createElement("p");
+  details.className = "task-run";
+  details.textContent = [
+    `Run: ${run.runId}`,
+    `State: ${run.state ?? "Not reported"}`,
+    run.summary && `Summary: ${run.summary}`,
+    run.attempts !== null && `Attempts: ${run.attempts}`,
+    run.dueAt && `Due: ${run.dueAt}`,
+    run.availableAt && `Available: ${run.availableAt}`,
+    run.startedAt && `Started: ${run.startedAt}`,
+    run.finishedAt && `Finished: ${run.finishedAt}`,
+    run.isolatedSessionId && `Result session: ${run.isolatedSessionId}`,
+    run.error && `Execution error: ${errorText(run.error)}`,
+    run.delivery && `Delivery: ${run.delivery.state ?? "Not reported"}`,
+    run.delivery?.mode && `Delivery mode: ${run.delivery.mode}`,
+    run.delivery?.targets.length && `Delivery targets: ${run.delivery.targets.join(", ")}`,
+    run.delivery?.error && `Delivery error: ${errorText(run.delivery.error)}`,
+    run.deliveryTargets.length && `Delivered markers: ${run.deliveryTargets.join(", ")}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return details;
+}
+
+function errorText(error: { code: string | null; message: string | null }): string {
+  return [error.code, error.message].filter(Boolean).join(": ") || "Not reported";
 }

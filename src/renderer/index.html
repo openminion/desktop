@@ -74,7 +74,7 @@
               <label for="profile-key">Model API key</label>
               <input id="profile-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
               <label class="settings-checkbox"><input id="profile-key-remove" type="checkbox" />Remove saved model key for this agent</label>
-              <label class="settings-checkbox"><input id="profile-default" type="checkbox" />Use this agent for new tasks</label>
+              <label class="settings-checkbox"><input id="profile-default" type="checkbox" />Use this agent for new conversations</label>
               <details class="settings-tools">
                 <summary>Search and web tool keys</summary>
                 <p class="settings-note">Shared across agents. A model key does not include search access. “Set” means saved, not verified with the provider.</p>
@@ -176,19 +176,19 @@
           </header>
           <button id="new-session" class="new-session-button" type="button" disabled>
             <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-            New task
+            New conversation
           </button>
-          <p class="sidebar-label">Tasks</p>
+          <p class="sidebar-label">Conversations</p>
           <div class="session-search">
-            <label class="sr-only" for="session-search">Search tasks by name or session ID</label>
-            <input id="session-search" type="search" placeholder="Search tasks" autocomplete="off" spellcheck="false" aria-controls="session-list" />
-            <button id="clear-session-search" class="icon-only-button" type="button" aria-label="Clear task search" title="Clear task search" hidden>
+            <label class="sr-only" for="session-search">Search conversations by name or session ID</label>
+            <input id="session-search" type="search" placeholder="Search conversations" autocomplete="off" spellcheck="false" aria-controls="session-list" />
+            <button id="clear-session-search" class="icon-only-button" type="button" aria-label="Clear conversation search" title="Clear conversation search" hidden>
               <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
             </button>
           </div>
           <p id="session-search-count" class="sidebar-label" role="status" hidden></p>
-          <nav id="session-list" class="session-list" aria-label="Sessions">
-            <p class="empty-note">Your tasks will appear here.</p>
+          <nav id="session-list" class="session-list" aria-label="Conversations">
+            <p class="empty-note">Your conversations will appear here.</p>
           </nav>
           <button id="show-settings" class="quiet-button settings-button" type="button">
             <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9m4 0h3M4 17h3m4 0h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>
@@ -215,18 +215,18 @@
         <section class="chat-panel">
           <header class="chat-heading">
             <div class="chat-title">
-              <h2 id="current-title">New task</h2>
+              <h2 id="current-title">New conversation</h2>
             </div>
             <div class="chat-heading-actions">
               <button class="context-link" type="button" popovertarget="context-panel">
                 Context
               </button>
-              <button class="icon-only-button" type="button" popovertarget="task-actions" aria-label="Task actions" title="Task actions">
+              <button class="icon-only-button" type="button" popovertarget="task-actions" aria-label="Conversation actions" title="Conversation actions">
                 <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
               </button>
-              <section id="task-actions" class="action-menu task-actions-menu" popover aria-label="Task actions">
+              <section id="task-actions" class="action-menu task-actions-menu" popover aria-label="Conversation actions">
                 <button id="rename-session" class="quiet-button" type="button" popovertarget="task-actions" popovertargetaction="hide" disabled>Rename</button>
-                <button id="close-session" class="quiet-button" type="button" popovertarget="task-actions" popovertargetaction="hide" disabled>Close task</button>
+                <button id="close-session" class="quiet-button" type="button" popovertarget="task-actions" popovertargetaction="hide" disabled>Close conversation</button>
               </section>
             </div>
           </header>
@@ -249,7 +249,7 @@
               <div id="chat-progress" class="chat-progress" hidden>
                 <div class="chat-status-line">
                   <p id="chat-status" class="chat-status" role="status" aria-live="polite" aria-atomic="true">
-                    Choose or create a task to begin.
+                    Choose or create a conversation to begin.
                   </p>
                   <span id="chat-elapsed" class="chat-elapsed" aria-hidden="true" title="Time since you sent this message"></span>
                 </div>
@@ -455,7 +455,7 @@
           </details>
         </aside>
 
-        <aside id="context-panel" class="artifacts-panel" aria-label="Task context" popover>
+        <aside id="context-panel" class="artifacts-panel" aria-label="Conversation context" popover>
           <header class="context-popover-heading">
             <strong>Context</strong>
             <button class="context-close" type="button" popovertarget="context-panel" popovertargetaction="hide" aria-label="Close context options">×</button>
@@ -473,7 +473,7 @@
                 <button id="choose-file" class="quiet-button" type="button" disabled>Choose file</button>
               </div>
               <p id="file-status" class="artifact-status" aria-live="polite">
-                Choose a task to import local files.
+                Choose a conversation to import local files.
               </p>
               <div id="file-grant-list" class="file-grant-list"></div>
             </section>
@@ -482,18 +482,18 @@
             <summary>
               <span>
                 <strong>Outputs</strong>
-                <small>Artifacts from this task</small>
+                <small>Artifacts from this conversation</small>
               </span>
               <span class="summary-chevron" aria-hidden="true">›</span>
             </summary>
-            <section class="secondary-tool-body" aria-label="Session outputs">
+            <section class="secondary-tool-body" aria-label="Conversation outputs">
               <div class="secondary-tool-actions">
                 <button id="refresh-artifacts" class="quiet-button" type="button" disabled>
                   Refresh
                 </button>
               </div>
               <p id="artifact-status" class="artifact-status" aria-live="polite">
-                Choose a task to view its outputs.
+                Choose a conversation to view its outputs.
               </p>
               <div id="artifact-list" class="artifact-list"></div>
               <section id="artifact-detail" class="artifact-detail" hidden>

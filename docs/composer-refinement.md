@@ -21,12 +21,12 @@ authority, daemon retry policy or runtime abstraction belongs in this change.
 
 ## Work Tracking
 
-| Item | State | Acceptance |
-| --- | --- | --- |
-| Composer and command menu | done | Centered slash/attachment/send icons, clear selected command, no overlap at supported sizes |
-| Connection notice | done | Compact notice opens sidebar recovery, focuses retry and preserves draft; troubleshooting remains available |
-| Screenshot and interaction regression | done | Real renderer with sample data exercises source/region, inclusion, pause/resume/stop, guidance/watch and ordinary task flows |
-| Independent review and package checks | done | Final changed-file review, provider-free package gate and sandboxed Electron smoke pass |
+| Item                                  | State | Acceptance                                                                                                                   |
+| ------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Composer and command menu             | done  | Centered slash/attachment/send icons, clear selected command, no overlap at supported sizes                                  |
+| Connection notice                     | done  | Compact notice opens sidebar recovery, focuses retry and preserves draft; troubleshooting remains available                  |
+| Screenshot and interaction regression | done  | Real renderer with sample data exercises source/region, inclusion, pause/resume/stop, guidance/watch and ordinary task flows |
+| Independent review and package checks | done  | Final changed-file review, provider-free package gate and sandboxed Electron smoke pass                                      |
 
 ## Validation Boundary
 
@@ -132,7 +132,7 @@ and active-turn recovery after quitting remain separate work.
 September 13 follow-up: slash suggestions expand inside the composer, above
 the text input, and have their own bounded scroll area. They occupy layout space
 instead of covering conversation messages. Keyboard selection and Escape draft
-restoration keep the same command owner. Chat actions use explicit Close task
+restoration keep the same command owner. Chat actions use explicit Close conversation
 and Dismiss labels instead of ambiguous × glyphs; their existing actions remain
 unchanged.
 

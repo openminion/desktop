@@ -95,9 +95,17 @@ async function check() {
       window.webContents.focus();
       await waitFor("document.hasFocus()");
       await evaluate("document.querySelector('#composer').focus()");
-      window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+      window.webContents.sendInputEvent({
+        type: "keyDown",
+        keyCode,
+        modifiers,
+      });
       if (keyCode === "Return" && (!modifiers.length || modifiers.includes("shift")))
-        window.webContents.sendInputEvent({ type: "char", keyCode: "\r", modifiers });
+        window.webContents.sendInputEvent({
+          type: "char",
+          keyCode: "\r",
+          modifiers,
+        });
       window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
       await new Promise((resolve) => setTimeout(resolve, 50));
     };
@@ -281,9 +289,11 @@ async function check() {
     );
     assert.equal(catalog.exitCode, 0);
     const focusCommands = JSON.parse(catalog.stdout);
+    const desktopOnlyCommands = new Set(["/learning"]);
     for (const command of DESKTOP_COMMANDS)
       assert.ok(
-        focusCommands.some((item) => item.name === command.name),
+        desktopOnlyCommands.has(command.name) ||
+          focusCommands.some((item) => item.name === command.name),
         command.name,
       );
     for (const [alias, name] of Object.entries(DESKTOP_ALIASES))
@@ -378,6 +388,7 @@ async function check() {
       assert.ok(skillText.includes(skillIds[0]));
       assert.ok((await reportCommand(`/skills ${skillIds[0]}`, "Skills")).includes(skillIds[0]));
     } else assert.equal(skillText, "(no skills)");
+    assert.ok((await reportCommand("/learning", "Skill learning")).startsWith("Skill learning:"));
     const mcpText = await reportCommand("/mcp", "MCP");
     assert.ok(mcpText.startsWith("MCP:\n"));
     assert.ok(mcpText.includes("configured"));
@@ -403,7 +414,10 @@ async function check() {
     const saveDialog = dialog.showSaveDialog;
     try {
       const exportPath = join(root, "conversation.md");
-      dialog.showSaveDialog = async () => ({ canceled: false, filePath: exportPath });
+      dialog.showSaveDialog = async () => ({
+        canceled: false,
+        filePath: exportPath,
+      });
       assert.equal(await reportCommand("/export", "Export conversation"), "Conversation saved.");
       const exported = await runCommand(
         executable,
@@ -561,7 +575,7 @@ async function check() {
     assert.equal(await evaluate("document.querySelector('#chat-status').textContent"), "");
     await fill("/status");
     await evaluate("document.querySelector('#send').click()");
-    await waitFor("document.querySelector('#command-title').textContent === 'Task status'");
+    await waitFor("document.querySelector('#command-title').textContent === 'Conversation status'");
     const statusLayout = await evaluate(`(() => {
       const result = document.querySelector('#command-panel');
       const history = document.querySelector('#timeline');
@@ -629,7 +643,7 @@ async function check() {
     assert.equal(await evaluate("document.activeElement.id"), "session-search");
     assert.equal(
       await evaluate("document.querySelector('#session-search-count').textContent"),
-      "1 of 2 tasks",
+      "1 of 2 conversations",
     );
     assert.equal(
       await evaluate("document.querySelector('#composer').value"),
@@ -705,7 +719,7 @@ async function check() {
         .value.messages.length,
       2,
     );
-    await command("/sessions", "Choose a task");
+    await command("/sessions", "Choose a conversation");
     await evaluate("document.querySelectorAll('#session-list button')[1].click()");
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Published runtime GUI proof')",
@@ -752,6 +766,11 @@ async function check() {
     );
     assert.equal(stoppedLogs.exitCode, 0);
     assert.equal(await inspectDaemon("logs"), stoppedLogs.stdout.trim());
+    const offlineTasks = await evaluate(
+      `window.openminion.tasks.control({sessionId:${JSON.stringify(sessionId)},action:'list'})`,
+    );
+    assert.equal(offlineTasks.ok, true, JSON.stringify(offlineTasks));
+    assert.ok(offlineTasks.value.tasks.some((task) => task.id === taskId));
     assert.equal((await runCommand(executable, [...args, "daemon", "status"], 30_000)).exitCode, 1);
     assert.equal(
       await evaluate("document.querySelector('#composer').value"),
@@ -761,7 +780,7 @@ async function check() {
     await click("close-settings");
     await waitFor("!document.querySelector('#profile-dialog').open");
     console.log(
-      "PASS: GUI diagnostics work during an outage without restarting the daemon or changing the draft.",
+      "PASS: GUI diagnostics and durable task inspection work during an outage without restarting the daemon or changing the draft.",
     );
     await evaluate("document.querySelector('#retry').click()");
     await waitFor(
@@ -787,8 +806,11 @@ async function check() {
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Published runtime GUI proof')",
     );
-    await click("session-search");
-    await key("Escape");
+    await evaluate(`(() => {
+      const search = document.querySelector('#session-search');
+      search.value = '';
+      search.dispatchEvent(new Event('input'));
+    })()`);
     await waitFor("document.querySelector('#session-search').value === ''");
     assert.match(
       await evaluate("document.querySelector('#timeline').textContent"),
@@ -885,7 +907,11 @@ async function check() {
                     finish_reason: "stop",
                   },
                 ],
-                usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+                usage: {
+                  prompt_tokens: 1,
+                  completion_tokens: 1,
+                  total_tokens: 2,
+                },
               }),
             );
           }
@@ -916,7 +942,10 @@ async function check() {
           },
         },
         runtime: {
-          env: { E2E_API_KEY: "e2e-import-key", TAVILY_API_KEY: "e2e-search-key" },
+          env: {
+            E2E_API_KEY: "e2e-import-key",
+            TAVILY_API_KEY: "e2e-search-key",
+          },
         },
       }),
       { mode: 0o600 },
@@ -924,7 +953,10 @@ async function check() {
     await evaluate("document.querySelector('#show-settings').click()");
     await waitFor("!document.querySelector('#profile-import').disabled");
     const nativePicker = dialog.showOpenDialog;
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [importPath] });
+    dialog.showOpenDialog = async () => ({
+      canceled: false,
+      filePaths: [importPath],
+    });
     await evaluate("document.querySelector('#profile-import').click()");
     await waitFor(
       "document.querySelector('#profile-status').textContent.startsWith('Saved and applied')",
@@ -953,7 +985,11 @@ async function check() {
         return { fits: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
           overflow: dialog.scrollWidth > dialog.clientWidth, reachable: save.getBoundingClientRect().bottom <= innerHeight };
       })()`);
-      assert.deepEqual(bounds, { fits: true, overflow: false, reachable: true });
+      assert.deepEqual(bounds, {
+        fits: true,
+        overflow: false,
+        reachable: true,
+      });
     }
     window.setContentSize(1180, 800);
     await evaluate(`document.querySelector('#profile-model').value = 'e2e-edited';
@@ -1328,14 +1364,14 @@ async function check() {
         );
       }
     }
-    await command("/sessions", "Choose a task");
+    await command("/sessions", "Choose a conversation");
     const activeId = (await evaluate("window.openminion.sessions.list({})")).value.sessions[0]
       .sessionId;
     await waitFor("!document.querySelector('#close-session').disabled");
     await fill("/close");
     await evaluate("document.querySelector('#send').click()");
     await waitFor(
-      "document.querySelector('#chat-status').textContent.includes('closed') || document.querySelector('#current-title').textContent === 'New task'",
+      "document.querySelector('#chat-status').textContent.includes('closed') || document.querySelector('#current-title').textContent === 'New conversation'",
     );
     const slashClosed = await runCommand(
       executable,
