@@ -200,6 +200,43 @@ describe("DaemonSupervisor", () => {
     expect(runCommand.mock.calls.some(([, args]) => args.at(-1) === "stop")).toBe(false);
   });
 
+  it("connects to an adopted daemon when its health probe times out but chat works", async () => {
+    const root = await temporaryRoot();
+    const executable = await fakeExecutable(root);
+    await writeFile(join(root, "agents.json"), '{"runtime":{}}');
+    const runCommand = vi.fn<RunCommand>(async (_command, args) => {
+      if (args.length === 1) return result(0, "0.0.19\n");
+      if (args.includes("sessions")) return result(0, "[]\n");
+      if (args.at(-1) === "--json")
+        return result(
+          1,
+          JSON.stringify({
+            reachable: false,
+            pid: 4812,
+            pid_alive: true,
+            lifecycle: "running",
+            endpoint_status: "unreachable",
+          }),
+        );
+      return result(2);
+    });
+    const spawnDaemon = vi.fn();
+    const supervisor = new DaemonSupervisor({
+      runtimeRoot: join(root, "runtime"),
+      openminionExecutable: executable,
+      homeRoot: root,
+      dataRoot: join(root, "data"),
+      configPath: join(root, "agents.json"),
+      runCommand,
+      spawnDaemon,
+    });
+
+    expect(await supervisor.start()).toMatchObject({ state: "ready", reachable: true });
+    expect(await supervisor.status()).toMatchObject({ state: "ready", reachable: true });
+    expect(spawnDaemon).not.toHaveBeenCalled();
+    expect(await supervisor.stop()).toEqual({ stopped: false });
+  });
+
   it("does not create or stop a daemon when startup identity is unknown", async () => {
     const root = await temporaryRoot();
     const executable = await fakeExecutable(root);

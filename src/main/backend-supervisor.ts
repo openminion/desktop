@@ -445,9 +445,19 @@ export class DaemonSupervisor {
     if (this.lifecycle.current !== "running" || !this.#executable) return this.snapshot();
     try {
       const status = await this.#daemonStatus();
-      if (!status.reachable) throw new Error("daemon_unavailable");
-      if (this.#daemon && !this.#owns(status, this.#daemon))
+      const slowHealthProbe =
+        !status.reachable &&
+        status.pid_alive === true &&
+        status.lifecycle === "running" &&
+        status.endpoint_status === "unreachable";
+      if (!status.reachable && !slowHealthProbe) throw new Error("daemon_unavailable");
+      if (
+        this.#daemon &&
+        !(status.reachable ? this.#owns(status, this.#daemon) : status.pid === this.#daemon.pid)
+      )
         throw new Error("daemon_ownership_unverified");
+      this.#chatConnected = (await this.client.list({ limit: 1 })).ok;
+      if (!status.reachable && !this.#chatConnected) throw new Error("daemon_unavailable");
       this.#errorCode = null;
     } catch (error) {
       this.#errorCode = normalizeErrorCode(error, "daemon_status_failed");
@@ -606,6 +616,17 @@ export class DaemonSupervisor {
 
       const current = await this.#daemonStatus();
       if (!activeCompatible && current.reachable) throw new Error("runtime_incompatible");
+      if (
+        !current.reachable &&
+        current.pid_alive === true &&
+        current.lifecycle === "running" &&
+        current.endpoint_status === "unreachable"
+      ) {
+        this.lifecycle.move("running");
+        this.#chatConnected = (await this.client.list({ limit: 1 })).ok;
+        if (this.#chatConnected) return this.snapshot();
+        throw new Error("daemon_ownership_unverified");
+      }
       let launchingUpdate = false;
       if (!current.reachable) {
         if (
