@@ -1,11 +1,18 @@
 import type {
+  IdentityProfileView,
+  IdentitySaveInput,
+  IdentitySettings,
+  IdentityValidation,
+  IdentityVerifyInput,
+} from "./identity.js";
+import type {
   ProfileSaveInput,
   ProfileSettings,
   ProfileSetupInput,
   SetupPreset,
 } from "./profiles.js";
-import type { TaskControlInput, TaskControlValue } from "./tasks.js";
 import type { ReportInput, ReportValue } from "./reports.js";
+import type { TaskControlInput, TaskControlValue } from "./tasks.js";
 export type DaemonState =
   | "idle"
   | "probing"
@@ -666,6 +673,11 @@ export type NativeApi = {
       revision: string;
     }): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus } | null>>;
   };
+  identity: {
+    read(): Promise<ClientResult<IdentitySettings>>;
+    verify(input: IdentityVerifyInput): Promise<ClientResult<IdentityValidation>>;
+    save(input: IdentitySaveInput): Promise<ClientResult<IdentityProfileView>>;
+  };
   app: {
     info(): Promise<AppInfo>;
     copyText(text: string): Promise<ClientResult<null>>;
@@ -744,6 +756,9 @@ export const IPC_CHANNELS = {
   profilesSetup: "openminion:profiles:setup",
   profilesSave: "openminion:profiles:save",
   profilesImport: "openminion:profiles:import",
+  identityRead: "openminion:identity:read",
+  identityVerify: "openminion:identity:verify",
+  identitySave: "openminion:identity:save",
   copyText: "openminion:copy-text",
   openLink: "openminion:open-link",
   daemonInspect: "openminion:daemon-inspect",

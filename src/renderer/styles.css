@@ -2063,6 +2063,25 @@ code {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+
+#identity-yaml {
+  width: 100%;
+  min-height: 18rem;
+  resize: vertical;
+  font-family: "SFMono-Regular", "Cascadia Code", monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.identity-preview {
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--surface-soft);
+  white-space: pre-wrap;
+}
 .settings-tools {
   margin-top: 20px;
   border-top: 1px solid var(--line);
