@@ -20,6 +20,7 @@ import {
   statusView,
   waitingTime,
 } from "../../src/renderer/app.js";
+import { setupResultMessage } from "../../src/renderer/profiles.js";
 import type {
   ArtifactCatalogItemV1,
   CaptureEventV1,
@@ -393,6 +394,31 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it.each([
+    [
+      "verified",
+      true,
+      "Connection verified. New tasks use the default agent; existing tasks keep their agent.",
+    ],
+    [
+      "not_requested",
+      true,
+      "Connection not tested. New tasks use the default agent; existing tasks keep their agent.",
+    ],
+    [
+      "verified",
+      false,
+      "Connection verified. Settings were saved, but OpenMinion could not reconnect. Check the connection details.",
+    ],
+    [
+      "not_requested",
+      false,
+      "Connection not tested. Settings were saved, but OpenMinion could not reconnect. Check the connection details.",
+    ],
+  ] as const)("reports %s setup when reachable=%s", (providerCheck, reachable, message) => {
+    expect(setupResultMessage(providerCheck, reachable)).toBe(message);
+  });
+
   it("omits unknown message times and uses the local weekday and time for saved messages", () => {
     expect(messageTime()).toBe("");
     expect(messageTime("invalid")).toBe("");
@@ -1352,11 +1378,75 @@ describe("renderer status view", () => {
     ).toMatchObject({ label: "Connected", tone: "ready", showRecovery: false });
   });
 
-  it("shows bounded recovery after bootstrap failure", () => {
-    expect(statusView(status({ state: "degraded" }))).toMatchObject({
+  it.each([
+    ["python_environment_failed", "Install Python 3.11 on this computer, then reconnect."],
+    [
+      "openminion_install_failed",
+      "Open Connection details, then reconnect. Reinstall Desktop if the problem continues.",
+    ],
+    [
+      "openminion_executable_unavailable",
+      "Open Connection details, then reconnect. Reinstall Desktop if the problem continues.",
+    ],
+    [
+      "runtime_root_unavailable",
+      "Open Connection details, then reconnect. Reinstall Desktop if the problem continues.",
+    ],
+    [
+      "openminion_version_mismatch",
+      "Check Runtime settings for a compatible update, then reconnect.",
+    ],
+    ["runtime_incompatible", "Check Runtime settings for a compatible update, then reconnect."],
+    [
+      "runtime_recovery_required",
+      "Open Connection details and restart Desktop. Runtime recovery needs review.",
+    ],
+    [
+      "config_initialization_failed",
+      "Check Connection details and the configured OpenMinion paths, then restart Desktop.",
+    ],
+    [
+      "daemon_roots_unavailable",
+      "Check Connection details and the configured OpenMinion paths, then restart Desktop.",
+    ],
+    [
+      "daemon_ownership_unverified",
+      "Stop the externally managed daemon, then reconnect from Desktop.",
+    ],
+    [
+      "invalid_daemon_status",
+      "Check Connection details, then reconnect the local OpenMinion daemon.",
+    ],
+    [
+      "daemon_status_failed",
+      "Check Connection details, then reconnect the local OpenMinion daemon.",
+    ],
+    ["daemon_unavailable", "Check Connection details, then reconnect the local OpenMinion daemon."],
+    [
+      "daemon_start_failed",
+      "Check Connection details, then reconnect the local OpenMinion daemon.",
+    ],
+    [
+      "runtime_health_failed",
+      "Check Connection details, then reconnect the local OpenMinion daemon.",
+    ],
+    [
+      "daemon_stop_failed",
+      "Quit Desktop and any remaining OpenMinion process, then reopen Desktop.",
+    ],
+  ])("shows the available recovery action for %s", (errorCode, summary) => {
+    expect(statusView(status({ state: "degraded", errorCode }))).toMatchObject({
+      summary,
       tone: "degraded",
       showRetry: true,
       showRecovery: true,
+    });
+  });
+
+  it.each([null, "future_error"])("keeps generic recovery for %s", (errorCode) => {
+    expect(statusView(status({ state: "degraded", errorCode }))).toMatchObject({
+      summary: "Reconnect to send messages.",
+      tone: "degraded",
     });
   });
 

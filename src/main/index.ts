@@ -303,9 +303,7 @@ export function registerIpcHandlers(
     isAppInvocation(event) ? supervisor.setupPresets() : forbiddenResult(),
   );
   ipcMain.handle(IPC_CHANNELS.profilesSetup, (event, input: unknown) =>
-    isAppInvocation(event)
-      ? supervisor.applyProfiles((profiles, executable) => profiles.setup(input, executable))
-      : forbiddenResult(),
+    isAppInvocation(event) ? supervisor.applySetup(input) : forbiddenResult(),
   );
   ipcMain.handle(IPC_CHANNELS.profilesSave, (event, input: unknown) =>
     isAppInvocation(event)

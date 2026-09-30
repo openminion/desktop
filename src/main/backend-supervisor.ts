@@ -2,6 +2,7 @@ import { Profiles } from "./profiles.js";
 import { failure, failureFrom } from "./openminion-client.js";
 import type {
   ClientResult,
+  ProfileSetupApplyResult,
   RuntimeControlInput,
   RuntimeUpdateStatus,
 } from "../shared/contracts.js";
@@ -11,7 +12,7 @@ import {
   runtimeOfferDigest,
   type RuntimeOffer,
 } from "./runtime-manifest.js";
-import type { ProfileSettings } from "../shared/profiles.js";
+import type { ProfileSettings, ProviderCheckStatus } from "../shared/profiles.js";
 import type { DaemonStatus } from "../shared/contracts.js";
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
@@ -116,6 +117,17 @@ export class DaemonSupervisor {
     } catch (error) {
       return failureFrom(error);
     }
+  }
+
+  async applySetup(input: unknown): Promise<ClientResult<ProfileSetupApplyResult>> {
+    let providerCheck: ProviderCheckStatus = "not_requested";
+    const applied = await this.applyProfiles(async (profiles, executable) => {
+      const result = await profiles.setup(input, executable);
+      providerCheck = result.providerCheck;
+      return result.settings;
+    });
+    if (!applied.ok) return applied;
+    return { ok: true, value: { ...applied.value, providerCheck } };
   }
 
   async applyProfiles(
