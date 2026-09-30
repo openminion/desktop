@@ -404,6 +404,18 @@ describe("renderer computer observation", () => {
     expect(styles).toContain("button:focus-visible");
     expect(styles).toContain("@media (max-width: 1120px)");
   });
+
+  it("separates model connections from identity inspection and editing", () => {
+    const html = readFileSync(new URL("../../src/renderer/index.html", import.meta.url), "utf8");
+    expect(html).toContain("Models &amp; credentials");
+    expect(html).toContain('id="settings-identity"');
+    expect(html).toContain('id="identity-agent"');
+    expect(html).toContain('id="identity-yaml"');
+    expect(html).toContain('id="identity-reload"');
+    expect(html).toContain('id="identity-verify"');
+    expect(html).toContain('id="identity-save"');
+    expect(html).toContain('id="identity-preview"');
+  });
 });
 
 function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {

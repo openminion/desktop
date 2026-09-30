@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
-  IPC_CHANNELS,
   type CaptureEventV1,
+  IPC_CHANNELS,
   type NativeApi,
   type ObservationStatusV1,
   type TurnEventV1,
@@ -37,6 +37,11 @@ const api: NativeApi = {
     read: () => ipcRenderer.invoke(IPC_CHANNELS.profilesRead),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesSave, input),
     import: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesImport, input),
+  },
+  identity: {
+    read: () => ipcRenderer.invoke(IPC_CHANNELS.identityRead),
+    verify: (input) => ipcRenderer.invoke(IPC_CHANNELS.identityVerify, input),
+    save: (input) => ipcRenderer.invoke(IPC_CHANNELS.identitySave, input),
   },
   app: {
     openLink: (url) => ipcRenderer.invoke(IPC_CHANNELS.openLink, url),

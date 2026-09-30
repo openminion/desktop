@@ -1,33 +1,39 @@
-import { Profiles } from "./profiles.js";
-import { failure, failureFrom } from "./openminion-client.js";
+import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { access, chmod, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import { dirname, join } from "node:path";
 import type {
   ClientResult,
+  DaemonStatus,
   ProfileSetupApplyResult,
   RuntimeControlInput,
   RuntimeUpdateStatus,
 } from "../shared/contracts.js";
-import {
-  checkRuntimeManifest,
-  desktopCompatible,
-  runtimeOfferDigest,
-  type RuntimeOffer,
-} from "./runtime-manifest.js";
+import type {
+  IdentityProfileView,
+  IdentitySettings,
+  IdentityValidation,
+} from "../shared/identity.js";
 import type { ProfileSettings, ProviderCheckStatus } from "../shared/profiles.js";
-import type { DaemonStatus } from "../shared/contracts.js";
-import { randomBytes } from "node:crypto";
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { dirname, join } from "node:path";
-import { access, chmod, readFile, writeFile } from "node:fs/promises";
-import { realpathSync } from "node:fs";
-import { createServer } from "node:net";
-import { LifecycleState } from "./lifecycle-state.js";
+import { CliClient } from "./cli-client.js";
+import { IdentitySettingsService } from "./identity.js";
 import {
   OpenMinionInstallation,
   type OpenMinionInstallationOptions,
   type RunCommand,
   runCommand,
 } from "./installation.js";
-import { CliClient } from "./cli-client.js";
+import { LifecycleState } from "./lifecycle-state.js";
+import { failure, failureFrom } from "./openminion-client.js";
+import { Profiles } from "./profiles.js";
+import {
+  checkRuntimeManifest,
+  desktopCompatible,
+  type RuntimeOffer,
+  runtimeOfferDigest,
+} from "./runtime-manifest.js";
 
 export type DaemonSupervisorOptions = OpenMinionInstallationOptions & {
   commandTimeoutMs?: number;
@@ -59,6 +65,7 @@ export type OpenMinionCommandContext = {
 
 export class DaemonSupervisor {
   readonly profiles: Profiles | null;
+  readonly identity: IdentitySettingsService | null;
   readonly lifecycle = new LifecycleState();
   readonly client: CliClient;
   readonly #options: DaemonSupervisorOptions;
@@ -92,6 +99,42 @@ export class DaemonSupervisor {
       options.configPath && options.homeRoot && options.dataRoot
         ? new Profiles(options.configPath, options.homeRoot, options.dataRoot, this.#runCommand)
         : null;
+    this.identity =
+      options.configPath && options.homeRoot && options.dataRoot
+        ? new IdentitySettingsService(
+            options.configPath,
+            options.homeRoot,
+            options.dataRoot,
+            this.#runCommand,
+          )
+        : null;
+  }
+
+  async readIdentity(): Promise<ClientResult<IdentitySettings>> {
+    return this.#withIdentity((identity, executable) => identity.read(executable));
+  }
+
+  async verifyIdentity(input: unknown): Promise<ClientResult<IdentityValidation>> {
+    return this.#withIdentity((identity, executable) => identity.verify(input, executable));
+  }
+
+  async saveIdentity(input: unknown): Promise<ClientResult<IdentityProfileView>> {
+    return this.#withIdentity((identity, executable) => identity.save(input, executable));
+  }
+
+  async #withIdentity<T>(
+    action: (identity: IdentitySettingsService, executable: string) => Promise<T>,
+  ): Promise<ClientResult<T>> {
+    if (!this.identity || !this.#executable)
+      return failure(
+        "identity_unavailable",
+        "Connect to OpenMinion before opening identity settings.",
+      );
+    try {
+      return { ok: true, value: await action(this.identity, this.#executable) };
+    } catch (error) {
+      return failureFrom(error);
+    }
   }
 
   async readProfiles(): Promise<ClientResult<ProfileSettings>> {

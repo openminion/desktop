@@ -41,13 +41,14 @@
         </button>
       </div>
       <nav class="settings-nav" aria-label="Settings sections">
-        <button id="settings-profiles-button" type="button" aria-pressed="true" aria-controls="settings-profiles">Profiles</button>
+        <button id="settings-profiles-button" type="button" aria-pressed="true" aria-controls="settings-profiles">Models &amp; credentials</button>
+        <button id="settings-identity-button" type="button" aria-pressed="false" aria-controls="settings-identity">Identity</button>
         <button id="settings-chat-button" type="button" aria-pressed="false" aria-controls="settings-chat">Chat display</button>
         <button id="settings-runtime-button" type="button" aria-pressed="false" aria-controls="settings-runtime">Runtime</button>
       </nav>
       <div class="settings-body">
         <section id="settings-profiles" aria-labelledby="settings-profiles-heading">
-          <h3 id="settings-profiles-heading">Agent profiles</h3>
+          <h3 id="settings-profiles-heading">Models &amp; credentials</h3>
           <p id="profile-intro" class="settings-note">Finish running chats before saving. Applying changes restarts OpenMinion.</p>
           <form id="profile-form">
             <fieldset id="setup-fields" hidden>
@@ -94,6 +95,23 @@
           </form>
           <p id="profile-import-note" class="settings-note">Import a JSON file to add profiles, replace matching agent IDs, and merge runtime keys.</p>
           <p class="settings-note">Keys are saved locally. Leave a key blank to keep it. Closing discards unsaved edits.</p>
+        </section>
+        <section id="settings-identity" aria-labelledby="settings-identity-heading" hidden>
+          <h3 id="settings-identity-heading">Identity</h3>
+          <p class="settings-note">Identity controls how the selected agent describes its mission, voice, risk posture, and tool posture. YAML is authoritative; generated Markdown is read-only.</p>
+          <label for="identity-agent">Agent</label>
+          <select id="identity-agent"></select>
+          <p id="identity-metadata" class="settings-note"></p>
+          <label for="identity-yaml">Authoritative profile.yaml</label>
+          <textarea id="identity-yaml" rows="16" maxlength="262144" spellcheck="false"></textarea>
+          <p id="identity-status" class="settings-note" role="status" aria-live="polite"></p>
+          <div class="settings-actions">
+            <button id="identity-reload" class="quiet-button" type="button">Reload from disk</button>
+            <button id="identity-verify" class="quiet-button" type="button">Verify draft</button>
+            <button id="identity-save" type="button">Save identity</button>
+          </div>
+          <h4>Rendered preview</h4>
+          <pre id="identity-preview" class="identity-preview">No identity loaded.</pre>
         </section>
         <section id="settings-chat" aria-labelledby="settings-chat-heading" hidden>
           <h3 id="settings-chat-heading">Chat display</h3>

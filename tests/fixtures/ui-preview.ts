@@ -1,16 +1,16 @@
 import { mount } from "../../src/renderer/app.js";
 import type {
-  NativeApi,
-  ClientResult,
-  SessionSummaryV1,
-  MessageV1,
-  TurnEventV1,
+  ArtifactCatalogItemV1,
   CaptureEventV1,
   CaptureFrameV1,
   CaptureStateV1,
-  ObservationStatusV1,
+  ClientResult,
   MediaAttachmentV1,
-  ArtifactCatalogItemV1,
+  MessageV1,
+  NativeApi,
+  ObservationStatusV1,
+  SessionSummaryV1,
+  TurnEventV1,
   TurnSubmitInput,
 } from "../../src/shared/contracts.js";
 
@@ -297,6 +297,55 @@ const api: NativeApi = {
       return ok({ settings: profileSettings, daemon: await api.daemon.status() });
     },
     import: async () => ok(null),
+  },
+  identity: {
+    read: async () =>
+      ok({
+        profiles: [
+          {
+            agentId: "openminion",
+            displayName: "OpenMinion",
+            source: "yaml",
+            editable: true,
+            readOnlyReason: null,
+            authoredYaml: "agent_id: openminion\ndisplay_name: OpenMinion\n",
+            profileRevision: 1,
+            profileVersion: "sample-profile-version",
+            sourceSha256: "sample-source-sha256",
+            validationOk: true,
+            sourceStatus: "clean",
+            verificationIssues: [],
+            generatedStatus: "clean",
+            generatedFiles: ["AGENT.md", "SOUL.md", "README.md"],
+            render: {
+              text: "Mission: Help the operator.",
+              purpose: "act",
+              profileVersion: "sample-profile-version",
+              renderVersion: "sample-render-version",
+              includedFields: ["role.mission"],
+              omittedFields: [],
+            },
+          },
+        ],
+      }),
+    verify: async () =>
+      ok({
+        agentId: "openminion",
+        validationOk: true,
+        issues: [],
+        render: {
+          text: "Mission: Help the operator.",
+          purpose: "act",
+          profileVersion: "sample-profile-version",
+          renderVersion: "sample-render-version",
+          includedFields: ["role.mission"],
+          omittedFields: [],
+        },
+      }),
+    save: async () => {
+      const result = await api.identity.read();
+      return result.ok ? ok(result.value.profiles[0]) : result;
+    },
   },
   app: {
     openLink: async () => ({ ok: true, value: null }),
