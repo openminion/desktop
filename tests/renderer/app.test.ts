@@ -20,6 +20,7 @@ import {
   statusView,
   waitingTime,
 } from "../../src/renderer/app.js";
+import { renderTasks } from "../../src/renderer/tasks.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
 import type {
   ArtifactCatalogItemV1,
@@ -82,7 +83,10 @@ function namesApi(): NativeApi["chatNames"] {
     load: async (legacyNames) => {
       for (const { sessionId, title } of legacyNames)
         if (!names.has(sessionId)) names.set(sessionId, title);
-      return { ok: true, value: [...names].map(([sessionId, title]) => ({ sessionId, title })) };
+      return {
+        ok: true,
+        value: [...names].map(([sessionId, title]) => ({ sessionId, title })),
+      };
     },
     save: async ({ sessionId, title }) => {
       if (title === null) names.delete(sessionId);
@@ -94,7 +98,10 @@ function namesApi(): NativeApi["chatNames"] {
 
 describe("renderer computer observation", () => {
   it("loads and saves quiet/normal as Desktop presentation preferences", async () => {
-    const save = vi.fn<NativeApi["presentation"]["save"]>(async () => ({ ok: true, value: null }));
+    const save = vi.fn<NativeApi["presentation"]["save"]>(async () => ({
+      ok: true,
+      value: null,
+    }));
     const api = {
       app: { info: async () => ({ shellVersion: "test" }) },
       daemon: { status: async () => status({ state: "degraded" }) },
@@ -161,9 +168,16 @@ describe("renderer computer observation", () => {
     }));
     const api = {
       app: { info: async () => ({ shellVersion: "test" }) },
-      daemon: { status: async () => status({ state: "running", reachable: true }) },
+      daemon: {
+        status: async () => status({ state: "running", reachable: true }),
+      },
       turns: { subscribe: () => () => {} },
-      runtime: { status: async () => current, check: vi.fn(), stage: vi.fn(), control },
+      runtime: {
+        status: async () => current,
+        check: vi.fn(),
+        stage: vi.fn(),
+        control,
+      },
     } as unknown as NativeApi;
     vi.stubGlobal("window", { addEventListener: vi.fn() });
     try {
@@ -214,7 +228,9 @@ describe("renderer computer observation", () => {
       const hide: Array<() => void> = [];
       const api = {
         app: { info: async () => ({ shellVersion: "test" }) },
-        daemon: { status: async () => status({ state: "running", reachable: true }) },
+        daemon: {
+          status: async () => status({ state: "running", reachable: true }),
+        },
         turns: { subscribe: () => () => {} },
         runtime: { status: runtimeStatus, check: vi.fn(), stage: vi.fn() },
       } as unknown as NativeApi;
@@ -276,9 +292,16 @@ describe("renderer computer observation", () => {
     }));
     const api = {
       app: { info: async () => ({ shellVersion: "test" }) },
-      daemon: { status: async () => status({ state: "running", reachable: true }) },
+      daemon: {
+        status: async () => status({ state: "running", reachable: true }),
+      },
       turns: { subscribe: () => () => {} },
-      runtime: { status: async () => current, check: vi.fn(), stage: vi.fn(), control },
+      runtime: {
+        status: async () => current,
+        check: vi.fn(),
+        stage: vi.fn(),
+        control,
+      },
     } as unknown as NativeApi;
     vi.stubGlobal("window", { addEventListener: vi.fn() });
     try {
@@ -286,7 +309,10 @@ describe("renderer computer observation", () => {
       const source = page.element("runtime-update-source");
       source.value = "binary";
       source.dispatch("change");
-      expect(control).toHaveBeenCalledWith({ action: "source", source: "binary" });
+      expect(control).toHaveBeenCalledWith({
+        action: "source",
+        source: "binary",
+      });
       await Promise.resolve();
       expect(page.element("runtime-update-status").textContent).toContain(
         "Installed: OpenMinion 0.0.23 (pypi)",
@@ -424,7 +450,11 @@ describe("renderer status view", () => {
     expect(messageTime("invalid")).toBe("");
     const date = new Date(2026, 8, 13, 14, 2);
     expect(messageTime(date.toISOString())).toBe(
-      date.toLocaleString(undefined, { weekday: "long", hour: "numeric", minute: "2-digit" }),
+      date.toLocaleString(undefined, {
+        weekday: "long",
+        hour: "numeric",
+        minute: "2-digit",
+      }),
     );
   });
   it("copies each message body without its role or profile and reports failure", async () => {
@@ -433,26 +463,43 @@ describe("renderer status view", () => {
       app: { info: async () => ({ shellVersion: "test" }), copyText },
       daemon: {
         status: async () =>
-          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+          status({
+            state: "running",
+            reachable: true,
+            capabilities: ["turns.text"],
+          }),
       },
       sessions: {
         list: async () => ({
           ok: true,
-          value: { sessions: [sessionSummary()], nextCursor: null, hasMore: false },
+          value: {
+            sessions: [sessionSummary()],
+            nextCursor: null,
+            hasMore: false,
+          },
         }),
         load: async () => ({
           ok: true,
           value: {
             session: sessionSummary(),
             messages: [
-              { ...message("question", "First line\nSecond line"), role: "user" },
-              { ...message("reply", "minimax: **Answer**"), profileName: "minimax" },
+              {
+                ...message("question", "First line\nSecond line"),
+                role: "user",
+              },
+              {
+                ...message("reply", "minimax: **Answer**"),
+                profileName: "minimax",
+              },
             ],
             nextMessageCursor: null,
             messagesHasMore: false,
           },
         }),
-        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+        events: async () => ({
+          ok: true,
+          value: { events: [], nextCursor: "0", hasMore: false },
+        }),
       },
       turns: { subscribe: () => () => {} },
     } as unknown as NativeApi;
@@ -481,7 +528,9 @@ describe("renderer status view", () => {
       buttons[1]!.click();
       await vi.waitFor(() => expect(buttons[1]!.textContent).toBe("Copied"));
       expect(copyText).toHaveBeenLastCalledWith("**Answer**");
-      await vi.waitFor(() => expect(buttons[1]!.disabled).toBe(false), { timeout: 2500 });
+      await vi.waitFor(() => expect(buttons[1]!.disabled).toBe(false), {
+        timeout: 2500,
+      });
       expect(buttons[1]!.textContent).toBe("Copy");
       copyText.mockResolvedValueOnce({ ok: false });
       buttons[1]!.click();
@@ -516,15 +565,26 @@ describe("renderer status view", () => {
       app: { info: async () => ({ shellVersion: "test" }) },
       daemon: {
         status: async () =>
-          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+          status({
+            state: "running",
+            reachable: true,
+            capabilities: ["turns.text"],
+          }),
       },
       sessions: {
         list: async () => ({
           ok: true,
-          value: { sessions: [sessionSummary()], nextCursor: null, hasMore: false },
+          value: {
+            sessions: [sessionSummary()],
+            nextCursor: null,
+            hasMore: false,
+          },
         }),
         load,
-        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+        events: async () => ({
+          ok: true,
+          value: { events: [], nextCursor: "0", hasMore: false },
+        }),
       },
       turns: {
         submit,
@@ -569,7 +629,11 @@ describe("renderer status view", () => {
       composer.dispatch("input");
       finishSubmit({
         ok: true,
-        value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+        value: {
+          sessionId: "session-1",
+          traceId: "trace-1",
+          requestId: "request-1",
+        },
       });
       await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
       expect(composer.value).toBe("Weather?");
@@ -601,13 +665,17 @@ describe("renderer status view", () => {
   });
 
   it("reads, refreshes, copies and dismisses diagnostics while disconnected", async () => {
-    const inspect = vi
-      .fn<NativeApi["daemon"]["inspect"]>()
-      .mockResolvedValue({ ok: true, value: { text: "<script>literal log entry</script>" } });
+    const inspect = vi.fn<NativeApi["daemon"]["inspect"]>().mockResolvedValue({
+      ok: true,
+      value: { text: "<script>literal log entry</script>" },
+    });
     const copyText = vi.fn().mockResolvedValue({ ok: true, value: null });
     const api = {
       app: { info: async () => ({ shellVersion: "test" }), copyText },
-      daemon: { status: async () => status({ state: "degraded", reachable: false }), inspect },
+      daemon: {
+        status: async () => status({ state: "degraded", reachable: false }),
+        inspect,
+      },
       turns: { subscribe: () => () => {} },
     } as unknown as NativeApi;
     vi.stubGlobal("window", { addEventListener: vi.fn() });
@@ -700,12 +768,19 @@ describe("renderer status view", () => {
       app: { info: async () => ({ shellVersion: "test" }) },
       daemon: {
         status: async () =>
-          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+          status({
+            state: "running",
+            reachable: true,
+            capabilities: ["turns.text"],
+          }),
       },
       sessions: {
         list,
         load,
-        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+        events: async () => ({
+          ok: true,
+          value: { events: [], nextCursor: null, hasMore: false },
+        }),
       },
       turns: { subscribe: () => () => {} },
     } as unknown as NativeApi;
@@ -721,7 +796,7 @@ describe("renderer status view", () => {
         search.value = query;
         search.dispatch("input");
         expect(page.sessionButtons().map((item) => item.textContent)).toEqual(["Résumé [.*]"]);
-        expect(page.element("session-search-count").textContent).toBe("1 of 3 tasks");
+        expect(page.element("session-search-count").textContent).toBe("1 of 3 conversations");
         expect(page.element("current-title").textContent).toBe("Recovered chat");
         expect(page.element("composer").value).toBe("Keep this draft");
         expect(page.findText()).toContain("Saved reply");
@@ -733,9 +808,9 @@ describe("renderer status view", () => {
       search.dispatch("input");
       expect(page.sessionButtons()).toHaveLength(0);
       expect(page.element("session-list").children[0]!.textContent).toBe(
-        "No matching tasks. Try another name or session ID.",
+        "No matching conversations. Try another name or session ID.",
       );
-      expect(page.element("session-search-count").textContent).toBe("0 of 3 tasks");
+      expect(page.element("session-search-count").textContent).toBe("0 of 3 conversations");
       page.element("clear-session-search").click();
       expect(search.value).toBe("");
       expect(search.focus).toHaveBeenCalled();
@@ -776,12 +851,22 @@ describe("renderer status view", () => {
       app: { info: async () => ({ shellVersion: "test" }) },
       daemon: {
         status: async () =>
-          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+          status({
+            state: "running",
+            reachable: true,
+            capabilities: ["turns.text"],
+          }),
       },
       sessions: {
-        list: async () => ({ ok: true, value: { sessions, nextCursor: null, hasMore: false } }),
+        list: async () => ({
+          ok: true,
+          value: { sessions, nextCursor: null, hasMore: false },
+        }),
         load,
-        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+        events: async () => ({
+          ok: true,
+          value: { events: [], nextCursor: "0", hasMore: false },
+        }),
       },
       turns: { subscribe: () => () => {} },
     } as unknown as NativeApi;
@@ -891,10 +976,17 @@ describe("renderer status view", () => {
       app: { info: async () => ({ shellVersion: "test" }) },
       daemon: {
         status: async () =>
-          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+          status({
+            state: "running",
+            reachable: true,
+            capabilities: ["turns.text"],
+          }),
       },
       sessions: {
-        list: async () => ({ ok: true, value: { sessions, nextCursor: null, hasMore: false } }),
+        list: async () => ({
+          ok: true,
+          value: { sessions, nextCursor: null, hasMore: false },
+        }),
         load: async ({ sessionId }: { sessionId: string }) => ({
           ok: true,
           value: {
@@ -904,7 +996,10 @@ describe("renderer status view", () => {
             messagesHasMore: false,
           },
         }),
-        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+        events: async () => ({
+          ok: true,
+          value: { events: [], nextCursor: null, hasMore: false },
+        }),
       },
       turns: {
         subscribe: (listener: typeof receive) => {
@@ -988,22 +1083,41 @@ describe("renderer status view", () => {
       .mockReturnValueOnce(creation);
     const submit = vi.fn().mockResolvedValue({
       ok: true,
-      value: { sessionId: session.sessionId, requestId: "request-1", traceId: "trace-1" },
+      value: {
+        sessionId: session.sessionId,
+        requestId: "request-1",
+        traceId: "trace-1",
+      },
     });
     const api = {
       app: { info: async () => ({ shellVersion: "test" }) },
       daemon: {
         status: async () =>
-          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+          status({
+            state: "running",
+            reachable: true,
+            capabilities: ["turns.text"],
+          }),
       },
       sessions: {
         create,
-        list: async () => ({ ok: true, value: { sessions: [], nextCursor: null, hasMore: false } }),
+        list: async () => ({
+          ok: true,
+          value: { sessions: [], nextCursor: null, hasMore: false },
+        }),
         load: async () => ({
           ok: true,
-          value: { session, messages: [], nextMessageCursor: "0", messagesHasMore: false },
+          value: {
+            session,
+            messages: [],
+            nextMessageCursor: "0",
+            messagesHasMore: false,
+          },
         }),
-        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+        events: async () => ({
+          ok: true,
+          value: { events: [], nextCursor: "0", hasMore: false },
+        }),
       },
       turns: { submit, subscribe: () => () => {} },
       media: { release: vi.fn() },
@@ -1016,7 +1130,7 @@ describe("renderer status view", () => {
       page.element("session-search").value = "absent";
       page.element("session-search").dispatch("input");
       expect(page.element("session-list").children[0]!.textContent).toBe(
-        "Your tasks will appear here.",
+        "Your conversations will appear here.",
       );
       page.element("composer").value = "hi";
       page.element("composer").dispatch("input");
@@ -1036,13 +1150,16 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("input");
       resolveCreation({ ok: true, value: session });
       await vi.waitFor(() =>
-        expect(submit).toHaveBeenCalledWith({ sessionId: session.sessionId, message: "hi" }),
+        expect(submit).toHaveBeenCalledWith({
+          sessionId: session.sessionId,
+          message: "hi",
+        }),
       );
       expect(create).toHaveBeenCalledTimes(2);
       expect(submit).toHaveBeenCalledOnce();
       expect(page.element("composer").value).toBe("Next draft");
       expect(page.element("session-search").value).toBe("absent");
-      expect(page.element("session-search-count").textContent).toBe("0 of 1 tasks");
+      expect(page.element("session-search-count").textContent).toBe("0 of 1 conversations");
       page.element("clear-session-search").click();
       expect(page.sessionButtons()).toHaveLength(1);
     } finally {
@@ -1126,9 +1243,10 @@ describe("renderer status view", () => {
     const session = sessionSummary();
     const create = vi.fn().mockResolvedValue({ ok: true, value: session });
     const submit = vi.fn();
-    const read = vi
-      .fn()
-      .mockResolvedValue({ ok: true, value: { kind: "tokens", text: "Canonical token report" } });
+    const read = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { kind: "tokens", text: "Canonical token report" },
+    });
     const api = {
       reports: { read },
       app: {
@@ -1142,7 +1260,10 @@ describe("renderer status view", () => {
       },
       sessions: {
         create,
-        list: async () => ({ ok: true, value: { sessions: [], nextCursor: null, hasMore: false } }),
+        list: async () => ({
+          ok: true,
+          value: { sessions: [], nextCursor: null, hasMore: false },
+        }),
         load: async () => ({
           ok: true,
           value: {
@@ -1152,7 +1273,10 @@ describe("renderer status view", () => {
             messagesHasMore: false,
           },
         }),
-        events: async () => ({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+        events: async () => ({
+          ok: true,
+          value: { events: [], nextCursor: "0", hasMore: false },
+        }),
       },
       turns: { submit, subscribe: () => () => {} },
       media: { release: vi.fn() },
@@ -1190,7 +1314,10 @@ describe("renderer status view", () => {
           "Canonical token report",
         ),
       );
-      expect(read).toHaveBeenLastCalledWith({ kind: "tokens", sessionId: session.sessionId });
+      expect(read).toHaveBeenLastCalledWith({
+        kind: "tokens",
+        sessionId: session.sessionId,
+      });
       read.mockResolvedValue({
         ok: true,
         value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
@@ -1205,23 +1332,35 @@ describe("renderer status view", () => {
         agentFilter: "Writer",
         sessionId: session.sessionId,
       });
-      read.mockResolvedValue({ ok: true, value: { kind: "skills", text: "Skill: Example" } });
+      read.mockResolvedValue({
+        ok: true,
+        value: { kind: "skills", text: "Skill: Example" },
+      });
       page.element("composer").value = "/skills example";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe("Skill: Example"),
       );
-      expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "example" });
+      expect(read).toHaveBeenLastCalledWith({
+        kind: "skills",
+        skillId: "example",
+      });
       read.mockResolvedValue({
         ok: true,
-        value: { kind: "learning", text: "Skill learning:\n  pending        1" },
+        value: {
+          kind: "learning",
+          text: "Skill learning:\n  pending        1",
+        },
       });
       page.element("composer").value = "/learning proposal-1";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toContain("pending"),
       );
-      expect(read).toHaveBeenLastCalledWith({ kind: "learning", proposalId: "proposal-1" });
+      expect(read).toHaveBeenLastCalledWith({
+        kind: "learning",
+        proposalId: "proposal-1",
+      });
       read.mockResolvedValue({
         ok: true,
         value: { kind: "mcp", text: "MCP:\n  configured  local" },
@@ -1231,7 +1370,10 @@ describe("renderer status view", () => {
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toContain("configured"),
       );
-      expect(read).toHaveBeenLastCalledWith({ kind: "mcp", agentId: session.activeAgentId });
+      expect(read).toHaveBeenLastCalledWith({
+        kind: "mcp",
+        agentId: session.activeAgentId,
+      });
       let finishReport!: (value: unknown) => void;
       read.mockImplementationOnce(
         () =>
@@ -1245,10 +1387,13 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("keydown", { key: "Enter" });
       finishReport({
         ok: true,
-        value: { kind: "tools", tools: [{ name: "old result", enabled: true }] },
+        value: {
+          kind: "tools",
+          tools: [{ name: "old result", enabled: true }],
+        },
       });
       await Promise.resolve();
-      expect(page.element("command-title").textContent).toBe("Task status");
+      expect(page.element("command-title").textContent).toBe("Conversation status");
       expect(page.element("command-result").children[0]?.textContent).not.toContain("old result");
       page.element("composer").value = "/tools enable search";
       page.element("composer").dispatch("keydown", { key: "Enter" });
@@ -1289,7 +1434,7 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("input");
       expect(page.element("command-menu").children).toHaveLength(1);
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      expect(page.element("command-title").textContent).toBe("Task status");
+      expect(page.element("command-title").textContent).toBe("Conversation status");
       page.element("composer").value = "/permissions readonly";
       page.element("composer-form").dispatch("submit");
       await vi.waitFor(() =>
@@ -1374,7 +1519,13 @@ describe("renderer status view", () => {
 
   it("connects text chat only when the running runtime exposes its adapter", () => {
     expect(
-      statusView(status({ state: "running", reachable: true, capabilities: ["turns.text"] })),
+      statusView(
+        status({
+          state: "running",
+          reachable: true,
+          capabilities: ["turns.text"],
+        }),
+      ),
     ).toMatchObject({ label: "Connected", tone: "ready", showRecovery: false });
   });
 
@@ -1626,7 +1777,11 @@ describe("renderer status view", () => {
       .mockReset()
       .mockResolvedValueOnce({
         ok: true,
-        value: { artifacts: [item], nextCursor: "A".repeat(48), complete: false },
+        value: {
+          artifacts: [item],
+          nextCursor: "A".repeat(48),
+          complete: false,
+        },
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -1738,7 +1893,11 @@ describe("renderer status view", () => {
         create: vi.fn(),
         close: vi.fn(),
       },
-      turns: { submit: vi.fn(), cancel: vi.fn(), subscribe: vi.fn().mockReturnValue(vi.fn()) },
+      turns: {
+        submit: vi.fn(),
+        cancel: vi.fn(),
+        subscribe: vi.fn().mockReturnValue(vi.fn()),
+      },
       approvals: { decide: vi.fn() },
       artifacts: { list, read, detach, restore: vi.fn() },
       media: { pick: vi.fn(), release: vi.fn() },
@@ -1825,7 +1984,10 @@ describe("renderer status view", () => {
   });
 
   it("keeps each saved speaker in the header and copies the displayed reply", async () => {
-    const session = { ...sessionSummary(), turnUsageDisplay: "input_output_calls" as const };
+    const session = {
+      ...sessionSummary(),
+      turnUsageDisplay: "input_output_calls" as const,
+    };
     const history = [
       { ...message("user", "writer: a user quote"), role: "user" as const },
       {
@@ -1860,11 +2022,17 @@ describe("renderer status view", () => {
         }),
         load: vi.fn().mockResolvedValue({
           ok: true,
-          value: { session, messages: history, nextMessageCursor: "2", messagesHasMore: false },
+          value: {
+            session,
+            messages: history,
+            nextMessageCursor: "2",
+            messagesHasMore: false,
+          },
         }),
-        events: vi
-          .fn()
-          .mockResolvedValue({ ok: true, value: { events: [], nextCursor: "0", hasMore: false } }),
+        events: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { events: [], nextCursor: "0", hasMore: false },
+        }),
       },
       turns: { subscribe: vi.fn().mockReturnValue(vi.fn()) },
     } as unknown as NativeApi;
@@ -1924,7 +2092,11 @@ describe("renderer status view", () => {
     expect(progress.label).toBe("Thinking");
     expect(progress.detail).toBe("Checking available context");
     expect(progress.lastUpdateAt).toEqual(expect.any(Number));
-    const stopping = { ...started, stopRequested: true, label: "Stop requested…" };
+    const stopping = {
+      ...started,
+      stopRequested: true,
+      label: "Stop requested…",
+    };
     expect(
       applyTurnEvent(stopping, {
         schemaVersion: 1,
@@ -2287,7 +2459,10 @@ describe("renderer status view", () => {
   });
 
   it("renders bounded attachment chips and clears them without replay", async () => {
-    const session = { ...sessionSummary(), turnUsageDisplay: "input_output_calls" as const };
+    const session = {
+      ...sessionSummary(),
+      turnUsageDisplay: "input_output_calls" as const,
+    };
     const secondSession = {
       ...sessionSummary(),
       sessionId: "session-2",
@@ -2304,9 +2479,15 @@ describe("renderer status view", () => {
       .mockResolvedValueOnce({ ok: true, value: { attachments: [image] } })
       .mockResolvedValueOnce({ ok: true, value: { attachments: [file] } })
       .mockResolvedValueOnce({ ok: true, value: { attachments: [later] } })
-      .mockResolvedValueOnce({ ok: true, value: { attachments: [pagehideMedia] } })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { attachments: [pagehideMedia] },
+      })
       .mockResolvedValueOnce({ ok: true, value: { attachments: [retryMedia] } })
-      .mockResolvedValueOnce({ ok: true, value: { attachments: [closeMedia] } });
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { attachments: [closeMedia] },
+      });
     const release = vi.fn().mockResolvedValue({
       ok: true,
       value: { mediaId: "b".repeat(48), released: true },
@@ -2315,7 +2496,11 @@ describe("renderer status view", () => {
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        value: { requestId: "request-1", traceId: "trace-1", sessionId: "session-1" },
+        value: {
+          requestId: "request-1",
+          traceId: "trace-1",
+          sessionId: "session-1",
+        },
       })
       .mockResolvedValueOnce({
         ok: false,
@@ -2335,7 +2520,9 @@ describe("renderer status view", () => {
           retryAfterMs: null,
         },
       });
-    const turnSubscription: { listener: ((event: TurnEventV1) => void) | null } = {
+    const turnSubscription: {
+      listener: ((event: TurnEventV1) => void) | null;
+    } = {
       listener: null,
     };
     const api = {
@@ -2358,7 +2545,11 @@ describe("renderer status view", () => {
       sessions: {
         list: vi.fn().mockResolvedValue({
           ok: true,
-          value: { sessions: [session, secondSession], nextCursor: null, hasMore: false },
+          value: {
+            sessions: [session, secondSession],
+            nextCursor: null,
+            hasMore: false,
+          },
         }),
         load: vi.fn(async ({ sessionId }) => ({
           ok: true,
@@ -2670,9 +2861,10 @@ describe("renderer status view", () => {
       const reloaded = new FixtureDocument();
       await mount(api, reloaded.asDocument());
       expect(reloaded.attachmentText()).toEqual([]);
-      expect({ picks: pick.mock.calls.length, submits: submit.mock.calls.length }).toEqual(
-        callsBeforeReload,
-      );
+      expect({
+        picks: pick.mock.calls.length,
+        submits: submit.mock.calls.length,
+      }).toEqual(callsBeforeReload);
       reloaded.element("attach-image").click();
       await vi.waitFor(() =>
         expect(reloaded.attachmentText()).toContain("retry.png · 1 KB · image/png"),
@@ -2770,7 +2962,11 @@ describe("renderer status view", () => {
       sessions: {
         list: vi.fn().mockResolvedValue({
           ok: true,
-          value: { sessions: [session, secondSession], nextCursor: null, hasMore: false },
+          value: {
+            sessions: [session, secondSession],
+            nextCursor: null,
+            hasMore: false,
+          },
         }),
         load: vi.fn(async ({ sessionId }) => ({
           ok: true,
@@ -2788,7 +2984,11 @@ describe("renderer status view", () => {
         create: vi.fn(),
         close: vi.fn(),
       },
-      turns: { submit: vi.fn(), cancel: vi.fn(), subscribe: vi.fn().mockReturnValue(vi.fn()) },
+      turns: {
+        submit: vi.fn(),
+        cancel: vi.fn(),
+        subscribe: vi.fn().mockReturnValue(vi.fn()),
+      },
       approvals: { decide: vi.fn() },
       files: { pick, list, import: importFile, release },
       media: { pick: mediaPick, release: mediaRelease },
@@ -2849,12 +3049,18 @@ describe("renderer status view", () => {
       await vi.waitFor(() => expect(release).toHaveBeenCalledOnce());
       page.sessionButtons()[1]!.click();
       await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Other"));
-      finishGrantRelease({ ok: true, value: { grantId: fileGrant.grantId, released: true } });
+      finishGrantRelease({
+        ok: true,
+        value: { grantId: fileGrant.grantId, released: true },
+      });
       await vi.waitFor(() =>
         expect(page.element("file-status").textContent).toBe("Choose a local file to import."),
       );
       pagehide[0]!();
-      expect(release).toHaveBeenCalledWith({ sessionId: "session-1", grantId: fileGrant.grantId });
+      expect(release).toHaveBeenCalledWith({
+        sessionId: "session-1",
+        grantId: fileGrant.grantId,
+      });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -2862,7 +3068,11 @@ describe("renderer status view", () => {
 
   it("shows explicit current-view and watch controls with bounded public facts", async () => {
     const session = sessionSummary();
-    const secondSession = { ...session, sessionId: "session-2", title: "Other" };
+    const secondSession = {
+      ...session,
+      sessionId: "session-2",
+      title: "Other",
+    };
     const frameId = "b".repeat(48);
     const frame = {
       schemaVersion: 1 as const,
@@ -2910,11 +3120,19 @@ describe("renderer status view", () => {
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        value: { requestId: "request-1", traceId: "trace-1", sessionId: session.sessionId },
+        value: {
+          requestId: "request-1",
+          traceId: "trace-1",
+          sessionId: session.sessionId,
+        },
       })
       .mockResolvedValueOnce({
         ok: true,
-        value: { requestId: "request-guide", traceId: "trace-guide", sessionId: session.sessionId },
+        value: {
+          requestId: "request-guide",
+          traceId: "trace-guide",
+          sessionId: session.sessionId,
+        },
       })
       .mockReturnValueOnce(mismatchPromise);
     const mediaPick = vi.fn();
@@ -2931,7 +3149,11 @@ describe("renderer status view", () => {
       sessions: {
         list: vi.fn().mockResolvedValue({
           ok: true,
-          value: { sessions: [session, secondSession], nextCursor: null, hasMore: false },
+          value: {
+            sessions: [session, secondSession],
+            nextCursor: null,
+            hasMore: false,
+          },
         }),
         load: vi.fn(async ({ sessionId }) => ({
           ok: true,
@@ -3186,7 +3408,9 @@ describe("renderer status view", () => {
 
       mediaPick.mockResolvedValueOnce({
         ok: true,
-        value: { attachments: [mediaAttachment("a", "notes.txt", "text/plain", false)] },
+        value: {
+          attachments: [mediaAttachment("a", "notes.txt", "text/plain", false)],
+        },
       });
       page.element("attach-file").click();
       await vi.waitFor(() =>
@@ -3288,7 +3512,11 @@ describe("renderer status view", () => {
         parentSourceKind: "display",
         sourceLabel: "Display 1",
       });
-      captureListener!({ schemaVersion: 1, kind: "state", value: observingState });
+      captureListener!({
+        schemaVersion: 1,
+        kind: "state",
+        value: observingState,
+      });
       await completeGuidance("Pause lifecycle", "request-pause", "trace-pause", frame);
       captureListener!({
         schemaVersion: 1,
@@ -3298,7 +3526,11 @@ describe("renderer status view", () => {
       expect(page.element("guidance-state").textContent).toBe("Stale");
       expect(page.element("guidance-status").textContent).toContain("no longer active");
 
-      captureListener!({ schemaVersion: 1, kind: "state", value: observingState });
+      captureListener!({
+        schemaVersion: 1,
+        kind: "state",
+        value: observingState,
+      });
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-08-22T12:00:00Z"));
       const expiringFrame = {
@@ -3317,7 +3549,11 @@ describe("renderer status view", () => {
       expect(page.element("guidance-preview").src).toBe("");
       vi.useRealTimers();
 
-      captureListener!({ schemaVersion: 1, kind: "state", value: observingState });
+      captureListener!({
+        schemaVersion: 1,
+        kind: "state",
+        value: observingState,
+      });
       captureListener!(frame);
 
       page.element("observation-instruction").value = "Tell me when the build finishes";
@@ -3409,7 +3645,11 @@ describe("renderer status view", () => {
 
   it("observes a selected source locally without submitting a turn", async () => {
     const session = sessionSummary();
-    const secondSession = { ...session, sessionId: "session-2", title: "Other" };
+    const secondSession = {
+      ...session,
+      sessionId: "session-2",
+      title: "Other",
+    };
     const candidateId = "c".repeat(48);
     const captureId = "a".repeat(48);
     let captureListener: ((event: unknown) => void) | null = null;
@@ -3499,7 +3739,11 @@ describe("renderer status view", () => {
       });
     const pause = vi.fn().mockResolvedValue({
       ok: true,
-      value: captureState({ ...observing, state: "paused", reason: "user_paused" }),
+      value: captureState({
+        ...observing,
+        state: "paused",
+        reason: "user_paused",
+      }),
     });
     const resume = vi.fn().mockResolvedValue({
       ok: true,
@@ -3531,7 +3775,11 @@ describe("renderer status view", () => {
       sessions: {
         list: vi.fn().mockResolvedValue({
           ok: true,
-          value: { sessions: [session, secondSession], nextCursor: null, hasMore: false },
+          value: {
+            sessions: [session, secondSession],
+            nextCursor: null,
+            hasMore: false,
+          },
         }),
         load: vi.fn(async ({ sessionId }) => ({
           ok: true,
@@ -3549,7 +3797,11 @@ describe("renderer status view", () => {
         create: vi.fn(),
         close,
       },
-      turns: { submit, cancel: vi.fn(), subscribe: vi.fn().mockReturnValue(vi.fn()) },
+      turns: {
+        submit,
+        cancel: vi.fn(),
+        subscribe: vi.fn().mockReturnValue(vi.fn()),
+      },
       approvals: { decide: vi.fn() },
       media: { pick: vi.fn(), release: vi.fn() },
       capture: {
@@ -3681,7 +3933,9 @@ describe("renderer status view", () => {
       await vi.waitFor(() => expect(page.element("close-session").disabled).toBe(false));
       page.element("close-session").click();
       await vi.waitFor(() =>
-        expect(close).toHaveBeenCalledWith({ sessionId: secondSession.sessionId }),
+        expect(close).toHaveBeenCalledWith({
+          sessionId: secondSession.sessionId,
+        }),
       );
       page.sessionButtons()[0]!.click();
       finishClose({ ok: true, value: { ...secondSession, status: "closed" } });
@@ -3709,6 +3963,208 @@ describe("renderer status view", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("scheduled task parity", () => {
+  it("manages durable tasks while execution readiness is degraded", async () => {
+    const control = vi.fn<NativeApi["tasks"]["control"]>(async () => ({
+      ok: true,
+      value: {
+        scheduler: {
+          state: "unreachable",
+          hostedBy: "daemon",
+          reason: "daemon_unreachable",
+          lastHeartbeatAt: null,
+          checkCommand: "openminion service status cron",
+        },
+        tasks: [
+          {
+            id: "task-1",
+            title: "Review pull requests",
+            status: "active",
+            kind: "scheduled_recurring",
+            schedule: "every:1800000ms",
+            dueAt: "2026-09-30T12:00:00Z",
+            operatorState: "running",
+            resumeAction: "continue",
+            sessionTarget: "isolated",
+            validActions: ["pause", "cancel"],
+            recentRuns: [
+              {
+                runId: "run-2",
+                state: "failed",
+                summary: null,
+                attempts: 2,
+                dueAt: "2026-09-30T11:29:00Z",
+                availableAt: "2026-09-30T11:30:00Z",
+                startedAt: "2026-09-30T11:30:00Z",
+                finishedAt: "2026-09-30T11:31:00Z",
+                isolatedSessionId: "result-session-2",
+                error: {
+                  code: "PROVIDER_UNAVAILABLE",
+                  message: "Provider unavailable",
+                },
+                delivery: {
+                  state: "not_requested",
+                  mode: "none",
+                  targets: [],
+                  error: null,
+                },
+                deliveryTargets: [],
+              },
+              {
+                runId: "run-1",
+                state: "finished",
+                summary: "Two pull requests reviewed",
+                attempts: 1,
+                dueAt: "2026-09-30T10:59:00Z",
+                availableAt: "2026-09-30T11:00:00Z",
+                startedAt: "2026-09-30T11:00:00Z",
+                finishedAt: "2026-09-30T11:01:00Z",
+                isolatedSessionId: "result-session-1",
+                error: null,
+                delivery: {
+                  state: "failed",
+                  mode: "announce",
+                  targets: ["announce:last"],
+                  error: {
+                    code: "DELIVERY_FAILED",
+                    message: "Destination unavailable",
+                  },
+                },
+                deliveryTargets: [],
+              },
+            ],
+          },
+        ],
+        pendingActions: [
+          {
+            decisionId: "decision-1",
+            taskId: "task-1",
+            reason: "Write access required",
+            tool: "file.write",
+          },
+        ],
+      },
+    }));
+    const session = sessionSummary();
+    const stopped = status({ state: "stopped", reachable: false });
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: { status: async () => stopped, retry: async () => stopped },
+      sessions: {
+        list: async () => ({
+          ok: true,
+          value: { sessions: [session], nextCursor: null, hasMore: false },
+        }),
+        load: async () => ({
+          ok: true,
+          value: {
+            session,
+            messages: [],
+            nextMessageCursor: null,
+            messagesHasMore: false,
+          },
+        }),
+        events: async () => ({
+          ok: true,
+          value: { events: [], nextCursor: null, hasMore: false },
+        }),
+      },
+      tasks: { control },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/tasks";
+      page.element("composer").dispatch("input");
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenCalledWith({
+          sessionId: session.sessionId,
+          action: "list",
+        }),
+      );
+      const result = page.element("command-result");
+      const text = result.descendants().map((item) => item.textContent);
+      expect(text.join("\n")).toContain("Scheduler: unreachable");
+      expect(text.join("\n")).toContain("Saved schedules remain manageable");
+      expect(text).toEqual(
+        expect.arrayContaining([
+          "Details",
+          "Resolve this approval in Focus.",
+          expect.stringContaining("Result session: result-session-1"),
+          expect.stringContaining("Available: 2026-09-30T11:00:00Z"),
+          expect.stringContaining("Execution error: PROVIDER_UNAVAILABLE: Provider unavailable"),
+          expect.stringContaining("Delivery: failed"),
+          expect.stringContaining("Destination unavailable"),
+        ]),
+      );
+      result
+        .descendants()
+        .find((item) => item.textContent === "Details")!
+        .click();
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenCalledWith({
+          sessionId: session.sessionId,
+          action: "show",
+          taskId: "task-1",
+        }),
+      );
+      expect(text).not.toEqual(expect.arrayContaining(["Allow", "Deny"]));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not invent degraded scheduler state for a general task inventory", () => {
+    const page = new FixtureDocument();
+    const container = page.createElement("div");
+    renderTasks(
+      page.asDocument(),
+      container as unknown as HTMLElement,
+      { tasks: [], pendingActions: [], scheduler: null },
+      false,
+      vi.fn(),
+      vi.fn(),
+    );
+    const text = container
+      .descendants()
+      .map((item) => item.textContent)
+      .join("\n");
+    expect(text).not.toContain("Scheduler:");
+    expect(text).not.toContain("degraded");
+    expect(text).toContain("Schedule work");
+  });
+
+  it("keeps conversation copy distinct from scheduled task copy", () => {
+    const html = readFileSync(new URL("../../src/renderer/index.html", import.meta.url), "utf8");
+    const app = readFileSync(new URL("../../src/renderer/app.ts", import.meta.url), "utf8");
+    for (const text of [
+      "New task",
+      "Search tasks",
+      "Clear task search",
+      "Your tasks will appear here.",
+      "No matching tasks",
+      "Choose or create a task",
+      "Task actions",
+      "Close task",
+      "Task context",
+      "Artifacts from this task",
+      "Create or choose an open task",
+      "Send a message to start this task",
+      "Start a new task",
+    ]) {
+      expect(`${html}\n${app}`).not.toContain(text);
+    }
+    expect(html).toContain("New conversation");
+    expect(html).toContain("Search conversations");
+    expect(html).toContain('aria-label="Conversations"');
+    expect(html).toContain('aria-label="Conversation outputs"');
+    expect(`${html}\n${app}`).toContain("Scheduled work");
   });
 });
 
@@ -3956,7 +4412,9 @@ class FixtureDocument {
   );
 
   constructor() {
-    Object.defineProperty(this.defaultView.localStorage, "length", { get: () => this.names.size });
+    Object.defineProperty(this.defaultView.localStorage, "length", {
+      get: () => this.names.size,
+    });
     this.element("capture-source-kind").value = "display";
     this.element("capture-region-width").value = "100";
     this.element("capture-region-height").value = "100";

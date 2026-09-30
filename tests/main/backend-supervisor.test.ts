@@ -72,7 +72,10 @@ describe("DaemonSupervisor", () => {
       capabilities: [],
     });
     expect(supervisor.startAttempts).toBe(1);
-    expect(await supervisor.status()).toMatchObject({ state: "running", reachable: true });
+    expect(await supervisor.status()).toMatchObject({
+      state: "running",
+      reachable: true,
+    });
     expect(supervisor.getCommandContext()).toEqual({
       executable,
       args: [
@@ -85,7 +88,10 @@ describe("DaemonSupervisor", () => {
       ],
     });
     expect(await supervisor.stop()).toEqual({ stopped: true });
-    expect(supervisor.snapshot()).toMatchObject({ state: "stopped", reachable: false });
+    expect(supervisor.snapshot()).toMatchObject({
+      state: "stopped",
+      reachable: false,
+    });
 
     const openMinionCalls = calls.filter((call) => call.args.length > 1);
     expect(openMinionCalls.map((call) => call.args.slice(-3))).toContainEqual([
@@ -98,7 +104,17 @@ describe("DaemonSupervisor", () => {
     expect(config.runtime).toMatchObject({ ipc_host: "127.0.0.1" });
     expect(config.runtime.ipc_port).toBeGreaterThan(0);
     expect(config.runtime.ipc_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(supervisor.getCommandContext()).toBeNull();
+    expect(supervisor.getCommandContext()).toEqual({
+      executable,
+      args: [
+        "--home-root",
+        join(root, "home"),
+        "--data-root",
+        join(root, "data"),
+        "--config",
+        join(root, "agents.json"),
+      ],
+    });
     expect(calls.flatMap((call) => call.args)).not.toContain("desktop-bootstrap");
     expect(calls.flatMap((call) => call.args)).not.toContain("desktop-setup");
   });
@@ -231,8 +247,14 @@ describe("DaemonSupervisor", () => {
       spawnDaemon,
     });
 
-    expect(await supervisor.start()).toMatchObject({ state: "ready", reachable: true });
-    expect(await supervisor.status()).toMatchObject({ state: "ready", reachable: true });
+    expect(await supervisor.start()).toMatchObject({
+      state: "ready",
+      reachable: true,
+    });
+    expect(await supervisor.status()).toMatchObject({
+      state: "ready",
+      reachable: true,
+    });
     expect(spawnDaemon).not.toHaveBeenCalled();
     expect(await supervisor.stop()).toEqual({ stopped: false });
   });
@@ -245,7 +267,10 @@ describe("DaemonSupervisor", () => {
       if (args.at(-1) === "--json") return result(1, JSON.stringify({ reachable: false }));
       return result(1);
     });
-    const supervisor = new DaemonSupervisor({ openminionExecutable: executable, runCommand });
+    const supervisor = new DaemonSupervisor({
+      openminionExecutable: executable,
+      runCommand,
+    });
     expect(await supervisor.start()).toMatchObject({
       state: "degraded",
       errorCode: "daemon_ownership_unverified",
@@ -361,10 +386,16 @@ describe("DaemonSupervisor", () => {
       const save = vi.fn().mockResolvedValue({});
       const applied = await supervisor.applyProfiles(save);
       if (pidAlive) {
-        expect(applied).toMatchObject({ ok: false, error: { code: "runtime_external" } });
+        expect(applied).toMatchObject({
+          ok: false,
+          error: { code: "runtime_external" },
+        });
         expect(save).not.toHaveBeenCalled();
       } else {
-        expect(applied).toMatchObject({ ok: true, value: { daemon: { reachable: true } } });
+        expect(applied).toMatchObject({
+          ok: true,
+          value: { daemon: { reachable: true } },
+        });
         expect(save).toHaveBeenCalledOnce();
       }
       expect(daemon.kill).not.toHaveBeenCalled();
@@ -568,7 +599,9 @@ describe("DaemonSupervisor", () => {
         (_offer, controller) =>
           new Promise((_resolve, reject) => {
             signal = controller!;
-            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
           }),
       );
       const supervisor = new DaemonSupervisor({
@@ -659,7 +692,10 @@ describe("DaemonSupervisor", () => {
       error: { code: "runtime_shared_roots" },
     });
     await shared.stop(true);
-    const supervisor = new DaemonSupervisor({ ...options, exclusiveRuntime: true });
+    const supervisor = new DaemonSupervisor({
+      ...options,
+      exclusiveRuntime: true,
+    });
     await supervisor.start();
     await supervisor.checkRuntime();
     const candidate = {
@@ -695,7 +731,9 @@ describe("DaemonSupervisor", () => {
     stage.mockImplementation(
       (_offer, signal) =>
         new Promise((_resolve, reject) =>
-          signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }),
+          signal!.addEventListener("abort", () => reject(signal!.reason), {
+            once: true,
+          }),
         ),
     );
     const staging = cancelling.stageRuntime();
@@ -816,7 +854,10 @@ it.skipIf(!integrationExecutable)(
       reachable: true,
       daemonVersion: null,
     });
-    expect(await supervisor.status()).toMatchObject({ state: "ready", reachable: true });
+    expect(await supervisor.status()).toMatchObject({
+      state: "ready",
+      reachable: true,
+    });
     expect(await supervisor.stop()).toEqual({ stopped: true });
   },
   120_000,

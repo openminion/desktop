@@ -30,7 +30,15 @@ import type {
   TurnSubmitValue,
 } from "../shared/contracts.js";
 import type { ReportValue } from "../shared/reports.js";
-import type { RuntimeTask, TaskControlValue } from "../shared/tasks.js";
+import type {
+  PendingTaskAction,
+  RuntimeTask,
+  SchedulerReadiness,
+  TaskControlValue,
+  TaskDelivery,
+  TaskError,
+  TaskRun,
+} from "../shared/tasks.js";
 import { publicStatusText } from "./focus-status.js";
 import { type RunCommand, runCommand } from "./installation.js";
 import {
@@ -71,10 +79,81 @@ function runtimeTask(value: unknown): RuntimeTask {
     dueAt: optionalString(row.due_at ?? null),
     operatorState: optionalString(row.operator_state ?? null),
     resumeAction: optionalString(row.resume_action ?? null),
+    sessionTarget: optionalString(row.session_target ?? null),
     validActions: requireArray(row.valid_actions ?? []).filter(
       (action): action is "pause" | "resume" | "cancel" =>
         action === "pause" || action === "resume" || action === "cancel",
     ),
+    recentRuns: requireArray(row.recent_runs ?? []).map(runtimeTaskRun),
+  };
+}
+
+function taskError(value: unknown): TaskError | null {
+  if (value === null || value === undefined) return null;
+  const row = requireRecord(value);
+  return {
+    code: optionalString(row.code ?? null),
+    message: optionalString(row.message ?? null),
+  };
+}
+
+function taskDelivery(value: unknown): TaskDelivery | null {
+  if (value === null || value === undefined) return null;
+  const row = requireRecord(value);
+  return {
+    state: optionalString(row.state ?? null),
+    mode: optionalString(row.mode ?? null),
+    targets: requireArray(row.targets ?? []).map(requireString),
+    error: taskError(row.error),
+  };
+}
+
+function runtimeTaskRun(value: unknown): TaskRun {
+  const row = requireRecord(value);
+  const attempts = row.attempts;
+  return {
+    runId: requireString(row.run_id),
+    state: optionalString(row.state ?? null),
+    summary: optionalString(row.summary ?? null),
+    attempts: typeof attempts === "number" && Number.isFinite(attempts) ? attempts : null,
+    dueAt: optionalString(row.due_at ?? null),
+    availableAt: optionalString(row.available_at ?? null),
+    startedAt: optionalString(row.started_at ?? null),
+    finishedAt: optionalString(row.finished_at ?? null),
+    isolatedSessionId: optionalString(row.isolated_session_id ?? null),
+    error: taskError(row.error),
+    delivery: taskDelivery(row.delivery),
+    deliveryTargets: requireArray(row.delivery_targets ?? []).map(requireString),
+  };
+}
+
+function schedulerReadiness(value: unknown): SchedulerReadiness | null {
+  if (value === null || value === undefined) return null;
+  const row = requireRecord(value);
+  return {
+    state: requireString(row.state),
+    hostedBy: optionalString(row.hosted_by ?? null),
+    reason: optionalString(row.reason ?? null),
+    lastHeartbeatAt: optionalString(row.last_heartbeat_at ?? null),
+    checkCommand: optionalString(row.check_command ?? null),
+  };
+}
+
+function pendingTaskAction(value: unknown): PendingTaskAction {
+  const row = requireRecord(value);
+  return {
+    decisionId: requireString(row.decision_id),
+    taskId: optionalString(row.task_id ?? null),
+    reason: optionalString(row.reason ?? null),
+    tool: optionalString(row.tool ?? null),
+  };
+}
+
+function taskControlValue(payload: Record<string, unknown>, tasks: unknown[]): TaskControlValue {
+  return {
+    tasks: tasks.map(runtimeTask),
+    pendingActions: requireArray(payload.pending_actions ?? []).map(pendingTaskAction),
+    scheduler: schedulerReadiness(payload.scheduler),
   };
 }
 
@@ -368,7 +447,9 @@ export class CliClient {
         return { kind: "graph", text: result.stdout };
       }
       if (value.kind === "tokens") {
-        const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
+        const { sessionId } = validateLoadInput({
+          sessionId: value.sessionId,
+        } as SessionLoadInput);
         if (sessionId.startsWith("-") || sessionId.includes("\0"))
           throw protocolError("invalid_request", "Choose a saved conversation.");
         if (this.#drafts.has(sessionId)) return { kind: "tokens", text: "No active session." };
@@ -401,7 +482,10 @@ export class CliClient {
       if (sessionId.startsWith("-") || sessionId.includes("\0"))
         throw protocolError("invalid_request", "Choose a saved conversation.");
       if (this.#drafts.has(sessionId))
-        throw protocolError("session_not_found", "Send a message before exporting this task.");
+        throw protocolError(
+          "session_not_found",
+          "Send a message before exporting this conversation.",
+        );
       return this.#command(["export", "transcript", "--session-id", sessionId, "--format", "md"]);
     });
   }
@@ -415,7 +499,9 @@ export class CliClient {
         )
       )
         throw protocolError("invalid_request", "Choose a supported task operation.");
-      const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
+      const { sessionId } = validateLoadInput({
+        sessionId: value.sessionId,
+      } as SessionLoadInput);
       if (sessionId.startsWith("-") || sessionId.includes("\0"))
         throw protocolError("invalid_request", "Choose a saved conversation.");
       const action = requireString(value.action);
@@ -428,8 +514,7 @@ export class CliClient {
         );
       if (["list", "schedule"].includes(action) && value.taskId !== undefined)
         throw protocolError("invalid_request", "This operation does not take a task ID.");
-      const taskId =
-        action === "list" || action === "schedule" ? null : requireString(value.taskId);
+      const taskId = ["list", "schedule"].includes(action) ? null : requireString(value.taskId);
       if (
         taskId !== null &&
         (!taskId || taskId.startsWith("-") || /\s|\0/.test(taskId) || taskId.length > 512)
@@ -463,15 +548,19 @@ export class CliClient {
         const list = action === "list" || action === "schedule";
         const args = ["tasks", list ? "list" : action, ...(taskId ? [taskId] : []), ...scope];
         const payload = requireRecord(await this.#json(args));
-        if (payload.ok !== true)
+        if (payload.ok !== true) {
+          const detail =
+            payload.error && typeof payload.error === "object"
+              ? requireRecord(payload.error)
+              : null;
           throw protocolError(
-            "task_control_failed",
-            "OpenMinion did not complete this task operation.",
+            optionalString(payload.error_code ?? detail?.code ?? null) ?? "task_control_failed",
+            (typeof payload.error === "string" && payload.error) ||
+              optionalString(detail?.message ?? null) ||
+              "OpenMinion did not complete this task operation.",
           );
-        return {
-          tasks: (list ? requireArray(payload.tasks) : [payload.task]).map(runtimeTask),
-          pendingActions: list ? requireArray(payload.pending_actions).length : 0,
-        };
+        }
+        return taskControlValue(payload, list ? requireArray(payload.tasks) : [payload.task]);
       } catch (error) {
         if (scheduled)
           throw protocolError(
@@ -518,7 +607,7 @@ export class CliClient {
       const draft: DraftSession = {
         schemaVersion: 1,
         sessionId: randomUUID(),
-        title: value.title ?? "New task",
+        title: value.title ?? "New conversation",
         status: "idle",
         createdAt: now,
         updatedAt: now,
@@ -539,7 +628,12 @@ export class CliClient {
       const value = validateLoadInput(input);
       const draft = this.#drafts.get(value.sessionId);
       if (draft)
-        return { session: draft, messages: [], nextMessageCursor: "0", messagesHasMore: false };
+        return {
+          session: draft,
+          messages: [],
+          nextMessageCursor: "0",
+          messagesHasMore: false,
+        };
       const [details, records] = await Promise.all([
         this.#json(["sessions", "show", value.sessionId, "--json"]),
         this.#transcript(value.sessionId),
@@ -602,7 +696,7 @@ export class CliClient {
       if (this.#active.has(value.sessionId))
         throw protocolError(
           "session_turn_active",
-          "Finish or cancel the turn before closing this task.",
+          "Finish or cancel the turn before closing this conversation.",
         );
       const draft = this.#drafts.get(value.sessionId);
       if (draft) {
@@ -801,7 +895,10 @@ export class CliClient {
 
   validateSessionClose(input: SessionCloseInput): ClientResult<{ sessionId: string }> {
     try {
-      return { ok: true, value: { sessionId: validateCloseInput(input).sessionId } };
+      return {
+        ok: true,
+        value: { sessionId: validateCloseInput(input).sessionId },
+      };
     } catch (error) {
       return failureFrom(error);
     }
@@ -862,7 +959,17 @@ export class CliClient {
   }
 
   async #json(args: string[]): Promise<unknown> {
-    return JSON.parse(await this.#command(args));
+    const context = this.#requireContext();
+    const result = await this.#run(context.executable, [...context.args, ...args], 30_000);
+    try {
+      return JSON.parse(result.stdout);
+    } catch (error) {
+      if (result.exitCode === 0) throw error;
+      throw protocolError(
+        "cli_command_failed",
+        "OpenMinion could not complete this operation. Check the runtime connection and configuration.",
+      );
+    }
   }
 
   async #transcript(sessionId: string, events = false): Promise<TranscriptRecord[]> {
@@ -977,7 +1084,7 @@ export class CliClient {
         this.#active.delete(sessionId);
         const result = failure(
           "daemon_stream_failed",
-          "The OpenMinion stream ended unexpectedly. Reload the task before sending again.",
+          "The OpenMinion stream ended unexpectedly. Reload the conversation before sending again.",
           true,
         );
         if (active.identity) {

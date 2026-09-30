@@ -78,7 +78,7 @@ export const DESKTOP_COMMANDS = [
   { name: "/new", description: "Start a new session" },
   { name: "/sessions", description: "Pick a session" },
   { name: "/close", description: "Close the current session" },
-  { name: "/tasks", description: "Inspect and control OpenMinion work" },
+  { name: "/tasks", description: "Inspect and control tasks" },
   { name: "/agents", description: "List agents or find one by ID or name" },
   { name: "/tools", description: "Show available tools" },
   { name: "/mcp", description: "Show configured and exposed MCP servers" },
@@ -86,8 +86,14 @@ export const DESKTOP_COMMANDS = [
   { name: "/learning", description: "Show skill-learning proposals" },
   { name: "/tokens", description: "Show durable token usage details" },
   { name: "/export", description: "Export the saved conversation" },
-  { name: "/status", description: "Show connection, task, agent, and model" },
-  { name: "/model", description: "Show reported model (selection not connected yet)" },
+  {
+    name: "/status",
+    description: "Show connection, conversation, agent, and model",
+  },
+  {
+    name: "/model",
+    description: "Show reported model (selection not connected yet)",
+  },
   { name: "/copy", description: "Copy the latest reply" },
   { name: "/clear", description: "Clear the visible chat; keep saved history" },
   { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
@@ -107,6 +113,11 @@ export const DESKTOP_ALIASES: Record<string, string> = {
 
 export function commandMatches(text: string) {
   return DESKTOP_COMMANDS.filter((command) => command.name.startsWith(text.trim()));
+}
+
+function isTaskCommand(text: string): boolean {
+  const name = text.trim().split(/\s+/, 1)[0];
+  return (DESKTOP_ALIASES[name] ?? name) === "/tasks";
 }
 
 export type ArtifactView = {
@@ -304,7 +315,7 @@ export function initialChatState(): ChatState {
     active: false,
     startedAt: null,
     stopRequested: false,
-    label: "Choose or create a task to begin.",
+    label: "Choose or create a conversation to begin.",
     error: null,
     detail: "",
     lastUpdateAt: null,
@@ -521,7 +532,11 @@ export async function readArtifact(
     }
     const result = await api.artifacts.read(
       cursor === undefined
-        ? { sessionId: item.sessionId, artifactId: item.artifactId, limitBytes: 64 * 1024 }
+        ? {
+            sessionId: item.sessionId,
+            artifactId: item.artifactId,
+            limitBytes: 64 * 1024,
+          }
         : {
             sessionId: item.sessionId,
             artifactId: item.artifactId,
@@ -550,7 +565,11 @@ export async function readArtifact(
       }
     }
     if (result.value.complete) {
-      return { item, contentKind, text: contentKind === "unavailable" ? null : pages.join("") };
+      return {
+        item,
+        contentKind,
+        text: contentKind === "unavailable" ? null : pages.join(""),
+      };
     }
     const next = result.value.nextCursor;
     if (!next) {
@@ -600,7 +619,11 @@ export async function recoverSession(
       return cursorError("event");
     }
     eventCursors.add(eventCursor);
-    const page = await api.sessions.events({ sessionId, after: eventCursor, limit: 200 });
+    const page = await api.sessions.events({
+      sessionId,
+      after: eventCursor,
+      limit: 200,
+    });
     if (!page.ok) {
       return page.error;
     }
@@ -652,7 +675,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const savedNames = legacyReadFailed
     ? {
         ok: false as const,
-        error: { message: "Could not read existing chat names. Restart the app to try again." },
+        error: {
+          message: "Could not read existing chat names. Restart the app to try again.",
+        },
       }
     : await api.chatNames.load(legacyNames);
   const names = new Map(
@@ -670,7 +695,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   }
   const savedPresentation = await api.presentation.load();
   const taskName = (session: SessionSummaryV1): string =>
-    names.get(session.sessionId) || session.title || "Untitled task";
+    names.get(session.sessionId) || session.title || "Untitled conversation";
   let savingName = false;
   let renameGeneration = 0;
   let daemonReady = false;
@@ -1191,7 +1216,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const generation = selectionGeneration;
     attachmentPending = true;
     renderFiles();
-    const result = await api.files.release({ sessionId: grant.sessionId, grantId: grant.grantId });
+    const result = await api.files.release({
+      sessionId: grant.sessionId,
+      grantId: grant.grantId,
+    });
     attachmentPending = false;
     if (generation !== selectionGeneration || selected?.sessionId !== grant.sessionId) {
       renderChat();
@@ -1251,7 +1279,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     attachmentPending = false;
     if (generation !== selectionGeneration || selected?.sessionId !== sessionId) {
       if (result.ok && result.value.grant)
-        void api.files.release({ sessionId, grantId: result.value.grant.grantId });
+        void api.files.release({
+          sessionId,
+          grantId: result.value.grant.grantId,
+        });
       renderChat();
       return;
     }
@@ -1411,7 +1442,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.commandMenu.hidden = false;
     elements.showCommands.setAttribute("aria-expanded", "true");
     elements.composer.setAttribute("aria-activedescendant", `command-option-${commandIndex}`);
-    elements.commandMenu.children[commandIndex]?.scrollIntoView({ block: "nearest" });
+    elements.commandMenu.children[commandIndex]?.scrollIntoView({
+      block: "nearest",
+    });
   };
 
   let commandResultGeneration = 0;
@@ -1505,9 +1538,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.showDaemonLogs.addEventListener("click", () => void inspectDaemon("logs"));
 
   const runTasks = async (action: TaskAction, taskId?: string, schedule?: ScheduleInput) => {
-    if (!selected || !daemonReady || !api.tasks) {
-      if (schedule) return "Connect OpenMinion and choose a conversation first.";
-      showCommandResult("OpenMinion work", "Connect OpenMinion and choose a conversation first.");
+    if (!selected || !api.tasks) {
+      if (schedule) return "Choose a saved conversation first.";
+      showCommandResult("Tasks", "Choose a saved conversation first.");
       return;
     }
     if (chat.active && !["list", "show"].includes(action)) {
@@ -1518,7 +1551,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const sessionId = selected.sessionId;
     if (!schedule)
       showCommandResult(
-        "OpenMinion work",
+        "Tasks",
         action === "list" || action === "show" ? "Loading work…" : "Applying change…",
       );
     const request = commandResultGeneration;
@@ -1542,17 +1575,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         return;
       }
       if (schedule) return result.error.message;
-      showCommandResult("OpenMinion work", result.error.message);
+      showCommandResult("Tasks", result.error.message);
       return;
     }
     showCommandResult(
-      "OpenMinion work",
+      "Tasks",
       [
         result.value.tasks.length
-          ? "Work reported by OpenMinion for the current agent."
-          : "No work found.",
-        result.value.pendingActions
-          ? `${result.value.pendingActions} pending decisions. Resolve them in Focus/CLI; approval controls are not connected here yet.`
+          ? "Tasks reported by OpenMinion for the current agent."
+          : "No tasks found.",
+        result.value.scheduler
+          ? `Scheduler: ${result.value.scheduler.state}. ${
+              result.value.scheduler.state === "ready"
+                ? "Scheduled work is ready to run."
+                : "Saved schedules remain manageable, but execution readiness is degraded."
+            }`
+          : "",
+        result.value.pendingActions.length
+          ? `${result.value.pendingActions.length} pending approvals. Resolve them in Focus.`
           : "",
       ]
         .filter(Boolean)
@@ -1561,7 +1601,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderTasks(
       root,
       elements.commandResult,
-      result.value.tasks,
+      result.value,
       chat.active,
       (nextAction, id) => {
         if (selected?.sessionId === sessionId) void runTasks(nextAction, id);
@@ -1752,8 +1792,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const button = elements.newSession;
         if (!daemonReady || button.disabled)
           showCommandResult(
-            "Task unavailable",
-            "Connect OpenMinion and finish or cancel the active turn before changing this task.",
+            "Conversation unavailable",
+            "Connect OpenMinion and finish or cancel the active turn before changing this conversation.",
           );
         else button.click();
         break;
@@ -1768,10 +1808,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         break;
       case "/sessions":
         showCommandResult(
-          "Choose a task",
+          "Choose a conversation",
           sessions.length
             ? "Resume a saved conversation."
-            : "No saved tasks. Connect OpenMinion and create a new task.",
+            : "No saved conversations. Connect OpenMinion and create a new conversation.",
         );
         for (const session of sessions) {
           const button = root.createElement("button");
@@ -1788,10 +1828,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       case "/status":
       case "/model":
         showCommandResult(
-          command === "/model" ? "Configured model" : "Task status",
+          command === "/model" ? "Configured model" : "Conversation status",
           [
             elements.connectionLabel.textContent,
-            `Task: ${selected ? taskName(selected) : "No task selected"}`,
+            `Conversation: ${selected ? taskName(selected) : "No conversation selected"}`,
             `Session: ${selected?.sessionId ?? "None"}`,
             `Agent: ${selected?.activeAgentId ?? "Not reported"}`,
             `Provider: ${selected?.model.provider ?? "Not reported"}`,
@@ -1827,7 +1867,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           activity = [];
           showCommandResult(
             "Chat cleared",
-            "Saved history is unchanged. Select the task again to restore it.",
+            "Saved history is unchanged. Select the conversation again to restore it.",
           );
         }
         break;
@@ -1901,16 +1941,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       elements.composer.value.trimStart().startsWith("/") &&
       !elements.composer.value.trimStart().startsWith("//");
     elements.send.disabled =
-      connecting ||
       creatingTask ||
-      (!isCommand &&
-        (!daemonReady ||
+      (isCommand
+        ? connecting && !isTaskCommand(elements.composer.value)
+        : connecting ||
+          !daemonReady ||
           selected?.status === "closed" ||
           conversationLoading ||
           chat.active ||
           attachmentPending ||
           !elements.composer.value.trim() ||
-          !attachmentsValid));
+          !attachmentsValid);
     elements.cancel.hidden = !chat.active;
     elements.cancel.disabled = !chat.active || !chat.traceId || chat.stopRequested;
     elements.cancel.title = chat.stopRequested ? "Waiting for OpenMinion to stop" : "Stop response";
@@ -1925,7 +1966,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       : !daemonReady
         ? "Connect OpenMinion to send this draft"
         : selected?.status === "closed"
-          ? "Create or choose an open task to send"
+          ? "Create or choose an open conversation to send"
           : conversationLoading
             ? "Waiting for conversation history"
             : "Send message (Enter)";
@@ -1939,7 +1980,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       !richContextReady || !writable || chat.active || attachmentPending || attachments.length >= 4;
     elements.attachFile.disabled = elements.attachImage.disabled;
     elements.renameSession.disabled = !selected;
-    elements.currentTitle.textContent = selected ? taskName(selected) : "New task";
+    elements.currentTitle.textContent = selected ? taskName(selected) : "New conversation";
     elements.currentTitle.title = elements.currentTitle.textContent;
     renderAttachments(root, elements.attachments, attachments, (mediaId) => {
       const attachment = attachments.find((item) => item.mediaId === mediaId);
@@ -2046,7 +2087,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.clearSessionSearch.hidden = elements.sessionSearch.value.length === 0;
     elements.sessionSearchCount.hidden = !query;
     elements.sessionSearchCount.textContent = query
-      ? `${visible.length} of ${sessions.length} tasks`
+      ? `${visible.length} of ${sessions.length} conversations`
       : "";
     sessionSpinners.clear();
     renderSessions(
@@ -2061,8 +2102,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         if (next) void selectSession(next);
       },
       sessions.length && query
-        ? "No matching tasks. Try another name or session ID."
-        : "Your tasks will appear here.",
+        ? "No matching conversations. Try another name or session ID."
+        : "Your conversations will appear here.",
     );
 
     updateSessionActivity();
@@ -2181,7 +2222,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       sessionId: recovered.session.sessionId,
       terminalTraceId,
       label: recovered.session.isDraft
-        ? "Send a message to start this task."
+        ? "Send a message to start this conversation."
         : terminalLabel(recovered.events),
       ...(terminalState ? { label: terminalState.label, error: terminalState.error } : {}),
     };
@@ -2299,7 +2340,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.unpinRuntime.addEventListener("click", () => void controlRuntime({ action: "unpin" }));
   elements.pinRuntimeVersion.addEventListener(
     "click",
-    () => void controlRuntime({ action: "pin", version: elements.runtimePinVersion.value.trim() }),
+    () =>
+      void controlRuntime({
+        action: "pin",
+        version: elements.runtimePinVersion.value.trim(),
+      }),
   );
   let runtimeStatusTimer: ReturnType<typeof setInterval> | null = null;
   let runtimeStatusLoading = false;
@@ -2342,7 +2387,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (!selected) {
       chat = {
         ...chat,
-        label: daemonReady ? "Send a message to start a new task." : "",
+        label: daemonReady ? "Send a message to start a new conversation." : "",
       };
     }
     elements.statusDot.className = `status-dot ${view.tone}`;
@@ -2367,9 +2412,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       status = await api.daemon.retry();
       renderStatus(status);
     }
-    if (daemonReady) {
-      await loadSessions();
-    }
+    if (api.sessions) await loadSessions();
     await profiles?.checkSetup();
     renderRuntimeUpdate(await api.runtime.status());
   };
@@ -2523,7 +2566,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     creatingTask = true;
     renderChat();
-    const result = await api.sessions.create({ title: "New task" });
+    const result = await api.sessions.create({ title: "New conversation" });
     if (!result.ok) {
       creatingTask = false;
       showError(result.error);
@@ -2560,7 +2603,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const generation = renameGeneration;
     savingName = true;
     elements.renameError.textContent = "Saving…";
-    const result = await api.chatNames.save({ sessionId: session.sessionId, title: name });
+    const result = await api.chatNames.save({
+      sessionId: session.sessionId,
+      title: name,
+    });
     savingName = false;
     if (result.ok) {
       if (name === null) names.delete(session.sessionId);
@@ -2627,14 +2673,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     artifactLabel = "This session is closed.";
     fileLabel = "This session is closed.";
     renderSessionList();
-    chat = { ...chat, label: "Task closed. Start a new task to continue." };
+    chat = {
+      ...chat,
+      label: "Conversation closed. Start a new conversation to continue.",
+    };
     renderChat();
     renderArtifacts();
     renderFiles();
     renderCapture();
   });
   const submitTurn = async (asGuidance: boolean) => {
-    if (connecting) return;
+    if (connecting && (asGuidance || !isTaskCommand(elements.composer.value))) return;
     if (!asGuidance && (await runCommand(elements.composer.value))) return;
     if (
       !daemonReady ||
@@ -2979,7 +3028,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     const sessionId = selected.sessionId;
     const traceId = chat.traceId;
-    chat = { ...chat, stopRequested: true, label: "Requesting stop…", error: null };
+    chat = {
+      ...chat,
+      stopRequested: true,
+      label: "Requesting stop…",
+      error: null,
+    };
     const live = liveTurns.get(sessionId);
     if (live) live.state = chat;
     renderChat();
@@ -3467,7 +3521,10 @@ function releaseAttachments(api: NativeApi, attachments: MediaAttachmentV1[]): v
 function releaseFileGrants(api: NativeApi, grants: FileGrantV1[]): void {
   if (!api.files) return;
   for (const grant of grants) {
-    void api.files.release({ sessionId: grant.sessionId, grantId: grant.grantId });
+    void api.files.release({
+      sessionId: grant.sessionId,
+      grantId: grant.grantId,
+    });
   }
 }
 
@@ -3523,7 +3580,11 @@ export function messageTime(createdAt?: string): string {
   if (!createdAt) return "";
   const date = new Date(createdAt);
   if (!Number.isFinite(date.getTime())) return "";
-  return date.toLocaleString(undefined, { weekday: "long", hour: "numeric", minute: "2-digit" });
+  return date.toLocaleString(undefined, {
+    weekday: "long",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function renderTimeline(
@@ -3898,7 +3959,7 @@ function terminalLabel(events: SessionEventV1[]): string {
   if (last.state === "completed") return "";
   if (last.state === "cancelled") return "Stopped.";
   if (last.state === "failed") return "Something went wrong. Check the reply before trying again.";
-  return "This task may still be running. Check its status before sending again.";
+  return "This conversation may still be running. Check its status before sending again.";
 }
 
 function required(root: Document, id: string): HTMLElement {

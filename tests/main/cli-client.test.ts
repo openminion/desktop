@@ -15,7 +15,10 @@ afterEach(async () => {
 describe("PyPI CLI client", () => {
   it("reads authenticated inventories and excludes private discovery fields", async () => {
     const fixture = await executableFixture();
-    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
     expect(await client.readReport({ kind: "agents" })).toEqual({
       ok: true,
       value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
@@ -74,14 +77,24 @@ describe("PyPI CLI client", () => {
         ].join("\n"),
       },
     });
-    expect(await client.readReport({ kind: "learning", proposalId: "proposal-1" })).toMatchObject({
+    expect(
+      await client.readReport({
+        kind: "learning",
+        proposalId: "proposal-1",
+      }),
+    ).toMatchObject({
       ok: true,
       value: {
         kind: "learning",
         text: expect.stringContaining("Learning proposal: proposal-1"),
       },
     });
-    expect(await client.readReport({ kind: "learning", proposalId: "../private" })).toMatchObject({
+    expect(
+      await client.readReport({
+        kind: "learning",
+        proposalId: "../private",
+      }),
+    ).toMatchObject({
       ok: false,
       error: { code: "invalid_request" },
     });
@@ -103,17 +116,24 @@ describe("PyPI CLI client", () => {
     expect(await client.readReport({ kind: "agents", path: "/v1/private" })).toMatchObject({
       ok: false,
     });
-    expect(await client.readReport({ kind: "arbitrary" })).toMatchObject({ ok: false });
+    expect(await client.readReport({ kind: "arbitrary" })).toMatchObject({
+      ok: false,
+    });
     expect(fixture.requests).toHaveLength(10);
     expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
   });
 
   it("uses canonical token formatting and transcript export without renderer paths", async () => {
-    const run = vi
-      .fn()
-      .mockResolvedValue({ exitCode: 0, stdout: "Canonical report\n", stderr: "" });
+    const run = vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stdout: "Canonical report\n",
+      stderr: "",
+    });
     const client = new CliClient(
-      () => ({ executable: "openminion", args: ["--config", "/private/config"] }),
+      () => ({
+        executable: "openminion",
+        args: ["--config", "/private/config"],
+      }),
       run,
     );
     expect(await client.readReport({ kind: "tokens", sessionId: "session-1" })).toEqual({
@@ -148,9 +168,14 @@ describe("PyPI CLI client", () => {
       "md",
     ]);
     expect(
-      await client.exportTranscript({ sessionId: "session-1", path: "/private/file" }),
+      await client.exportTranscript({
+        sessionId: "session-1",
+        path: "/private/file",
+      }),
     ).toMatchObject({ ok: false });
-    expect(await client.readReport({ kind: "tokens" })).toMatchObject({ ok: false });
+    expect(await client.readReport({ kind: "tokens" })).toMatchObject({
+      ok: false,
+    });
     expect(await client.readReport({ kind: "tokens", sessionId: "--help" })).toMatchObject({
       ok: false,
     });
@@ -162,9 +187,16 @@ describe("PyPI CLI client", () => {
       ok: false,
     });
     expect(
-      await client.readReport({ kind: "tokens", sessionId: draft.value.sessionId }),
+      await client.readReport({
+        kind: "tokens",
+        sessionId: draft.value.sessionId,
+      }),
     ).toMatchObject({ ok: true, value: { text: "No active session." } });
-    run.mockResolvedValue({ exitCode: 2, stdout: "", stderr: "private diagnostic" });
+    run.mockResolvedValue({
+      exitCode: 2,
+      stdout: "",
+      stderr: "private diagnostic",
+    });
     expect(await client.readReport({ kind: "tokens", sessionId: "session-1" })).toMatchObject({
       ok: false,
       error: { code: "token_report_unavailable" },
@@ -180,20 +212,85 @@ describe("PyPI CLI client", () => {
       stderr: "",
       stdout: JSON.stringify({
         ok: true,
+        scheduler: {
+          state: "unreachable",
+          hosted_by: "daemon",
+          reason: "daemon_unreachable",
+          check_command: "openminion service status cron",
+        },
         tasks: [
           {
             id: "work-1",
             title: "Scheduled work",
             lifecycle_state: "PAUSED",
-            valid_actions: ["resume", "cancel", "allow"],
+            session_target: "isolated",
+            valid_actions: ["resume", "cancel"],
+            recent_runs: [
+              {
+                run_id: "run-2",
+                state: "failed",
+                summary: null,
+                attempts: 2,
+                due_at: "2026-09-30T10:59:00Z",
+                available_at: "2026-09-30T11:00:00Z",
+                started_at: "2026-09-30T11:00:00Z",
+                finished_at: "2026-09-30T11:01:00Z",
+                isolated_session_id: "result-session-2",
+                error: {
+                  code: "PROVIDER_UNAVAILABLE",
+                  message: "Provider unavailable",
+                },
+                delivery: {
+                  state: "not_requested",
+                  mode: "none",
+                  targets: [],
+                  error: null,
+                },
+                delivery_targets: [],
+              },
+              {
+                run_id: "run-1",
+                state: "finished",
+                summary: "Review complete",
+                attempts: 1,
+                due_at: "2026-09-30T09:59:00Z",
+                available_at: "2026-09-30T10:00:00Z",
+                started_at: "2026-09-30T10:00:00Z",
+                finished_at: "2026-09-30T10:01:00Z",
+                isolated_session_id: "result-session-1",
+                error: null,
+                delivery: {
+                  state: "failed",
+                  mode: "announce",
+                  targets: ["announce:last"],
+                  error: {
+                    code: "DELIVERY_FAILED",
+                    message: "Destination unavailable",
+                  },
+                },
+                delivery_targets: [],
+                credential: "never-return-this",
+              },
+            ],
             credential: "never-return-this",
           },
         ],
-        pending_actions: [],
+        pending_actions: [
+          {
+            decision_id: "decision-1",
+            task_id: "work-1",
+            reason: "Write access required",
+            tool: "file.write",
+            credential: "never-return-this",
+          },
+        ],
       }),
     });
     const client = new CliClient(
-      () => ({ executable: "/managed/openminion", args: ["--config", "/private/config.json"] }),
+      () => ({
+        executable: "/managed/openminion",
+        args: ["--config", "/private/config.json"],
+      }),
       run,
     );
     const created = await client.create({ agentId: "writer" });
@@ -202,7 +299,55 @@ describe("PyPI CLI client", () => {
     const inventory = await client.controlTasks({ sessionId, action: "list" });
     expect(inventory).toMatchObject({
       ok: true,
-      value: { tasks: [{ id: "work-1", status: "PAUSED", validActions: ["resume", "cancel"] }] },
+      value: {
+        scheduler: {
+          state: "unreachable",
+          reason: "daemon_unreachable",
+          checkCommand: "openminion service status cron",
+        },
+        tasks: [
+          {
+            id: "work-1",
+            status: "PAUSED",
+            sessionTarget: "isolated",
+            validActions: ["resume", "cancel"],
+            recentRuns: [
+              {
+                runId: "run-2",
+                state: "failed",
+                dueAt: "2026-09-30T10:59:00Z",
+                availableAt: "2026-09-30T11:00:00Z",
+                error: {
+                  code: "PROVIDER_UNAVAILABLE",
+                  message: "Provider unavailable",
+                },
+                delivery: { state: "not_requested" },
+              },
+              {
+                runId: "run-1",
+                state: "finished",
+                summary: "Review complete",
+                isolatedSessionId: "result-session-1",
+                delivery: {
+                  state: "failed",
+                  error: {
+                    code: "DELIVERY_FAILED",
+                    message: "Destination unavailable",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+        pendingActions: [
+          {
+            decisionId: "decision-1",
+            taskId: "work-1",
+            reason: "Write access required",
+            tool: "file.write",
+          },
+        ],
+      },
     });
     expect(JSON.stringify(inventory)).not.toContain("never-return-this");
     expect(run).toHaveBeenLastCalledWith(
@@ -225,19 +370,47 @@ describe("PyPI CLI client", () => {
       stderr: "",
       stdout: JSON.stringify({
         ok: true,
-        task: { id: "work-1", status: "ACTIVE", valid_actions: ["pause", "cancel"] },
+        task: {
+          id: "work-1",
+          status: "ACTIVE",
+          valid_actions: ["pause", "cancel"],
+        },
       }),
     });
     expect(
-      await client.controlTasks({ sessionId, action: "resume", taskId: "work-1" }),
+      await client.controlTasks({
+        sessionId,
+        action: "resume",
+        taskId: "work-1",
+      }),
     ).toMatchObject({ ok: true, value: { tasks: [{ status: "ACTIVE" }] } });
     expect(run.mock.calls.at(-1)?.[1]).toContain("resume");
+    run.mockResolvedValueOnce({
+      exitCode: 1,
+      stderr: "private detail",
+      stdout:
+        '{"ok":false,"error_code":"TASK_RESUME_EXPIRED_ONE_SHOT","error":"Expired one-time tasks cannot resume."}',
+    });
+    const expired = await client.controlTasks({
+      sessionId,
+      action: "resume",
+      taskId: "work-1",
+    });
+    expect(expired).toMatchObject({
+      ok: false,
+      error: {
+        code: "TASK_RESUME_EXPIRED_ONE_SHOT",
+        message: "Expired one-time tasks cannot resume.",
+      },
+    });
+    expect(JSON.stringify(expired)).not.toContain("private detail");
     const calls = run.mock.calls.length;
     for (const input of [
       { sessionId, action: "delete", taskId: "work-1" },
       { sessionId, action: "resume", taskId: "--help" },
       { sessionId, action: "pause", taskId: "" },
       { sessionId, action: "cancel", taskId: "a\nb" },
+      { sessionId, action: "allow", decisionId: "decision-1" },
       { sessionId, action: "list", args: ["--config", "/other"] },
     ])
       expect(await client.controlTasks(input)).toMatchObject({ ok: false });
@@ -255,7 +428,11 @@ describe("PyPI CLI client", () => {
       ["every", "5", ["--every-ms=300000"]],
       ["cron", "0 9 * * 1-5", ["--cron=0 9 * * 1-5", "--tz=America/Los_Angeles"]],
     ] as const) {
-      run.mockResolvedValueOnce({ exitCode: 0, stdout: '{"ok":true}', stderr: "" });
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: '{"ok":true}',
+        stderr: "",
+      });
       run.mockResolvedValueOnce({
         exitCode: 0,
         stdout: '{"ok":true,"tasks":[{"id":"scheduled-1"}],"pending_actions":[]}',
@@ -272,7 +449,10 @@ describe("PyPI CLI client", () => {
           timezone: "America/Los_Angeles",
         },
       });
-      expect(result).toMatchObject({ ok: true, value: { tasks: [{ id: "scheduled-1" }] } });
+      expect(result).toMatchObject({
+        ok: true,
+        value: { tasks: [{ id: "scheduled-1" }] },
+      });
       expect(run.mock.calls.at(-2)?.[1]).toEqual([
         "schedule",
         "create",
@@ -295,6 +475,45 @@ describe("PyPI CLI client", () => {
         "writer",
       ]);
     }
+  });
+
+  it("loads saved CLI task scope without consulting the daemon", async () => {
+    const run = vi.fn(async (_executable: string, args: readonly string[]) => {
+      if (args[0] === "sessions" && args[1] === "show")
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: JSON.stringify({
+            id: "saved-session",
+            status: "idle",
+            metadata: { name: "Saved conversation" },
+            created_at: "2026-09-30T09:00:00Z",
+            updated_at: "2026-09-30T09:00:00Z",
+            agent: "writer",
+          }),
+        };
+      if (args[0] === "export") return { exitCode: 0, stderr: "", stdout: "" };
+      if (args[0] === "tasks" && args[1] === "list")
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: JSON.stringify({
+            ok: true,
+            tasks: [{ id: "task-1", valid_actions: [] }],
+            pending_actions: [],
+            scheduler: { state: "unreachable", hosted_by: "daemon" },
+          }),
+        };
+      throw new Error(`unexpected command: ${args.join(" ")}`);
+    });
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    expect(await client.controlTasks({ sessionId: "saved-session", action: "list" })).toMatchObject(
+      {
+        ok: true,
+        value: { scheduler: { state: "unreachable" }, tasks: [{ id: "task-1" }] },
+      },
+    );
+    expect(run.mock.calls.some(([, args]) => args[0] === "daemon")).toBe(false);
   });
 
   it("rejects malformed schedule inputs and reports a created schedule when readback fails", async () => {
@@ -330,14 +549,31 @@ describe("PyPI CLI client", () => {
         }),
       ).toMatchObject({ ok: false });
     expect(
-      await client.controlTasks({ sessionId, action: "schedule", taskId: "unrelated", schedule }),
+      await client.controlTasks({
+        sessionId,
+        action: "schedule",
+        taskId: "unrelated",
+        schedule,
+      }),
     ).toMatchObject({ ok: false });
     expect(
-      await client.controlTasks({ sessionId: "--help", action: "schedule", schedule }),
+      await client.controlTasks({
+        sessionId: "--help",
+        action: "schedule",
+        schedule,
+      }),
     ).toMatchObject({ ok: false });
     expect(run).not.toHaveBeenCalled();
-    run.mockResolvedValueOnce({ exitCode: 0, stdout: '{"ok":true}', stderr: "" });
-    run.mockResolvedValueOnce({ exitCode: 1, stdout: "", stderr: "private detail" });
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: '{"ok":true}',
+      stderr: "",
+    });
+    run.mockResolvedValueOnce({
+      exitCode: 1,
+      stdout: "",
+      stderr: "private detail",
+    });
     expect(await client.controlTasks({ sessionId, action: "schedule", schedule })).toMatchObject({
       ok: false,
       error: {
@@ -361,7 +597,11 @@ describe("PyPI CLI client", () => {
     const created = await client.create({});
     if (!created.ok) throw new Error("Draft not created");
     const sessionId = created.value.sessionId;
-    const pending = client.controlTasks({ sessionId, action: "pause", taskId: "work-1" });
+    const pending = client.controlTasks({
+      sessionId,
+      action: "pause",
+      taskId: "work-1",
+    });
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
     expect(client.beginConfiguration()).toBe(false);
     expect(await client.submit({ sessionId, message: "hello" }, vi.fn())).toMatchObject({
@@ -369,11 +609,18 @@ describe("PyPI CLI client", () => {
       error: { code: "task_control_busy" },
     });
     expect(
-      await client.controlTasks({ sessionId, action: "cancel", taskId: "work-1" }),
+      await client.controlTasks({
+        sessionId,
+        action: "cancel",
+        taskId: "work-1",
+      }),
     ).toMatchObject({ ok: false });
     finish({ exitCode: 1, stdout: "", stderr: "private diagnostic" });
     const rejected = await pending;
-    expect(rejected).toMatchObject({ ok: false, error: { code: "cli_command_failed" } });
+    expect(rejected).toMatchObject({
+      ok: false,
+      error: { code: "cli_command_failed" },
+    });
     expect(JSON.stringify(rejected)).not.toContain("private diagnostic");
     expect(client.beginConfiguration()).toBe(true);
     client.endConfiguration();
@@ -417,7 +664,11 @@ describe("PyPI CLI client", () => {
         );
         expect(submitted).toMatchObject({ ok: true });
         await vi.waitFor(
-          () => expect(events.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+          () =>
+            expect(events.at(-1)).toMatchObject({
+              kind: "done",
+              outcome: "complete",
+            }),
           { timeout: 30_000 },
         );
         expect(events).toContainEqual(
@@ -449,7 +700,11 @@ describe("PyPI CLI client", () => {
           ),
         ).toMatchObject({ ok: true });
         await vi.waitFor(
-          () => expect(followup.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+          () =>
+            expect(followup.at(-1)).toMatchObject({
+              kind: "done",
+              outcome: "complete",
+            }),
           { timeout: 30_000 },
         );
         const continued = await restarted.load({ sessionId });
@@ -472,10 +727,16 @@ describe("PyPI CLI client", () => {
     const run = vi.fn();
     const client = new CliClient(() => ({ executable: "/managed/openminion", args: [] }), run);
     const created = await client.create({ title: "Draft" });
-    expect(created).toMatchObject({ ok: true, value: { isDraft: true, title: "Draft" } });
+    expect(created).toMatchObject({
+      ok: true,
+      value: { isDraft: true, title: "Draft" },
+    });
     if (!created.ok) throw new Error("Draft not created");
     const sessionId = created.value.sessionId;
-    expect(await client.load({ sessionId })).toMatchObject({ ok: true, value: { messages: [] } });
+    expect(await client.load({ sessionId })).toMatchObject({
+      ok: true,
+      value: { messages: [] },
+    });
     expect(
       await client.submit(
         { sessionId, message: "message", attachmentIds: ["a".repeat(48)] },
@@ -523,7 +784,10 @@ describe("PyPI CLI client", () => {
       if (command.startsWith("sessions list"))
         value = [{ id: "saved", name: "", status: "active", agent: "writer" }];
       else if (command.startsWith("sessions show"))
-        value = { ...session("saved"), turn_usage_display: "input_output_calls" };
+        value = {
+          ...session("saved"),
+          turn_usage_display: "input_output_calls",
+        };
       else {
         return {
           exitCode: 0,
@@ -573,7 +837,10 @@ describe("PyPI CLI client", () => {
                 const { stats, ...record } = row;
                 return JSON.stringify({
                   ...record,
-                  metadata: { ...row.metadata, run_stats_json: JSON.stringify(stats) },
+                  metadata: {
+                    ...row.metadata,
+                    run_stats_json: JSON.stringify(stats),
+                  },
                 });
               }
               return JSON.stringify(row);
@@ -592,7 +859,9 @@ describe("PyPI CLI client", () => {
     );
     expect(await client.list({})).toMatchObject({
       ok: true,
-      value: { sessions: [{ sessionId: "saved", title: null, activeAgentId: "writer" }] },
+      value: {
+        sessions: [{ sessionId: "saved", title: null, activeAgentId: "writer" }],
+      },
     });
     expect(await client.load({ sessionId: "saved", messageLimit: 1 })).toMatchObject({
       ok: true,
@@ -604,7 +873,11 @@ describe("PyPI CLI client", () => {
       },
     });
     expect(
-      await client.load({ sessionId: "saved", messageAfter: "1", messageLimit: 1 }),
+      await client.load({
+        sessionId: "saved",
+        messageAfter: "1",
+        messageLimit: 1,
+      }),
     ).toMatchObject({
       ok: true,
       value: {
@@ -622,7 +895,13 @@ describe("PyPI CLI client", () => {
     expect(events).toMatchObject({
       ok: true,
       value: {
-        events: [{ traceId: "trace", state: "completed", facts: { agent_id: "writer" } }],
+        events: [
+          {
+            traceId: "trace",
+            state: "completed",
+            facts: { agent_id: "writer" },
+          },
+        ],
       },
     });
     expect(JSON.stringify(events)).not.toContain("private");
@@ -640,7 +919,10 @@ describe("PyPI CLI client", () => {
   it("streams through the authenticated API and acknowledges displayed replies", async () => {
     const fixture = await executableFixture();
     const events: TurnEventV1[] = [];
-    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
     const created = await client.create({});
     if (!created.ok) throw new Error("Draft not created");
     const sessionId = created.value.sessionId;
@@ -650,10 +932,17 @@ describe("PyPI CLI client", () => {
     );
     expect(submit).toMatchObject({ ok: true, value: { sessionId } });
     await vi.waitFor(() =>
-      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+      expect(events.at(-1)).toMatchObject({
+        kind: "done",
+        outcome: "complete",
+      }),
     );
     expect(events).toContainEqual(
-      expect.objectContaining({ kind: "progress", progressKind: "text", text: "Reply" }),
+      expect.objectContaining({
+        kind: "progress",
+        progressKind: "text",
+        text: "Reply",
+      }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({ kind: "response", finalText: "Reply" }),
@@ -681,7 +970,10 @@ describe("PyPI CLI client", () => {
 
   it("preserves the saved agent and surfaces canonical stream errors", async () => {
     const fixture = await executableFixture("error");
-    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
     const events: TurnEventV1[] = [];
     expect(
       await client.submit({ sessionId: "saved", message: "Follow up" }, (event) =>
@@ -692,7 +984,10 @@ describe("PyPI CLI client", () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         kind: "error",
-        error: expect.objectContaining({ code: "turn_failed", message: "Canonical failure" }),
+        error: expect.objectContaining({
+          code: "turn_failed",
+          message: "Canonical failure",
+        }),
       }),
     );
     expect(fixture.requests[0]?.body.agent_id).toBe("writer");
@@ -703,7 +998,10 @@ describe("PyPI CLI client", () => {
 
   it("rejects cross-session stream identity and never exposes child stderr", async () => {
     const fixture = await executableFixture("wrong-session");
-    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
     const created = await client.create({});
     if (!created.ok) throw new Error("Draft not created");
     const emit = vi.fn();
@@ -711,19 +1009,27 @@ describe("PyPI CLI client", () => {
       { sessionId: created.value.sessionId, message: "hello" },
       emit,
     );
-    expect(result).toMatchObject({ ok: false, error: { code: "daemon_stream_failed" } });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "daemon_stream_failed" },
+    });
     expect(emit).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain("private-stderr");
     expect(await client.load({ sessionId: created.value.sessionId })).toMatchObject({
       ok: true,
       value: { session: { isDraft: true } },
     });
-    expect(await client.submit(null as never, emit)).toMatchObject({ ok: false });
+    expect(await client.submit(null as never, emit)).toMatchObject({
+      ok: false,
+    });
   });
 
   it("cancels through the ordinary authenticated daemon endpoint and fences duplicate sends", async () => {
     const fixture = await executableFixture("wait");
-    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
     const created = await client.create({});
     if (!created.ok) throw new Error("Draft not created");
     const sessionId = created.value.sessionId;
@@ -745,21 +1051,33 @@ describe("PyPI CLI client", () => {
       value: { state: "requested", terminal: false },
     });
     await vi.waitFor(() =>
-      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: "cancelled" }),
+      expect(events.at(-1)).toMatchObject({
+        kind: "done",
+        outcome: "cancelled",
+      }),
     );
   });
 });
 
 const now = "2026-09-08T00:00:00Z";
 function session(id: string) {
-  return { id, status: "active", agent: "writer", metadata: {}, created_at: now, updated_at: now };
+  return {
+    id,
+    status: "active",
+    agent: "writer",
+    metadata: {},
+    created_at: now,
+    updated_at: now,
+  };
 }
 
 async function executableFixture(mode = "normal") {
   const root = await mkdtemp(join(tmpdir(), "desktop-cli-test-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
-  const requests: Array<{ body: Record<string, unknown>; token: string | string[] | undefined }> =
-    [];
+  const requests: Array<{
+    body: Record<string, unknown>;
+    token: string | string[] | undefined;
+  }> = [];
   let complete: ((cancelled: boolean) => void) | null = null;
   let traceId = "";
   const server = createServer((req, res) => {
@@ -771,7 +1089,13 @@ async function executableFixture(mode = "normal") {
           req.url === "/v1/agents"
             ? {
                 ok: true,
-                agents: [{ agent_id: "writer", display_name: "Writer", secret: "private" }],
+                agents: [
+                  {
+                    agent_id: "writer",
+                    display_name: "Writer",
+                    secret: "private",
+                  },
+                ],
               }
             : req.url === "/v1/runtime/capabilities?agent_id=writer"
               ? {
@@ -789,7 +1113,10 @@ async function executableFixture(mode = "normal") {
                   },
                 }
               : req.url === "/v1/skills"
-                ? { ok: true, skills: [{ skill_id: "example", private: "private" }] }
+                ? {
+                    ok: true,
+                    skills: [{ skill_id: "example", private: "private" }],
+                  }
                 : req.url === "/v1/skills/example"
                   ? {
                       ok: true,
@@ -822,7 +1149,10 @@ async function executableFixture(mode = "normal") {
                       ? {
                           ok: true,
                           suggestions: [
-                            { proposal_id: "proposal-1", display_name: "Inventory Workflow" },
+                            {
+                              proposal_id: "proposal-1",
+                              display_name: "Inventory Workflow",
+                            },
                           ],
                         }
                       : req.url === "/v1/skills/proposals/proposal-1"
@@ -843,7 +1173,11 @@ async function executableFixture(mode = "normal") {
                         : {
                             ok: true,
                             tools: [
-                              { name: "search", enabled: true, private: "private" },
+                              {
+                                name: "search",
+                                enabled: true,
+                                private: "private",
+                              },
                               { name: "disabled", enabled: false },
                             ],
                           },
@@ -883,8 +1217,16 @@ async function executableFixture(mode = "normal") {
           label: "Executing step...",
           detail_text: "[act] budget finalization status retry",
         },
-        { status_key: "planning", visibility: "internal", detail_text: "private diagnostic" },
-        { status_key: "analyzing", detail_code: "thinking", detail_text: "[act] started" },
+        {
+          status_key: "planning",
+          visibility: "internal",
+          detail_text: "private diagnostic",
+        },
+        {
+          status_key: "analyzing",
+          detail_code: "thinking",
+          detail_text: "[act] started",
+        },
       ])
         output("chunk", { trace_id: traceId, kind: "status", data, ts: now });
       complete = (cancelled) => {
@@ -898,7 +1240,14 @@ async function executableFixture(mode = "normal") {
           trace_id: traceId,
           final_text: "Reply",
           errors: cancelled
-            ? [{ code: "cancelled", message: "Cancelled", retryable: false, retry_after_ms: null }]
+            ? [
+                {
+                  code: "cancelled",
+                  message: "Cancelled",
+                  retryable: false,
+                  retry_after_ms: null,
+                },
+              ]
             : [],
           stats: {
             input_tokens: 1,
