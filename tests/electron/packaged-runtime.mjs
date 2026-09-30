@@ -47,6 +47,9 @@ try {
     return ["available", "current", "check_failed"].includes(status.phase) ? status : null;
   });
   assert.notEqual(discovered.phase, "check_failed", "Public startup discovery must succeed");
+  await connection.renderer(
+    "document.querySelector('#show-settings').click(); document.querySelector('#settings-runtime-button').click()",
+  );
   await connection.renderer("document.querySelector('#check-runtime-update').click()");
   await until(() =>
     connection.renderer("!document.querySelector('#check-runtime-update').disabled"),
@@ -75,6 +78,12 @@ try {
     assert.equal(
       (await connection.renderer("window.openminion.runtime.status()")).installedVersion,
       before.installedVersion,
+    );
+    await until(() => connection.renderer("!document.querySelector('#close-settings').disabled"));
+    await connection.renderer("document.querySelector('#close-settings').click()");
+    assert.equal(
+      await connection.renderer("document.querySelector('#profile-dialog').open"),
+      false,
     );
     await send("old runtime remains available during preparation");
     await stop();

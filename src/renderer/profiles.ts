@@ -35,6 +35,23 @@ export function mountProfiles(
   const setupEndpoint = get<HTMLInputElement>("setup-endpoint");
   const setupKey = get<HTMLInputElement>("setup-key");
   const demo = get<HTMLButtonElement>("setup-demo");
+  let returnFocus: HTMLElement = open;
+  const sections = ["profiles", "chat", "runtime"] as const;
+  type Section = (typeof sections)[number];
+  const selectSection = (selected: Section) => {
+    for (const section of sections) {
+      get<HTMLElement>(`settings-${section}`).hidden = section !== selected;
+      get<HTMLButtonElement>(`settings-${section}-button`).setAttribute(
+        "aria-pressed",
+        String(section === selected),
+      );
+    }
+  };
+  for (const section of sections) {
+    get<HTMLButtonElement>(`settings-${section}-button`).addEventListener("click", () =>
+      selectSection(section),
+    );
+  }
   let presets: SetupPreset[] = [];
   const credentials = TOOL_CREDENTIALS.map(([id, label]) => {
     const row = root.createElement("div");
@@ -88,16 +105,16 @@ export function mountProfiles(
     const selected = select.value;
     settings = value;
     setupFields.hidden = !value.setupRequired;
-    get<HTMLElement>("settings-eyebrow").textContent = value.setupRequired ? "Setup" : "Settings";
+    get<HTMLElement>("settings-eyebrow").textContent = value.setupRequired ? "Setup" : "OpenMinion";
     get<HTMLElement>("profile-import-note").hidden = value.setupRequired;
     get<HTMLElement>("profile-intro").textContent = value.setupRequired
       ? "Connect your model to start chatting, or import an existing OpenMinion profile."
-      : "Use the same profiles as Focus and CLI. Finish running chats before applying changes; OpenMinion will restart.";
+      : "Finish running chats before saving. Applying changes restarts OpenMinion.";
     fields.hidden = value.setupRequired;
     demo.hidden = !value.setupRequired || !value.agents.some((agent) => agent.provider === "echo");
     get<HTMLElement>("settings-title").textContent = value.setupRequired
       ? "Welcome to OpenMinion"
-      : "Agent profiles";
+      : "Settings";
     save.textContent = value.setupRequired ? "Set up and start" : "Save and apply";
     setupKey.value = "";
     select.replaceChildren();
@@ -149,7 +166,9 @@ export function mountProfiles(
   };
   setupProvider.addEventListener("change", populatePreset);
   demo.addEventListener("click", () => dialog.close());
-  const show = async (known?: ProfileSettings) => {
+  const show = async (known?: ProfileSettings, section: Section = "profiles") => {
+    returnFocus = root.activeElement as HTMLElement;
+    selectSection(section);
     dialog.showModal();
     settings = null;
     setPending(true);
@@ -182,6 +201,20 @@ export function mountProfiles(
     }
   };
   open.addEventListener("click", () => void show());
+  get<HTMLButtonElement>("show-runtime-settings").addEventListener(
+    "click",
+    () => void show(undefined, "runtime"),
+  );
+  root.addEventListener("keydown", (event) => {
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      event.key === "," &&
+      !root.querySelector("dialog[open]")
+    ) {
+      event.preventDefault();
+      void show();
+    }
+  });
   close.addEventListener("click", () => dialog.close());
   dialog.addEventListener("cancel", (event) => {
     if (pending) event.preventDefault();
@@ -190,7 +223,7 @@ export function mountProfiles(
     key.value = "";
     setupKey.value = "";
     for (const field of credentials) field.input.value = "";
-    open.focus();
+    returnFocus.focus();
   });
   select.addEventListener("change", populateAgent);
   removeKey.addEventListener("change", () => {

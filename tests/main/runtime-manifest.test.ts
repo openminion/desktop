@@ -4,9 +4,9 @@ import {
   checkRuntimeManifest,
   parseRuntimeFeed,
   parseRuntimeRecord,
+  type RuntimeRecord,
   runtimeFeedUrl,
   runtimeOfferDigest,
-  type RuntimeRecord,
 } from "../../src/main/runtime-manifest.js";
 
 const commit = "a".repeat(40);
@@ -48,6 +48,39 @@ const reference = (item: RuntimeRecord, id = item.release_id) => ({
   manifest_sha256: createHash("sha256").update(JSON.stringify(item)).digest("hex"),
 });
 const options = { source: "pypi" as const, desktopVersion: "0.0.0", installedVersion: "0.0.19" };
+
+const binaryRecord = (artifact: Record<string, unknown>): RuntimeRecord => {
+  const { pypi, ...common } = record();
+  expect(pypi).toBeDefined();
+  return {
+    ...common,
+    distribution: "binary",
+    artifacts: [artifact],
+  } as RuntimeRecord;
+};
+
+const binaryArtifact = (change: Record<string, unknown> = {}) => ({
+  platform: "linux",
+  arch: "x64",
+  format: "executables",
+  min_os_version: "6.8.0",
+  verification_id: "native.1",
+  libc_family: "glibc",
+  min_libc_version: "2.35",
+  cli: {
+    filename: "openminion-linux-x86_64",
+    size_bytes: 123,
+    sha256: "a".repeat(64),
+    url: "https://github.com/openminion/runtime/releases/download/runtime-v1.0.0-build.1/openminion-linux-x86_64",
+  },
+  daemon: {
+    filename: "openminiond-linux-x86_64",
+    size_bytes: 124,
+    sha256: "b".repeat(64),
+    url: "https://github.com/openminion/runtime/releases/download/runtime-v1.0.0-build.1/openminiond-linux-x86_64",
+  },
+  ...change,
+});
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -143,6 +176,7 @@ describe("runtime manifest boundary", () => {
     for (const change of [
       { artifacts: [artifact, artifact] },
       { artifacts: [{ ...artifact, arch: "arm64" }] },
+      { artifacts: [{ ...artifact, min_os_version: "Windows 11" }] },
       { artifacts: [{ ...artifact, verification_id: undefined }] },
       { artifacts: [{ ...artifact, daemon: { ...artifact.daemon, sha256: "invalid" } }] },
       { desktop_compatibility: null },
@@ -280,6 +314,48 @@ describe("runtime selection", () => {
     vi.stubGlobal("fetch", fetch);
     expect(await checkRuntimeManifest(options)).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("selects binary artifacts only for a compatible OS and libc runtime", async () => {
+    const item = binaryRecord(binaryArtifact());
+    const binaryFeed = {
+      ...feed([reference(item)]),
+      distribution: "binary",
+      releases: [
+        {
+          ...reference(item),
+          manifest_url: manifestUrl().replace("/pypi/", "/binary/"),
+        },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (url: string) =>
+          new Response(JSON.stringify(url.includes("channels") ? binaryFeed : item)),
+      ),
+    );
+    const binaryOptions = {
+      ...options,
+      source: "binary" as const,
+      platform: "linux" as const,
+      arch: "x64",
+      osVersion: "6.8.12",
+      libcFamily: "glibc",
+      libcVersion: "2.39",
+    };
+    expect((await checkRuntimeManifest(binaryOptions))?.artifact).toMatchObject({
+      platform: "linux",
+      arch: "x64",
+    });
+    for (const change of [
+      { osVersion: "6.7.9" },
+      { osVersion: "unknown" },
+      { libcFamily: "musl" },
+      { libcVersion: "2.34" },
+      { libcVersion: "unknown" },
+    ]) {
+      expect(await checkRuntimeManifest({ ...binaryOptions, ...change })).toBeNull();
+    }
   });
   it("rejects served bytes that differ from the declared record digest", async () => {
     vi.stubGlobal(

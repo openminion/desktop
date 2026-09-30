@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CliClient } from "../../src/main/cli-client.js";
 import { runCommand } from "../../src/main/installation.js";
@@ -38,6 +38,65 @@ describe("PyPI CLI client", () => {
         ],
       },
     });
+    expect(await client.readReport({ kind: "skills" })).toEqual({
+      ok: true,
+      value: {
+        kind: "skills",
+        text: "Skills:\n  - example · catalog\nUse /skills <skill-id> to view details.",
+      },
+    });
+    expect(await client.readReport({ kind: "skills", skillId: "example" })).toMatchObject({
+      ok: true,
+      value: {
+        kind: "skills",
+        text: expect.stringContaining("Instructions:\nUse the approved tool."),
+      },
+    });
+    expect(await client.readReport({ kind: "skills", skillId: "../private" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    expect(await client.readReport({ kind: "learning" })).toEqual({
+      ok: true,
+      value: {
+        kind: "learning",
+        text: [
+          "Skill learning:",
+          "  pending        1",
+          "  surfaced       1",
+          "  accepted       0",
+          "  rejected       0",
+          "  deferred       0",
+          "  auto-dismissed 0",
+          "Pending proposals:",
+          "  - proposal-1 · Inventory Workflow",
+          "Use /learning <proposal_id> to view details.",
+        ].join("\n"),
+      },
+    });
+    expect(await client.readReport({ kind: "learning", proposalId: "proposal-1" })).toMatchObject({
+      ok: true,
+      value: {
+        kind: "learning",
+        text: expect.stringContaining("Learning proposal: proposal-1"),
+      },
+    });
+    expect(await client.readReport({ kind: "learning", proposalId: "../private" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    expect(await client.readReport({ kind: "mcp", agentId: "writer" })).toEqual({
+      ok: true,
+      value: {
+        kind: "mcp",
+        text: [
+          "MCP:",
+          "  configured  local",
+          "  exposed     local",
+          "  tools       2 exposed · 3 registered",
+        ].join("\n"),
+      },
+    });
     expect(await client.readReport({ kind: "tools", agentFilter: "writer" })).toMatchObject({
       ok: false,
     });
@@ -45,7 +104,7 @@ describe("PyPI CLI client", () => {
       ok: false,
     });
     expect(await client.readReport({ kind: "arbitrary" })).toMatchObject({ ok: false });
-    expect(fixture.requests).toHaveLength(4);
+    expect(fixture.requests).toHaveLength(10);
     expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
   });
 
@@ -69,6 +128,11 @@ describe("PyPI CLI client", () => {
       "--session-id",
       "session-1",
     ]);
+    expect(await client.readReport({ kind: "graph" })).toEqual({
+      ok: true,
+      value: { kind: "graph", text: "Canonical report\n" },
+    });
+    expect(run.mock.calls.at(-1)?.[1]).toEqual(["--config", "/private/config", "graph", "--help"]);
     expect(await client.exportTranscript({ sessionId: "session-1" })).toEqual({
       ok: true,
       value: "Canonical report\n",
@@ -91,7 +155,7 @@ describe("PyPI CLI client", () => {
       ok: false,
     });
     expect(await client.exportTranscript({ sessionId: "--help" })).toMatchObject({ ok: false });
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(3);
     const draft = await client.create({});
     if (!draft.ok) throw new Error("Draft not created");
     expect(await client.exportTranscript({ sessionId: draft.value.sessionId })).toMatchObject({
@@ -709,13 +773,80 @@ async function executableFixture(mode = "normal") {
                 ok: true,
                 agents: [{ agent_id: "writer", display_name: "Writer", secret: "private" }],
               }
-            : {
-                ok: true,
-                tools: [
-                  { name: "search", enabled: true, private: "private" },
-                  { name: "disabled", enabled: false },
-                ],
-              },
+            : req.url === "/v1/runtime/capabilities?agent_id=writer"
+              ? {
+                  ok: true,
+                  capabilities: {
+                    tools: {
+                      mcp_exposure: {
+                        configured_servers: ["local"],
+                        exposed_servers: ["local"],
+                        exposed_runtime_tool_count: 2,
+                        registered_runtime_tool_count: 3,
+                      },
+                    },
+                    mcp: { failed_servers: {} },
+                  },
+                }
+              : req.url === "/v1/skills"
+                ? { ok: true, skills: [{ skill_id: "example", private: "private" }] }
+                : req.url === "/v1/skills/example"
+                  ? {
+                      ok: true,
+                      skill: {
+                        skill_id: "example",
+                        name: "Example",
+                        status: "active",
+                        scope: "agent",
+                        risk_class: "low",
+                        version_hash: "abc123",
+                        tools: [],
+                        tags: [],
+                        sections: { instructions: "Use the approved tool." },
+                        private: "private",
+                      },
+                    }
+                  : req.url === "/v1/skills/suggestions/status"
+                    ? {
+                        ok: true,
+                        status: {
+                          pending_count: 1,
+                          surfaced_count: 1,
+                          accepted_count: 0,
+                          rejected_count: 0,
+                          deferred_count: 0,
+                          auto_dismissed_count: 0,
+                        },
+                      }
+                    : req.url === "/v1/skills/suggestions/inbox"
+                      ? {
+                          ok: true,
+                          suggestions: [
+                            { proposal_id: "proposal-1", display_name: "Inventory Workflow" },
+                          ],
+                        }
+                      : req.url === "/v1/skills/proposals/proposal-1"
+                        ? {
+                            ok: true,
+                            proposal: {
+                              proposal_id: "proposal-1",
+                              queue_state: "pending",
+                              source_task_shape_ref: "shape-1",
+                              proposal: {
+                                proposed_skill_definition: {
+                                  display_name: "Inventory Workflow",
+                                  risk_class: "low",
+                                },
+                              },
+                            },
+                          }
+                        : {
+                            ok: true,
+                            tools: [
+                              { name: "search", enabled: true, private: "private" },
+                              { name: "disabled", enabled: false },
+                            ],
+                          },
         ),
       );
       return;

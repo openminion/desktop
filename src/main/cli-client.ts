@@ -1,8 +1,5 @@
-import { publicStatusText } from "./focus-status.js";
 import { randomUUID } from "node:crypto";
-import type { ReportValue } from "../shared/reports.js";
-import type { RuntimeTask, TaskControlValue } from "../shared/tasks.js";
-import { request, type IncomingMessage } from "node:http";
+import { type IncomingMessage, request } from "node:http";
 import type {
   ApprovalDecisionInput,
   ApprovalDecisionV1,
@@ -16,43 +13,46 @@ import type {
   MediaAttachmentV1,
   MediaReleaseInput,
   MediaReleaseValue,
-  SessionSummaryV1,
-  SessionListInput,
-  SessionListValue,
-  SessionCreateInput,
-  SessionLoadInput,
-  SessionLoadValue,
   SessionCloseInput,
+  SessionCreateInput,
+  SessionEventFact,
   SessionEventsInput,
   SessionEventsValue,
-  SessionEventFact,
-  TurnSubmitInput,
-  TurnSubmitValue,
-  TurnEventV1,
+  SessionListInput,
+  SessionListValue,
+  SessionLoadInput,
+  SessionLoadValue,
+  SessionSummaryV1,
   TurnCancelInput,
   TurnCancellationValue,
+  TurnEventV1,
+  TurnSubmitInput,
+  TurnSubmitValue,
 } from "../shared/contracts.js";
-import { runCommand, type RunCommand } from "./installation.js";
+import type { ReportValue } from "../shared/reports.js";
+import type { RuntimeTask, TaskControlValue } from "../shared/tasks.js";
+import { publicStatusText } from "./focus-status.js";
+import { type RunCommand, runCommand } from "./installation.js";
 import {
   EVENT_FACTS,
-  validateListInput,
-  validateCreateInput,
-  validateLoadInput,
-  validateCloseInput,
-  validateEventsInput,
-  validateSubmitInput,
-  validateCancelInput,
-  requireRecord,
-  requireArray,
-  requireString,
-  optionalString,
-  responseEvent,
   errorValue,
-  usageValue,
-  turnUsageDisplay,
-  protocolError,
   failure,
   failureFrom,
+  optionalString,
+  protocolError,
+  requireArray,
+  requireRecord,
+  requireString,
+  responseEvent,
+  turnUsageDisplay,
+  usageValue,
+  validateCancelInput,
+  validateCloseInput,
+  validateCreateInput,
+  validateEventsInput,
+  validateListInput,
+  validateLoadInput,
+  validateSubmitInput,
 } from "./openminion-client.js";
 
 export type CliCommandContext = { executable: string; args: readonly string[] };
@@ -143,7 +143,12 @@ export class CliClient {
   readReport(input: unknown): Promise<ClientResult<ReportValue>> {
     return this.#control(async () => {
       const value = requireRecord(input);
-      if (Object.keys(value).some((key) => !["kind", "sessionId", "agentFilter"].includes(key)))
+      if (
+        Object.keys(value).some(
+          (key) =>
+            !["kind", "sessionId", "agentFilter", "agentId", "skillId", "proposalId"].includes(key),
+        )
+      )
         throw protocolError("invalid_request", "Choose a supported report.");
       if (this.#configuring)
         throw protocolError("settings_busy", "Wait for Settings to finish applying.");
@@ -154,6 +159,33 @@ export class CliClient {
           value.agentFilter.length > 512)
       )
         throw protocolError("invalid_request", "Choose an exact agent ID or name.");
+      if (
+        value.skillId !== undefined &&
+        (value.kind !== "skills" ||
+          typeof value.skillId !== "string" ||
+          !value.skillId.trim() ||
+          value.skillId.length > 512 ||
+          /[\s\0/]/.test(value.skillId))
+      )
+        throw protocolError("invalid_request", "Choose an exact skill ID.");
+      if (
+        value.proposalId !== undefined &&
+        (value.kind !== "learning" ||
+          typeof value.proposalId !== "string" ||
+          !value.proposalId.trim() ||
+          value.proposalId.length > 512 ||
+          /[\s\0/]/.test(value.proposalId))
+      )
+        throw protocolError("invalid_request", "Choose an exact proposal ID.");
+      if (
+        value.agentId !== undefined &&
+        (value.kind !== "mcp" ||
+          typeof value.agentId !== "string" ||
+          !value.agentId.trim() ||
+          value.agentId.length > 512 ||
+          /[\s\0]/.test(value.agentId))
+      )
+        throw protocolError("invalid_request", "Choose an exact agent ID.");
       if (value.kind === "agents") {
         const payload = await this.#request("/v1/agents");
         if (payload.ok !== true)
@@ -192,6 +224,149 @@ export class CliClient {
             .sort((a, b) => a.name.localeCompare(b.name)),
         };
       }
+      if (value.kind === "skills") {
+        if (value.sessionId !== undefined)
+          throw protocolError("invalid_request", "Skill discovery does not take a session ID.");
+        if (value.skillId) {
+          const payload = await this.#request(`/v1/skills/${encodeURIComponent(value.skillId)}`);
+          if (payload.ok !== true)
+            throw protocolError("report_unavailable", "Skill details are unavailable.");
+          const skill = requireRecord(payload.skill);
+          const sections = requireRecord(skill.sections ?? {});
+          const lines = [
+            `Skill: ${optionalString(skill.display_name ?? null) || requireString(skill.name)}`,
+            `  id       ${requireString(skill.skill_id)}`,
+            `  status   ${requireString(skill.status)}`,
+            `  scope    ${requireString(skill.scope)}`,
+            `  risk     ${requireString(skill.risk_class)}`,
+            `  version  ${requireString(skill.version_hash)}`,
+          ];
+          const tools = requireArray(skill.tools ?? []).map(requireString);
+          const tags = requireArray(skill.tags ?? []).map(requireString);
+          if (tools.length) lines.push(`  tools    ${tools.join(", ")}`);
+          if (tags.length) lines.push(`  tags     ${tags.join(", ")}`);
+          for (const [key, content] of Object.entries(sections)) {
+            if (typeof content === "string" && content.trim())
+              lines.push(
+                "",
+                `${key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}:`,
+                content.trim(),
+              );
+          }
+          return { kind: "skills", text: lines.join("\n") };
+        }
+        const payload = await this.#request("/v1/skills");
+        if (payload.ok !== true)
+          throw protocolError("report_unavailable", "Skill discovery is unavailable.");
+        const skills = requireArray(payload.skills)
+          .map((item) => requireString(requireRecord(item).skill_id))
+          .slice(0, 20);
+        return {
+          kind: "skills",
+          text: skills.length
+            ? `Skills:\n${skills.map((id) => `  - ${id} · catalog`).join("\n")}\nUse /skills <skill-id> to view details.`
+            : "(no skills)",
+        };
+      }
+      if (value.kind === "learning") {
+        if (value.sessionId !== undefined)
+          throw protocolError("invalid_request", "Skill learning does not take a session ID.");
+        if (value.proposalId) {
+          const payload = await this.#request(
+            `/v1/skills/proposals/${encodeURIComponent(value.proposalId)}`,
+          );
+          if (payload.ok !== true)
+            throw protocolError("report_unavailable", "Learning proposal is unavailable.");
+          const record = requireRecord(payload.proposal);
+          const proposal = requireRecord(record.proposal ?? {});
+          const draft = requireRecord(proposal.proposed_skill_definition ?? {});
+          const review = requireRecord(record.review ?? {});
+          const lines = [
+            `Learning proposal: ${value.proposalId}`,
+            `  state    ${optionalString(record.queue_state ?? null) ?? ""}`,
+            `  workflow ${optionalString(record.source_task_shape_ref ?? null) ?? ""}`,
+            `  name     ${optionalString(draft.display_name ?? null) || optionalString(draft.name ?? null) || ""}`,
+            `  risk     ${optionalString(draft.risk_class ?? null) ?? ""}`,
+            `  replay   ${record.replay_proof ? "recorded" : "missing"}`,
+          ];
+          if (Object.keys(review).length)
+            lines.push(`  review   ${optionalString(review.status ?? null) ?? ""}`);
+          if (record.applied_addition) lines.push("  applied  yes");
+          lines.push(
+            `Review and apply from the operator CLI: openminion skill proposal-inspect ${value.proposalId}`,
+          );
+          return { kind: "learning", text: lines.join("\n") };
+        }
+        const [statusPayload, inboxPayload] = await Promise.all([
+          this.#request("/v1/skills/suggestions/status"),
+          this.#request("/v1/skills/suggestions/inbox"),
+        ]);
+        if (statusPayload.ok !== true || inboxPayload.ok !== true)
+          throw protocolError("report_unavailable", "Skill learning is unavailable.");
+        const status = requireRecord(statusPayload.status);
+        const suggestions = requireArray(inboxPayload.suggestions).slice(0, 20);
+        const lines = [
+          "Skill learning:",
+          `  pending        ${Number(status.pending_count ?? 0)}`,
+          `  surfaced       ${Number(status.surfaced_count ?? 0)}`,
+          `  accepted       ${Number(status.accepted_count ?? 0)}`,
+          `  rejected       ${Number(status.rejected_count ?? 0)}`,
+          `  deferred       ${Number(status.deferred_count ?? 0)}`,
+          `  auto-dismissed ${Number(status.auto_dismissed_count ?? 0)}`,
+        ];
+        if (suggestions.length) {
+          lines.push("Pending proposals:");
+          for (const item of suggestions) {
+            const row = requireRecord(item);
+            lines.push(
+              `  - ${requireString(row.proposal_id)} · ${optionalString(row.display_name ?? null) || requireString(row.proposal_id)}`,
+            );
+          }
+          lines.push("Use /learning <proposal_id> to view details.");
+        } else lines.push("No pending skill proposals.");
+        return { kind: "learning", text: lines.join("\n") };
+      }
+      if (value.kind === "mcp") {
+        if (value.sessionId !== undefined)
+          throw protocolError("invalid_request", "MCP status does not take a session ID.");
+        const query = value.agentId ? `?agent_id=${encodeURIComponent(value.agentId)}` : "";
+        const payload = await this.#request(`/v1/runtime/capabilities${query}`);
+        if (payload.ok !== true)
+          throw protocolError("report_unavailable", "MCP status is unavailable.");
+        const capabilities = requireRecord(payload.capabilities);
+        const tools = requireRecord(capabilities.tools);
+        const exposure = requireRecord(tools.mcp_exposure);
+        const mcp = requireRecord(capabilities.mcp);
+        const configured = requireArray(exposure.configured_servers).map(requireString);
+        const exposed = requireArray(exposure.exposed_servers).map(requireString);
+        const failed = requireRecord(mcp.failed_servers);
+        const exposedCount = exposure.exposed_runtime_tool_count;
+        const registeredCount = exposure.registered_runtime_tool_count;
+        if (typeof exposedCount !== "number" || typeof registeredCount !== "number")
+          throw protocolError("invalid_daemon_response", "Expected MCP tool counts.");
+        const lines = [
+          "MCP:",
+          `  configured  ${configured.join(", ") || "(none)"}`,
+          `  exposed     ${exposed.join(", ") || "(none)"}`,
+          `  tools       ${exposedCount} exposed · ${registeredCount} registered`,
+        ];
+        for (const [name, item] of Object.entries(failed))
+          lines.push(`  failed      ${name}: ${requireString(requireRecord(item).message)}`);
+        return { kind: "mcp", text: lines.join("\n") };
+      }
+      if (value.kind === "graph") {
+        if (value.sessionId !== undefined)
+          throw protocolError("invalid_request", "Graph help does not take a session ID.");
+        const context = this.#requireContext();
+        const result = await this.#run(
+          context.executable,
+          [...context.args, "graph", "--help"],
+          30_000,
+        );
+        if (result.exitCode !== 0)
+          throw protocolError("report_unavailable", "Graph help is unavailable.");
+        return { kind: "graph", text: result.stdout };
+      }
       if (value.kind === "tokens") {
         const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
         if (sessionId.startsWith("-") || sessionId.includes("\0"))
@@ -210,7 +385,10 @@ export class CliClient {
           );
         return { kind: "tokens", text: result.stdout };
       }
-      throw protocolError("invalid_request", "Choose agents, tools, or tokens.");
+      throw protocolError(
+        "invalid_request",
+        "Choose agents, tools, tokens, skills, MCP, or graph.",
+      );
     });
   }
 

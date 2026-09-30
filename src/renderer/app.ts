@@ -1,7 +1,3 @@
-import { renderMarkdown } from "./markdown.js";
-import { mountProfiles } from "./profiles.js";
-import { renderTasks } from "./tasks.js";
-import type { ScheduleInput, TaskAction } from "../shared/tasks.js";
 import type {
   ApprovalDecision,
   ApprovalDecisionV1,
@@ -13,8 +9,8 @@ import type {
   CaptureFrameV1,
   CapturePublicSourceKind,
   CaptureRegionV1,
-  CaptureStateV1,
   CaptureSourceKind,
+  CaptureStateV1,
   ClientResult,
   DaemonStatus,
   ErrorV1,
@@ -33,6 +29,10 @@ import type {
   TurnSubmitValue,
   TurnUsageDisplay,
 } from "../shared/contracts.js";
+import type { ScheduleInput, TaskAction } from "../shared/tasks.js";
+import { renderMarkdown } from "./markdown.js";
+import { mountProfiles } from "./profiles.js";
+import { renderTasks } from "./tasks.js";
 
 declare global {
   interface Window {
@@ -70,13 +70,20 @@ export type RecoveredSession = {
 export type ActivityItem = ToolProgressV1 | ApprovalEventV1;
 
 export const DESKTOP_COMMANDS = [
-  { name: "/help", description: "Show commands currently connected in Desktop" },
+  {
+    name: "/help",
+    description: "Show commands currently connected in Desktop",
+    usage: "/help [connected-command]",
+  },
   { name: "/new", description: "Start a new session" },
   { name: "/sessions", description: "Pick a session" },
   { name: "/close", description: "Close the current session" },
   { name: "/tasks", description: "Inspect and control OpenMinion work" },
   { name: "/agents", description: "List agents or find one by ID or name" },
   { name: "/tools", description: "Show available tools" },
+  { name: "/mcp", description: "Show configured and exposed MCP servers" },
+  { name: "/skills", description: "List skills or inspect one by ID" },
+  { name: "/learning", description: "Show skill-learning proposals" },
   { name: "/tokens", description: "Show durable token usage details" },
   { name: "/export", description: "Export the saved conversation" },
   { name: "/status", description: "Show connection, task, agent, and model" },
@@ -85,6 +92,8 @@ export const DESKTOP_COMMANDS = [
   { name: "/clear", description: "Clear the visible chat; keep saved history" },
   { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
   { name: "/normal", description: "Show tool activity" },
+  { name: "/graph", description: "Show installed OpenMinion graph help" },
+  { name: "/editor", description: "Show Desktop composer shortcuts" },
 ] as const;
 
 export const DESKTOP_ALIASES: Record<string, string> = {
@@ -632,6 +641,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       // SQLite records the completed import, so a leftover key cannot restore a reset name.
     }
   }
+  const savedPresentation = await api.presentation.load();
   const taskName = (session: SessionSummaryV1): string =>
     names.get(session.sessionId) || session.title || "Untitled task";
   let savingName = false;
@@ -659,7 +669,22 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   >();
   let hiddenMessageCount = 0;
-  let quietTools = false;
+  let quietTools = savedPresentation.ok ? savedPresentation.value.quietTools : false;
+  const display = required(root, "chat-display") as HTMLSelectElement;
+  const displayStatus = required(root, "chat-display-status");
+  display.value = quietTools ? "quiet" : "normal";
+  const saveDisplay = async (next: boolean) => {
+    display.disabled = true;
+    displayStatus.textContent = "Saving…";
+    const result = await api.presentation.save({ quietTools: next });
+    if (result.ok) quietTools = next;
+    display.value = quietTools ? "quiet" : "normal";
+    display.disabled = false;
+    displayStatus.textContent = result.ok ? "Saved." : result.error.message;
+    renderChat();
+    return result;
+  };
+  display.addEventListener("change", () => void saveDisplay(display.value === "quiet"));
   let commandIndex = 0;
   let commandDraft: string | null = null;
   let commandsDismissed = false;
@@ -1394,7 +1419,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.diagnosticsDialog.addEventListener("close", () => {
     if (elements.diagnosticsDialog.open) return;
     diagnosticsGeneration += 1;
-    const focusTarget = diagnosticsTrigger.disabled ? elements.showConnection : diagnosticsTrigger;
+    const focusTarget = diagnosticsTrigger.disabled
+      ? elements.settingsRuntimeButton
+      : diagnosticsTrigger;
     focusTarget.focus();
   });
   const inspectDaemon = async (kind: "status" | "logs") => {
@@ -1536,6 +1563,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       args.length &&
       command !== "/tasks" &&
       command !== "/agents" &&
+      command !== "/skills" &&
+      command !== "/learning" &&
+      command !== "/help" &&
       !(command === "/new" && args.join(" ") === "session")
     ) {
       hideCommandMenu();
@@ -1552,13 +1582,32 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     switch (command) {
       case "/agents":
       case "/tools":
-      case "/tokens": {
+      case "/tokens":
+      case "/skills":
+      case "/learning":
+      case "/mcp":
+      case "/graph": {
         if (command === "/agents" && args.length && chat.active) {
           showCommandResult("Agents", "Finish or stop this turn before inspecting an agent.");
           break;
         }
-        const kind = command.slice(1) as "agents" | "tools" | "tokens";
-        const titles = { agents: "Agents", tools: "Tools", tokens: "Token usage" };
+        const kind = command.slice(1) as
+          | "agents"
+          | "tools"
+          | "tokens"
+          | "skills"
+          | "learning"
+          | "mcp"
+          | "graph";
+        const titles = {
+          agents: "Agents",
+          tools: "Tools",
+          tokens: "Token usage",
+          skills: "Skills",
+          learning: "Skill learning",
+          mcp: "MCP",
+          graph: "Graph viewer",
+        };
         if (kind === "tokens" && !selected) {
           showCommandResult(titles[kind], "No active session.");
           break;
@@ -1568,8 +1617,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const request = commandResultGeneration;
         const result = await api.reports.read({
           kind,
-          ...(sessionId ? { sessionId } : {}),
+          ...(sessionId && !["skills", "learning", "mcp", "graph"].includes(kind)
+            ? { sessionId }
+            : {}),
+          ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
+          ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
+          ...(kind === "learning" && args.length ? { proposalId: args.join(" ") } : {}),
         });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
         if (elements.commandPanel.hidden) break;
@@ -1631,7 +1685,19 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           );
         break;
       }
-      case "/help":
+      case "/help": {
+        if (args.length) {
+          const requested = args[0].startsWith("/") ? args[0] : `/${args[0]}`;
+          const canonical = DESKTOP_ALIASES[requested] ?? requested;
+          const item = DESKTOP_COMMANDS.find((candidate) => candidate.name === canonical);
+          showCommandResult(
+            "Command help",
+            item
+              ? `${item.name} — ${item.description}\n${"usage" in item ? item.usage : item.name}`
+              : `${requested} is not connected in Desktop. Type /help for supported commands.`,
+          );
+          break;
+        }
         showCommandResult(
           "Focus commands — partial integration",
           "Desktop presents OpenMinion Focus. Only the commands below are connected so far; model selection and other Focus operations still require integration. Type / and use ↑ / ↓. Enter runs a command; Tab completes its name. Escape dismisses the menu. Use // for a message beginning with /.",
@@ -1647,6 +1713,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           });
           elements.commandResult.append(button);
         }
+        break;
+      }
+      case "/editor":
+        showCommandResult(
+          "Desktop composer",
+          "Continue typing in the composer. Press Shift+Enter for a new line, Enter to send, and Escape to dismiss command results.",
+        );
         break;
       case "/new": {
         const button = elements.newSession;
@@ -1732,11 +1805,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         }
         break;
       case "/quiet":
-        quietTools = true;
+      case "/normal": {
+        const next = command === "/quiet";
+        const result = await saveDisplay(next);
+        if (!result.ok) showCommandResult("Display preference", result.error.message);
         break;
-      case "/normal":
-        quietTools = false;
-        break;
+      }
     }
     renderChat();
     return true;
@@ -1934,11 +2008,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   };
   const renderSessionList = () => {
+    const query = elements.sessionSearch.value.trim().toLowerCase();
+    const visible = query
+      ? sessions.filter(
+          (session) =>
+            taskName(session).toLowerCase().includes(query) ||
+            session.sessionId.toLowerCase().includes(query),
+        )
+      : sessions;
+    elements.clearSessionSearch.hidden = elements.sessionSearch.value.length === 0;
+    elements.sessionSearchCount.hidden = !query;
+    elements.sessionSearchCount.textContent = query
+      ? `${visible.length} of ${sessions.length} tasks`
+      : "";
     sessionSpinners.clear();
     renderSessions(
       root,
       elements.sessionList,
-      sessions,
+      visible,
       selected?.sessionId ?? null,
       taskName,
       sessionSpinners,
@@ -1946,10 +2033,27 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const next = sessions.find((item) => item.sessionId === id);
         if (next) void selectSession(next);
       },
+      sessions.length && query
+        ? "No matching tasks. Try another name or session ID."
+        : "Your tasks will appear here.",
     );
 
     updateSessionActivity();
   };
+
+  const clearSessionSearch = () => {
+    elements.sessionSearch.value = "";
+    renderSessionList();
+    elements.sessionSearch.focus();
+  };
+  elements.sessionSearch.addEventListener("input", renderSessionList);
+  elements.clearSessionSearch.addEventListener("click", clearSessionSearch);
+  elements.sessionSearch.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      clearSessionSearch();
+    }
+  });
 
   const selectSession = async (
     session: SessionSummaryV1,
@@ -2097,6 +2201,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         "A runtime update was interrupted after launch began. Recovery needs review; Desktop will not downgrade your data automatically.",
       unmanaged: "Runtime is managed outside Desktop. Updates are not applied here.",
     };
+    elements.installedRuntimeVersion.textContent = status.installedVersion ?? "Not detected";
     const installed = status.installedVersion
       ? `Installed: OpenMinion ${status.installedVersion} (${status.source}). `
       : "";
@@ -2217,8 +2322,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.statusSummary.textContent = view.summary;
     elements.retry.hidden = !view.showRetry;
     renderReadiness(view.summary);
-    elements.daemonVersion.textContent = status.daemonVersion ?? "Unavailable";
-    elements.protocolVersion.textContent = status.protocol?.toString() ?? "Unavailable";
+    elements.daemonVersion.textContent = status.daemonVersion ?? "Not reported";
+    elements.protocolVersion.textContent = status.protocol?.toString() ?? "Not reported";
     elements.connectionLabel.textContent = view.label;
     renderChat();
   };
@@ -2644,7 +2749,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
   elements.showCommands.addEventListener("click", openCommands);
   root.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      event.key.toLowerCase() === "k" &&
+      !root.querySelector("dialog[open]")
+    ) {
       event.preventDefault();
       openCommands();
     }
@@ -2912,6 +3021,7 @@ function rendererElements(root: Document) {
     diagnosticsTitle: required(root, "diagnostics-title"),
     diagnosticsResult: required(root, "diagnostics-result"),
     closeDiagnostics: required(root, "close-diagnostics"),
+    settingsRuntimeButton: required(root, "settings-runtime-button") as HTMLButtonElement,
     showDaemonStatus: required(root, "show-daemon-status") as HTMLButtonElement,
     showDaemonLogs: required(root, "show-daemon-logs") as HTMLButtonElement,
     runtimeUpdateStatus: required(root, "runtime-update-status"),
@@ -2931,6 +3041,7 @@ function rendererElements(root: Document) {
     readinessActions: required(root, "readiness-actions"),
     readinessRetry: required(root, "readiness-retry"),
     readinessSettings: required(root, "readiness-settings"),
+    installedRuntimeVersion: required(root, "installed-runtime-version"),
     daemonVersion: required(root, "daemon-version"),
     protocolVersion: required(root, "protocol-version"),
     shellVersion: required(root, "shell-version"),
@@ -2940,6 +3051,9 @@ function rendererElements(root: Document) {
     screenContextStatus: required(root, "screen-context-status"),
     screenContextPreview: required(root, "screen-context-preview") as HTMLImageElement,
     sessionList: required(root, "session-list"),
+    sessionSearch: required(root, "session-search") as HTMLInputElement,
+    clearSessionSearch: required(root, "clear-session-search"),
+    sessionSearchCount: required(root, "session-search-count"),
     newSession: required(root, "new-session") as HTMLButtonElement,
     closeSession: required(root, "close-session") as HTMLButtonElement,
     currentTitle: required(root, "current-title"),
@@ -3342,6 +3456,7 @@ function renderSessions(
   taskName: (session: SessionSummaryV1) => string,
   spinners: Map<string, HTMLElement>,
   select: (sessionId: string) => void,
+  emptyMessage: string,
 ): void {
   const items: HTMLElement[] = sessions.map((session) => {
     const button = root.createElement("button");
@@ -3362,7 +3477,7 @@ function renderSessions(
   if (!items.length) {
     const empty = root.createElement("p");
     empty.className = "empty-note";
-    empty.textContent = "Your tasks will appear here.";
+    empty.textContent = emptyMessage;
     items.push(empty);
   }
   list.replaceChildren(...items);

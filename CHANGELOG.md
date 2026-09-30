@@ -1,12 +1,27 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-22
+Last updated: 2026-09-29
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Shorten Settings and rename guidance and remove redundant hover help, keeping
+  icon hints, keyboard shortcuts, credential instructions, and restart notices.
+
+- Distinguish the installed runtime from daemon-reported metadata in Settings.
+  Label the Electron version accurately and remove the outdated version-pin example.
+
+- Search loaded tasks by friendly name or session ID in the sidebar, preserving
+  the open chat, drafts and running work while filtering.
+
+- Organize Settings into Profiles, Chat display, and Runtime. Expose the existing
+  saved Normal/Quiet preference, keyboard help, and a ⌘ / Ctrl + , shortcut.
+  Runtime diagnostics and update controls now live together in Settings.
+
+- Update the managed PyPI runtime baseline to OpenMinion 0.0.27.
+- Add command-specific help, fixed installed-runtime `/graph` help, and native `/editor` composition guidance.
 - Allow repairing model credentials in Settings after the daemon exits, while
   continuing to reject profile changes when another live process owns the daemon.
 
@@ -72,7 +87,7 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
   root; existing Python environments and profiles remain at their recorded
   locations. Schema version checks preserve data across compatible upgrades.
 
-- Connected Focus agent/tool inventories, durable token reports, and Markdown
+- Connected Focus agent/tool/skill inventories, exact skill details, durable token reports, and Markdown
   conversation export through existing public OpenMinion operations.
 - Show daemon progress details and time since the last update during quiet waits.
 

@@ -37,7 +37,7 @@ export class DesktopStore {
     this.database = new DatabaseSync(path);
     try {
       const version = this.database.prepare("PRAGMA user_version").get()!.user_version;
-      if (version !== 0 && version !== 1 && version !== 2 && version !== 3) {
+      if (version !== 0 && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
         throw new Error(
           "Desktop data was created by a newer version. Install the newer app to open it.",
         );
@@ -90,6 +90,18 @@ export class DesktopStore {
         this.database.exec("BEGIN IMMEDIATE");
         this.writeRuntimeState({ ...this.runtimeState(), paused: false, pin: null });
         this.database.exec("PRAGMA user_version = 3; COMMIT");
+      }
+      if (version < 4) {
+        this.database.exec("BEGIN IMMEDIATE");
+        this.database.exec(`
+          CREATE TABLE presentation (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            quiet_tools INTEGER NOT NULL CHECK (quiet_tools IN (0, 1))
+          );
+          INSERT INTO presentation (id, quiet_tools) VALUES (1, 0);
+          PRAGMA user_version = 4;
+          COMMIT;
+        `);
       }
       const installation = this.database
         .prepare("SELECT runtime_home, browser_home FROM installation WHERE id = 1")
@@ -229,6 +241,35 @@ export class DesktopStore {
       return { ok: true, value: null };
     } catch {
       return failure("storage_unavailable", "Could not save the name on this device. Try again.");
+    }
+  }
+
+  loadPresentation(): ClientResult<{ quietTools: boolean }> {
+    try {
+      const row = this.database.prepare("SELECT quiet_tools FROM presentation WHERE id = 1").get()!;
+      return { ok: true, value: { quietTools: row.quiet_tools === 1 } };
+    } catch {
+      return failure("storage_unavailable", "Could not load Desktop preferences.");
+    }
+  }
+
+  savePresentation(input: unknown): ClientResult<null> {
+    if (
+      input === null ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      Object.keys(input).length !== 1 ||
+      typeof (input as Record<string, unknown>).quietTools !== "boolean"
+    ) {
+      return failure("invalid_input", "Desktop preferences are invalid.");
+    }
+    try {
+      this.database
+        .prepare("UPDATE presentation SET quiet_tools = ? WHERE id = 1")
+        .run((input as { quietTools: boolean }).quietTools ? 1 : 0);
+      return { ok: true, value: null };
+    } catch {
+      return failure("storage_unavailable", "Could not save Desktop preferences.");
     }
   }
 

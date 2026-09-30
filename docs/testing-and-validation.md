@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-09-18
+Last updated: 2026-09-29
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -225,11 +225,20 @@ avoid operating-system work-area clamps, then restore the visible app for
 interaction tests. This is
 exact renderer-layout proof, not visible-wide-screen acceptance on a small host.
 
+The native smoke checks Settings navigation and dialog focus with mouse/keyboard
+input at 760 × 560, 1180 × 800, and 1600 × 1000. It exercises the display-select
+change handler through real preload/SQLite and reload, without a fake preference
+store; this does not certify operating-system select-popup input. Runtime and
+Chat display remain accessible when profiles cannot load. The renderer tests
+cover failed preference saves and approval visibility in Quiet mode.
+
 The onboarding test separately covers automatic first-launch setup, dismissing
 setup without writing a profile, and required-key validation. It independently
 runs the public CLI setup against a copy of the initial config, compares MiniMax
 defaults and the saved model profiles with Desktop, then checks the first
 configured chat, missing-key startup guidance, and subsequent model/key edits.
+It also checks that changing Settings sections preserves unsaved profile values
+and that closing Settings clears entered keys.
 It verifies that saving makes no provider request, stored config permissions
 remain private, and the first chat uses the entered model and credential. It also creates a conversation with the ordinary CLI and
 continues it in Desktop while preserving its saved channel and target. Local

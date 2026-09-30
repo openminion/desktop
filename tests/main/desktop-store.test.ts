@@ -23,6 +23,34 @@ afterEach(() => {
 });
 
 describe("Desktop SQLite storage", () => {
+  it("keeps presentation preferences in Desktop SQLite across restarts", () => {
+    const path = root();
+    let store = open(path);
+    expect(store.loadPresentation()).toEqual({ ok: true, value: { quietTools: false } });
+    expect(store.savePresentation({ quietTools: true })).toEqual({ ok: true, value: null });
+    expect(store.savePresentation({ quietTools: 1 })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
+    });
+    stores.pop()!.close();
+    store = open(path);
+    expect(store.loadPresentation()).toEqual({ ok: true, value: { quietTools: true } });
+    const db = new DatabaseSync(join(path, "desktop.sqlite"), { readOnly: true });
+    try {
+      expect(db.prepare("PRAGMA user_version").get()!.user_version).toBe(4);
+      expect(
+        db.prepare("SELECT quiet_tools FROM presentation WHERE id = 1").get()!.quiet_tools,
+      ).toBe(1);
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual([
+        { name: "installation" },
+        { name: "chat_names" },
+        { name: "presentation" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("persists names and resets across app restarts without reimporting stale browser keys", () => {
     const path = root();
     let store = open(path);
@@ -120,7 +148,7 @@ describe("Desktop SQLite storage", () => {
     const future = root();
     const db = new DatabaseSync(join(future, "desktop.sqlite"));
     db.exec(
-      "PRAGMA user_version = 4; CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('keep');",
+      "PRAGMA user_version = 5; CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('keep');",
     );
     db.close();
     const before = readFileSync(join(future, "desktop.sqlite"));
@@ -218,7 +246,7 @@ describe("Desktop SQLite storage", () => {
     const before = store.runtimeState();
     stores.pop()!.close();
     const db = new DatabaseSync(join(path, "desktop.sqlite"));
-    db.exec("PRAGMA user_version = 2");
+    db.exec("DROP TABLE presentation; PRAGMA user_version = 2");
     const { paused, pin, ...legacy } = before;
     expect(paused).toBe(false);
     expect(pin).toBeNull();
@@ -236,6 +264,24 @@ describe("Desktop SQLite storage", () => {
       pending: { version: "keep" },
       launchIntent: { version: "recover" },
     });
+  });
+
+  it("migrates schema three without changing names or runtime state", () => {
+    const path = root();
+    let store = open(path);
+    expect(store.save({ sessionId: "keep", title: "Existing" }).ok).toBe(true);
+    const before = store.runtimeState();
+    stores.pop()!.close();
+    const db = new DatabaseSync(join(path, "desktop.sqlite"));
+    db.exec("DROP TABLE presentation; PRAGMA user_version = 3");
+    db.close();
+    store = open(path);
+    expect(store.runtimeState()).toEqual(before);
+    expect(store.load([])).toEqual({
+      ok: true,
+      value: [{ sessionId: "keep", title: "Existing" }],
+    });
+    expect(store.loadPresentation()).toEqual({ ok: true, value: { quietTools: false } });
   });
 
   it("migrates schema one without moving installations or upgrading the runtime", () => {

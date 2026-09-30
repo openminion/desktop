@@ -643,6 +643,10 @@ export type NativeApi = {
     load(legacyNames: ChatName[]): Promise<ClientResult<ChatName[]>>;
     save(input: { sessionId: string; title: string | null }): Promise<ClientResult<null>>;
   };
+  presentation: {
+    load(): Promise<ClientResult<{ quietTools: boolean }>>;
+    save(input: { quietTools: boolean }): Promise<ClientResult<null>>;
+  };
   reports: {
     read(input: ReportInput): Promise<ClientResult<ReportValue>>;
   };
@@ -730,6 +734,8 @@ export const IPC_CHANNELS = {
   runtimeControl: "desktop:runtime:control",
   chatNamesLoad: "desktop:chat-names:load",
   chatNamesSave: "desktop:chat-names:save",
+  presentationLoad: "desktop:presentation:load",
+  presentationSave: "desktop:presentation:save",
   reportsRead: "openminion:reports:read",
   sessionsExport: "openminion:sessions:export",
   tasksControl: "openminion:tasks:control",

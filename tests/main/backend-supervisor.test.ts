@@ -6,7 +6,11 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DaemonSupervisor } from "../../src/main/backend-supervisor.js";
-import type { CommandResult, RunCommand } from "../../src/main/installation.js";
+import {
+  OPENMINION_VERSION,
+  type CommandResult,
+  type RunCommand,
+} from "../../src/main/installation.js";
 import { DesktopStore } from "../../src/main/desktop-store.js";
 import { OpenMinionInstallation } from "../../src/main/installation.js";
 import * as manifests from "../../src/main/runtime-manifest.js";
@@ -360,7 +364,7 @@ describe("DaemonSupervisor", () => {
       if (incompatibleActive) {
         store.stageRuntime({
           ...candidate,
-          version: "0.0.19",
+          version: OPENMINION_VERSION,
           executable: join(legacyRoot, "openminion"),
           desktopMinVersion: "1.0.0",
           desktopMaxVersionExclusive: "2.0.0",
@@ -373,13 +377,13 @@ describe("DaemonSupervisor", () => {
       if (hold === "pin")
         store.setRuntimePolicy(false, {
           source: "pypi",
-          version: "0.0.19",
+          version: OPENMINION_VERSION,
           manifestUrl: "legacy",
           sha256: "b".repeat(64),
         });
       let reachable = false;
       const command = vi.fn<RunCommand>(async (_executable, args) => {
-        if (args.length === 1) return result(0, "0.0.19");
+        if (args.length === 1) return result(0, OPENMINION_VERSION);
         if (args.includes("sessions")) return healthy ? result(0, "[]") : result(1);
         return result(reachable ? 0 : 1, JSON.stringify(daemonPayload(reachable, root)));
       });

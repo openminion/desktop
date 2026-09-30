@@ -1,7 +1,7 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-09-17
+Last updated: 2026-09-29
 
 Purpose: provide the package-local bootstrap and first-run path for the
 OpenMinion Desktop source repository.
@@ -53,7 +53,7 @@ credential-free echo config, assigns an authenticated loopback daemon endpoint,
 and starts the daemon. Later launches reuse the environment while its version
 matches the pin.
 
-Open connection details and choose **Python package** or **Native runtime** under
+Open **Settings → Runtime** and choose **Python package** or **Native runtime** under
 **Update options**, then use **Check updates**. When a certified compatible
 record is available, **Prepare update** stages it separately; quit
 and reopen Desktop to activate it before daemon startup. Binary records contain
@@ -73,7 +73,7 @@ another update channel and never upgrades a running app.
 
 ### Hold And Pin Runtime Upgrades
 
-Expand **Update options** in connection details for source selection,
+Expand **Update options** in **Settings → Runtime** for source selection,
 **Pause upgrades**, **Resume upgrades**, **Pin installed runtime**,
 **Set version pin**, **Remove pin**, and
 **Discard prepared update**. A pause survives quit/reopen and blocks both
@@ -136,13 +136,21 @@ configured. Saving setup does not contact the model provider; the first message
 tests access. Use `npm run preview` for sample approval, file,
 artifact, and screen-context interactions that are not connected to PyPI yet.
 
+## Find A Task
+
+Use **Search tasks** in the sidebar to filter the loaded task list by its displayed
+name or session ID. Matching ignores case and treats punctuation literally.
+Clear the field or press Escape to restore the list. Filtering keeps the current
+conversation and draft open, even when its task is hidden. It does not search
+message contents, and the query is not saved when Desktop closes.
+
 ## Desktop Data
 
 New installations use the same location from source and from a packaged app:
 
 ```text
 ~/.openminion/desktop/
-  desktop.sqlite    Desktop chat names and recorded installation paths
+  desktop.sqlite    Desktop chat names, display preferences and installation paths
   browser/          Electron browser state and cache
   logs/             Application logs
   runtime/          Managed Python environment
@@ -150,10 +158,13 @@ New installations use the same location from source and from a packaged app:
   data/             Core-managed conversations and runtime state
 ```
 
-The database contains presentation metadata, not copies of conversations or API
-keys. Its schema version supports ordered future migrations. An app that finds
-a newer schema refuses to open it and asks for a compatible version; it never
-resets existing data. Replacing the application bundle preserves this directory.
+The database contains presentation metadata (including the quiet/normal tool
+display preference), not copies of conversations or API keys. OpenMinion owns
+the separate `data/` and `agents.json` contents under Desktop's directory;
+the ordinary CLI's data remains separate. SQLite schema versions support
+ordered migrations. An app that finds a newer schema refuses to open it and
+asks for a compatible version; it never resets existing data. Replacing the
+application bundle preserves this directory.
 Signing, automatic updates, and cross-platform distribution are still pending.
 
 Existing installations keep their runtime and browser files in their previous
@@ -179,7 +190,14 @@ root focuses the existing app instead of starting another managed daemon.
 
 ## Agent Profiles and Keys
 
-Click **Settings** above the connection indicator in the sidebar.
+Click **Settings** above the connection indicator in the sidebar, or press
+**⌘ / Ctrl + ,**. Use **Profiles** for model and tool credentials, **Chat display**
+for Normal/Quiet tool activity and keyboard help, and **Runtime** for status,
+logs, versions, and update controls. Connection details also has a **Runtime settings**
+shortcut. Quiet hides tool activity but keeps approval requests visible; it shares
+its saved preference with `/quiet` and `/normal`. Display changes apply immediately.
+Profile changes require **Save and apply**. Switching sections keeps unsaved
+profile edits; closing Settings discards them.
 When the default profile is missing a key required by its provider, Desktop also
 opens Settings on startup so you can complete it before chatting.
 
@@ -227,8 +245,8 @@ If the daemon stops while the window stays open, click the connection indicator
 at the bottom of the sidebar. Opening its details checks the current connection;
 use **Reconnect** when offered. Your unsent message stays in the composer.
 
-With PyPI 0.0.19, **Stop** requests cancellation, but an in-flight provider
-request can still complete. Desktop displays the outcome reported by the daemon.
+**Stop** requests cancellation. Desktop waits for and displays the outcome
+reported by the daemon rather than treating the request itself as completion.
 
 Text chat and completed conversation history work in the real app. Attachment
 sending, artifact browsing, approval decisions, and automatic watch remain
@@ -253,9 +271,8 @@ a matching speaker prefix out of the displayed answer and copied reply; saved
 transcripts remain unchanged. Completed replies show their saved duration and
 usage below the answer, for example **22s · 18.4k tokens**. Token detail follows
 the agent's CLI `turn_usage_display` setting when the runtime exports it:
-total, input/output, or input/output plus model calls. PyPI 0.0.19 does not
-export that preference, so Desktop shows total tokens. These statistics survive
-reopening a chat, including histories from PyPI 0.0.19. Missing usage is not estimated, and
+total, input/output, or input/output plus model calls. These statistics survive
+reopening a chat. Missing usage is not estimated, and
 Desktop does not invent a cost when the runtime does not report one.
 
 Progress uses a subtle working indicator, while

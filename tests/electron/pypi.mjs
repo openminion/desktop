@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -64,6 +64,27 @@ async function check() {
         `GUI condition did not settle: ${source}; ${await evaluate("document.querySelector('#chat-status').textContent + ' / ' + document.querySelector('#profile-status').textContent + ' / command: ' + document.querySelector('#command-title').textContent + ' / ' + document.querySelector('#command-result').textContent.slice(0, 500) + ' / open: ' + !document.querySelector('#command-panel').hidden + ' / timeline: ' + document.querySelector('#timeline').textContent.slice(-1800)")}`,
       );
     };
+    const click = async (id) => {
+      const point = await evaluate(`(() => {
+        const element = document.getElementById(${JSON.stringify(id)});
+        element.scrollIntoView({block:'nearest'});
+        const rect = element.getBoundingClientRect();
+        return {x:Math.round(rect.x + rect.width / 2), y:Math.round(rect.y + rect.height / 2)};
+      })()`);
+      window.webContents.sendInputEvent({
+        type: "mouseDown",
+        button: "left",
+        clickCount: 1,
+        ...point,
+      });
+      window.webContents.sendInputEvent({
+        type: "mouseUp",
+        button: "left",
+        clickCount: 1,
+        ...point,
+      });
+      await evaluate("new Promise(resolve => requestAnimationFrame(resolve))");
+    };
     const fill = async (text) =>
       evaluate(
         `document.querySelector('#composer').value = ${JSON.stringify(text)}; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#composer').focus()`,
@@ -99,9 +120,11 @@ async function check() {
         "if (document.querySelector('#diagnostics-dialog').open) document.querySelector('#close-diagnostics').click()",
       );
       await evaluate("document.querySelector('#connection-details').open = true");
-      await evaluate(
-        `document.querySelector('#show-daemon-${kind}').focus(); document.querySelector('#show-daemon-${kind}').click()`,
-      );
+      if (!(await evaluate("document.querySelector('#profile-dialog').open")))
+        await click("show-runtime-settings");
+      await waitFor("!document.querySelector('#close-settings').disabled");
+      await click("settings-runtime-button");
+      await click(`show-daemon-${kind}`);
       await waitFor(
         "!document.querySelector('#show-daemon-status').disabled && !!document.querySelector('.diagnostic-output')",
       );
@@ -210,10 +233,14 @@ async function check() {
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
     await waitFor("!document.querySelector('#diagnostics-dialog').open");
+    assert.equal(await evaluate("document.querySelector('#profile-dialog').open"), true);
+    assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
     await waitFor("document.activeElement.id === 'show-daemon-status'");
     console.log(
       "PASS: separate modal daemon diagnostics match CLI output; Refresh, Copy, Close, Escape, compact buttons and chat preservation pass at three sizes.",
     );
+    await evaluate("document.querySelector('#close-settings').click()");
+    await waitFor("!document.querySelector('#profile-dialog').open");
     await fill("   ");
     assert.equal(await evaluate("document.querySelector('#send').disabled"), true);
     await fill("First line");
@@ -261,6 +288,12 @@ async function check() {
       );
     for (const [alias, name] of Object.entries(DESKTOP_ALIASES))
       assert.ok(focusCommands.find((item) => item.name === name)?.aliases.includes(alias), alias);
+    const missingCommands = focusCommands.filter(
+      (item) => !DESKTOP_COMMANDS.some((command) => command.name === item.name),
+    );
+    console.log(
+      `PARTIAL: Desktop lists ${DESKTOP_COMMANDS.length}/${focusCommands.length} installed Focus commands; ${missingCommands.length} are not in the Desktop menu. This catalog check does not verify argument or effect parity.`,
+    );
     const parityContract = await readFile(
       new URL("../../docs/focus-parity.md", import.meta.url),
       "utf8",
@@ -337,6 +370,21 @@ async function check() {
         .sort(),
     );
     assert.ok((await reportCommand("/tool", "Tools")).includes(tools.value.tools[0].name));
+    const cliSkills = await runCommand(executable, [...args, "skill", "list", "--json"], 30_000);
+    assert.equal(cliSkills.exitCode, 0);
+    const skillIds = JSON.parse(cliSkills.stdout).skills.map((skill) => skill.skill_id);
+    const skillText = await reportCommand("/skills", "Skills");
+    if (skillIds.length) {
+      assert.ok(skillText.includes(skillIds[0]));
+      assert.ok((await reportCommand(`/skills ${skillIds[0]}`, "Skills")).includes(skillIds[0]));
+    } else assert.equal(skillText, "(no skills)");
+    const mcpText = await reportCommand("/mcp", "MCP");
+    assert.ok(mcpText.startsWith("MCP:\n"));
+    assert.ok(mcpText.includes("configured"));
+    assert.ok(mcpText.includes("registered"));
+    const graphHelp = await runCommand(executable, [...args, "graph", "--help"], 30_000);
+    assert.equal(graphHelp.exitCode, 0);
+    assert.equal(await reportCommand("/graph", "Graph viewer"), graphHelp.stdout);
     const tokens = await runCommand(
       executable,
       [...args, "status", "tokens", "--session-id", sessionId],
@@ -379,7 +427,7 @@ async function check() {
     }
     await evaluate("document.querySelector('#close-command').click()");
     console.log(
-      "PASS: installed Focus catalog/aliases, daemon tools, canonical tokens, and native transcript export.",
+      "PASS: Desktop subset names/aliases exist in installed Focus; daemon tools, canonical tokens, and native transcript export checked.",
     );
     await fill("/tasks");
     await evaluate("document.querySelector('#send').click()");
@@ -575,6 +623,81 @@ async function check() {
       await evaluate("document.querySelector('#composer').value"),
       "Unsent draft for second task",
     );
+    await click("session-search");
+    await window.webContents.insertText(sessionId.toUpperCase());
+    await waitFor("document.querySelectorAll('#session-list button').length === 1");
+    assert.equal(await evaluate("document.activeElement.id"), "session-search");
+    assert.equal(
+      await evaluate("document.querySelector('#session-search-count').textContent"),
+      "1 of 2 tasks",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Unsent draft for second task",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('#timeline').textContent.includes('Second task via keyboard')",
+      ),
+      true,
+    );
+    // Tab past Clear to the matching task and open it with native keyboard input.
+    app.focus({ steal: true });
+    window.focus();
+    window.webContents.focus();
+    await waitFor("document.hasFocus()");
+    await click("session-search");
+    for (const selector of ["#clear-session-search", "#session-list button"]) {
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Tab" });
+      await waitFor(`document.activeElement.matches(${JSON.stringify(selector)})`);
+    }
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+    await waitFor(
+      "document.querySelector('#timeline').textContent.includes('Published runtime GUI proof')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Unsent draft for first task",
+    );
+    await fill("Continue task found by sidebar search");
+    await key("Return");
+    await waitFor(
+      "document.querySelectorAll('.message').length === 4 && document.querySelector('#cancel').hidden",
+    );
+    const searchTranscript = await runCommand(
+      executable,
+      [...args, "export", "transcript", "--session-id", sessionId, "--format", "jsonl"],
+      30000,
+    );
+    assert.equal(searchTranscript.exitCode, 0);
+    assert.match(searchTranscript.stdout, /Continue task found by sidebar search/);
+    assert.equal((await evaluate("window.openminion.sessions.list({})")).value.sessions.length, 2);
+    assert.equal(
+      await evaluate("document.querySelector('#session-search').value"),
+      sessionId.toUpperCase(),
+    );
+    if (process.env.OPENMINION_E2E_ARTIFACTS) {
+      await writeFile(
+        join(process.env.OPENMINION_E2E_ARTIFACTS, "task-search.png"),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+    }
+    await click("clear-session-search");
+    assert.equal(await evaluate("document.activeElement.id"), "session-search");
+    await evaluate("document.querySelectorAll('#session-list button')[0].click()");
+    await waitFor(
+      "document.querySelector('#timeline').textContent.includes('Second task via keyboard')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Unsent draft for second task",
+    );
+    console.log(
+      "PASS: native sidebar ID search, keyboard selection, preserved drafts, same-session continuation and CLI transcript readback.",
+    );
     await command("/clear", "Chat cleared");
     assert.equal(await evaluate("document.querySelectorAll('.message').length"), 0);
     assert.equal(
@@ -634,7 +757,9 @@ async function check() {
       await evaluate("document.querySelector('#composer').value"),
       "Draft preserved across outage",
     );
-    await evaluate("document.querySelector('#close-diagnostics').click()");
+    await click("close-diagnostics");
+    await click("close-settings");
+    await waitFor("!document.querySelector('#profile-dialog').open");
     console.log(
       "PASS: GUI diagnostics work during an outage without restarting the daemon or changing the draft.",
     );
@@ -654,10 +779,17 @@ async function check() {
     window.reload();
     await reloaded;
     await waitFor("document.querySelectorAll('#session-list button').length === 2");
-    await evaluate("document.querySelectorAll('#session-list button')[1].click()");
+    assert.equal(await evaluate("document.querySelector('#session-search').value"), "");
+    await click("session-search");
+    await window.webContents.insertText(sessionId);
+    await waitFor("document.querySelectorAll('#session-list button').length === 1");
+    await evaluate("document.querySelector('#session-list button').click()");
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Published runtime GUI proof')",
     );
+    await click("session-search");
+    await key("Escape");
+    await waitFor("document.querySelector('#session-search').value === ''");
     assert.match(
       await evaluate("document.querySelector('#timeline').textContent"),
       /Published runtime GUI proof/,
@@ -675,7 +807,7 @@ async function check() {
       `document.querySelector('#composer').value = 'GUI follow-up after restart'; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#send').click()`,
     );
     await waitFor(
-      "document.querySelectorAll('.message').length === 4 && document.querySelector('#cancel').hidden && document.querySelector('#timeline').getAttribute('aria-busy') === 'false'",
+      "document.querySelectorAll('.message').length === 6 && document.querySelector('#cancel').hidden && document.querySelector('#timeline').getAttribute('aria-busy') === 'false'",
     );
     await evaluate("window.historyObserver.disconnect()");
     assert.equal(await evaluate("window.historyFlashes"), 0);
@@ -702,7 +834,7 @@ async function check() {
     assert.equal(
       (await evaluate(`window.openminion.sessions.load({sessionId:${JSON.stringify(sessionId)}})`))
         .value.messages.length,
-      4,
+      6,
     );
     // Only this isolated test config talks to this local controlled provider.
     let providerMode = "hold";
@@ -875,6 +1007,17 @@ async function check() {
     })()`);
     assert.match(sidebarActivity.label, /Working/);
     assert.equal(sidebarActivity.animation, "session-spin");
+    await click("session-search");
+    await window.webContents.insertText("no matching task");
+    await waitFor("document.querySelectorAll('.session-item').length === 0");
+    assert.equal(await evaluate("document.querySelector('#cancel').disabled"), false);
+    await click("clear-session-search");
+    assert.equal(
+      await evaluate(
+        "!!document.querySelector('.session-item.selected .session-spinner:not([hidden])')",
+      ),
+      true,
+    );
     await evaluate(
       "[...document.querySelectorAll('.session-item')].find(row => !row.classList.contains('selected')).click()",
     );

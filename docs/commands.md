@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-09-13
+Last updated: 2026-09-29
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -10,6 +10,9 @@ Desktop is the GUI representation of Focus/CLI. The current subset is an
 integration gap, not a separate product command set. Names, arguments, defaults,
 and runtime effects must follow Focus. The [Focus Parity Contract](focus-parity.md)
 defines the canonical owners, known differences, daemon handoff, and acceptance.
+Terminal scripting modes, pipes, shell composition, completion and
+invocation-only flags remain CLI-only after their user-visible effects are
+mapped; their syntax is not duplicated as Desktop controls.
 
 ## Using Commands
 
@@ -31,21 +34,26 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 
 | Command | Behavior |
 | --- | --- |
-| `/help` or `/` | Show the working Desktop command list. |
+| `/help` or `/` | Show the working Desktop command list. Add a connected command name to show its Desktop help. |
 | `/new`, `/new session` | Create a local task draft; its first message creates the saved session. Requires connection and no active turn in the selected task. |
 | `/close` | Close the selected conversation through the public CLI; new messages require an open conversation. |
 | `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration. |
 | `/tasks`, `/task` | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID, use the returned Pause, Resume, and Cancel controls, or create scheduled work in the inline form. |
 | `/agents`, `/agent` | Read the daemon's agent discovery list. An exact ID or display name filters the list; this does not change the session's agent. |
 | `/tools`, `/tool` | Show the daemon's tool inventory and reported availability. Exposure changes are not connected. |
+| `/mcp` | Show configured and exposed MCP servers plus registered/exposed MCP tool counts from the daemon's capability report. |
+| `/skills` | List the OpenMinion skill catalog or inspect one exact skill ID through the public daemon API. Skill admission and mutation are not connected. |
+| `/learning` | Show the skill-learning suggestion summary or inspect one exact proposal ID through the public daemon API. Review and apply remain operator CLI actions. |
 | `/tokens` | Request the selected session's canonical durable token report. Pinned PyPI may report daemon-created sessions unavailable; no usage is fabricated. |
 | `/export` | Save the selected conversation as Markdown through a native file chooser and the CLI transcript exporter. |
 | `/status` | Show connection, selected task, active agent, reported model, and turn status. |
 | `/model` | Show the model facts reported by the daemon; changing models is not supported here yet. |
 | `/copy` | Copy the latest visible assistant reply, including a currently streaming reply. Never fall back to user input or cleared replies. Focus tool-output copying still needs integration. Clipboard writes are capped at 1 MB. |
 | `/clear`, `/cls` | Clear the visible chat while idle. Saved history remains in OpenMinion; selecting the task restores it. |
-| `/quiet` | Hide tool activity cards while keeping approvals visible. |
-| `/normal` | Restore tool activity cards. |
+| `/quiet` | Hide tool activity cards while keeping approvals visible; saved as a Desktop display preference. |
+| `/normal` | Restore tool activity cards; saved as a Desktop display preference. |
+| `/graph` | Show the installed OpenMinion CLI's graph help through a fixed read-only invocation. This is guidance, not an embedded graph workflow. |
+| `/editor` | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.27 runtime. |
 
 Files, screenshots, cancellation, task closing, and reconnection use their
 existing GUI controls. Their former Desktop-only slash shortcuts were removed
@@ -78,7 +86,7 @@ link explicitly opens the system browser. Other URL schemes are unavailable.
 Unchanged message elements stay mounted during status updates so text selection
 and reading position can be retained.
 
-Except for task commands, `/agents <exact-id-or-name>`, and `/new session`, commands currently take no arguments. Bare agent/tool queries, token reports, and export remain available during a turn. Agent filtering waits for the turn to finish, matching Focus admission. Export includes only messages already saved by OpenMinion. Model/provider
+Except for task commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help, and export remain available during a turn. Agent filtering waits for the turn to finish, matching Focus admission. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
 The composer remains editable during a turn so you can write a draft or run a
@@ -102,21 +110,21 @@ status. Full tool activity and approval presentation remain separate gaps.
 Focus's canonical command catalog is owned by OpenMinion's CLI presentation
 layer. Its handlers operate on the CLI runtime. Desktop's CLI-backed client
 connects text turns, saved sessions, task inventory/lifecycle controls,
-agent/tool inventories, token reports, and transcript export; approvals, media,
+agent/tool/skill inventories, skill-learning proposal reads, token reports, and transcript export; approvals, media,
 artifacts, and broader Focus commands remain pending.
 
 | Focus command family | Required Desktop adaptation before it is connected |
 | --- | --- |
 | Model changes, `/effort` | Present configured model choices and explicitly update an admitted session's model/effort. Return the effective settings; keep credentials daemon-owned. |
-| Tool exposure changes, `/mcp`, `/skills` | Expose canonical tool-policy changes, live MCP status, and Focus skill inventory. Bare `/tools` is connected. |
+| Tool exposure changes, MCP lifecycle/browse/authentication, skill admission/mutation | Expose canonical tool-policy changes, richer live MCP status and operations, and skill lifecycle controls. Bare `/tools`, `/mcp`, skill list/detail, and learning proposal reads are connected slices; proposal review and apply remain in the operator CLI. |
 | `/permissions`, `/readonly` | Read and update session policy with canonical validation and visible effective policy. |
 | `/context`, `/context-review`, `/compact` | Query the context owner and request supported session compaction. The files panel is not a substitute for context-budget inspection. |
 | `/cost` | Return live session usage and supported cost accounting. `/tokens` is connected to durable CLI accounting; it is not a live-cost substitute. |
-| `/memory`, `/graph`, `/telemetry`, `/trace`, `/overview` | Expose bounded, redacted owner queries over the existing public interfaces. |
-| `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership and routing operations for admitted sessions. |
+| `/memory`, `/telemetry`, `/trace`, `/overview` | Expose bounded, redacted owner queries over the existing public interfaces. `/graph` currently provides Focus-equivalent CLI guidance only; the graph workflow remains pending. |
+| `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership, handoff, messaging, start, and routing operations for admitted sessions. |
 | `/goal`, `/project`, `/delegate`, `/queue` | Expose the existing goal, project, delegation, and queue owners; do not create Desktop-owned execution queues. |
 | `/init`, `/diff`, `/review`, `/undo`, `/browser` | Expose scoped workspace/browser operations and their existing permission and audit boundaries. |
-| `/theme`, `/statusline`, tool detail commands, `/editor`, `/exit` | Additional Desktop presentation or native interactions; terminal-specific behavior requires an explicit Desktop equivalent. |
+| `/theme`, `/statusline`, `/verbose`, `/details`, `/expand`, `/editor`, `/exit`, `/quit` | Additional Desktop presentation or native interactions. Current Focus `/editor` composes an unsent draft through an external editor; Desktop shortcut guidance alone is not equivalent. |
 
 These are pending integration requirements, not shipped methods. Desktop must
 use fixed, validated public OpenMinion CLI or HTTP operations and keep executable
@@ -128,7 +136,9 @@ execute arbitrary CLI strings or forward slash commands as chat prompts.
 Renderer tests cover command discovery, keyboard handling, draft preservation,
 unsupported-command rejection, response streaming, and task switching. Main
 and preload tests cover clipboard writes and fixed task controls, scope binding,
-credential projection, invalid inputs, and concurrent operation admission. The macOS Electron
-smoke checks the actual command menu and help panel with the sandboxed preload.
-Real-daemon integration remains a separate tier described in
-[Testing and Validation](testing-and-validation.md).
+credential projection, invalid inputs, and concurrent operation admission. The
+macOS Electron smoke checks the actual command menu and help panel with the
+sandboxed preload. The installed-runtime test checks that Desktop's listed
+command names and aliases exist in Focus; it does not prove complete menu,
+argument, or effect parity. Real-daemon integration remains a separate tier
+described in [Testing and Validation](testing-and-validation.md).
