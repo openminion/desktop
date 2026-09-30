@@ -1,7 +1,7 @@
 # OpenMinion Desktop Releasing
 
 Status: not yet enabled
-Last updated: 2026-09-08
+Last updated: 2026-09-30
 
 Purpose: define the proof required before OpenMinion Desktop can enable public
 distribution.
@@ -39,6 +39,31 @@ Before enabling public distribution:
 4. document supported macOS versions and architectures,
 5. define artifact provenance and release-key ownership, and
 6. publish only from a reviewed `main` revision through a dedicated workflow.
+
+## Runtime qualification evidence
+
+Runtime compatibility is not inferred from a matching version or a successful
+package build. Before OpenMinion can publish a source record with non-null
+Desktop compatibility:
+
+1. replace the development-only `0.0.0` package version with the reviewed
+   three-part Desktop release version,
+2. qualify the exact packaged Desktop and official production OpenMinion wheel
+   on `darwin-arm64`, `linux-x64`, and `win32-x64`,
+3. record package and `app.asar` digests, exact source commits, compatibility
+   bounds, verification IDs and the required lifecycle checks,
+4. merge the canonical evidence file to `main` under
+   `releases/runtime-certification/v1/qualification/<runtime-version>/<evidence-id>.json`,
+5. dispatch OpenMinion's protected source-certification publication using the
+   resulting full Desktop evidence commit, and
+6. after that metadata PR is public, run the shipped packaged Desktop against
+   the public feed for discovery, Prepare update, old-runtime reply, restart
+   activation, same-chat reply and owned-daemon shutdown.
+
+The qualification file enables a compatibility revision. It does not prove the
+later public-feed E2E by itself. See
+[`releases/runtime-certification/v1/README.md`](releases/runtime-certification/v1/README.md)
+for the exact evidence contract.
 
 ## Current boundary
 
