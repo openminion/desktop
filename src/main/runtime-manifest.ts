@@ -115,8 +115,9 @@ function hostCompatible(
 ): boolean {
   if (!versionAtLeast(options.osVersion ?? systemVersion(), artifact.min_os_version)) return false;
   if (artifact.platform !== "linux") return true;
-  const family = options.libcFamily ?? (glibcVersion() ? "glibc" : undefined);
-  const version = options.libcVersion ?? glibcVersion();
+  const detectedGlibc = glibcVersion();
+  const family = options.libcFamily ?? (detectedGlibc ? "glibc" : undefined);
+  const version = options.libcVersion ?? detectedGlibc;
   return (
     family === artifact.libc_family &&
     typeof version === "string" &&

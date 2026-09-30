@@ -4,9 +4,9 @@ import {
   checkRuntimeManifest,
   parseRuntimeFeed,
   parseRuntimeRecord,
+  type RuntimeRecord,
   runtimeFeedUrl,
   runtimeOfferDigest,
-  type RuntimeRecord,
 } from "../../src/main/runtime-manifest.js";
 
 const commit = "a".repeat(40);
