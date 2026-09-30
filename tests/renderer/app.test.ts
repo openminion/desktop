@@ -2,23 +2,23 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   applyActivityEvent,
-  assistantBody,
   applySubmitResult,
   applyTurnEvent,
+  assistantBody,
   captureRegionFromPercentages,
   captureStatusCopy,
   formatDesktopTurnUsage,
   initialChatState,
-  messageTime,
-  waitingTime,
   listArtifacts,
   listSessions,
+  messageTime,
   mount as mountRenderer,
   observationStatusCopy,
   readArtifact,
-  recoverSession,
   recoverActivity,
+  recoverSession,
   statusView,
+  waitingTime,
 } from "../../src/renderer/app.js";
 import type {
   ArtifactCatalogItemV1,
@@ -1188,6 +1188,16 @@ describe("renderer status view", () => {
       expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "example" });
       read.mockResolvedValue({
         ok: true,
+        value: { kind: "learning", text: "Skill learning:\n  pending        1" },
+      });
+      page.element("composer").value = "/learning proposal-1";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain("pending"),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "learning", proposalId: "proposal-1" });
+      read.mockResolvedValue({
+        ok: true,
         value: { kind: "mcp", text: "MCP:\n  configured  local" },
       });
       page.element("composer").value = "/mcp";
@@ -1217,7 +1227,7 @@ describe("renderer status view", () => {
       page.element("composer").value = "/tools enable search";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Command arguments");
-      expect(read).toHaveBeenCalledTimes(5);
+      expect(read).toHaveBeenCalledTimes(6);
       read.mockImplementationOnce(
         () =>
           new Promise((resolve) => {

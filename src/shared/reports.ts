@@ -1,10 +1,11 @@
 // Read-only CLI/daemon facts that Desktop may present without runtime authority.
 export type ReportInput = {
-  kind: "agents" | "tools" | "tokens" | "skills" | "mcp" | "graph";
+  kind: "agents" | "tools" | "tokens" | "skills" | "learning" | "mcp" | "graph";
   sessionId?: string;
   agentFilter?: string;
   agentId?: string;
   skillId?: string;
+  proposalId?: string;
 };
 
 export type ReportValue =
@@ -12,5 +13,6 @@ export type ReportValue =
   | { kind: "tools"; tools: { name: string; enabled: boolean }[] }
   | { kind: "tokens"; text: string }
   | { kind: "skills"; text: string }
+  | { kind: "learning"; text: string }
   | { kind: "mcp"; text: string }
   | { kind: "graph"; text: string };

@@ -1,8 +1,5 @@
-import { publicStatusText } from "./focus-status.js";
 import { randomUUID } from "node:crypto";
-import type { ReportValue } from "../shared/reports.js";
-import type { RuntimeTask, TaskControlValue } from "../shared/tasks.js";
-import { request, type IncomingMessage } from "node:http";
+import { type IncomingMessage, request } from "node:http";
 import type {
   ApprovalDecisionInput,
   ApprovalDecisionV1,
@@ -16,43 +13,46 @@ import type {
   MediaAttachmentV1,
   MediaReleaseInput,
   MediaReleaseValue,
-  SessionSummaryV1,
-  SessionListInput,
-  SessionListValue,
-  SessionCreateInput,
-  SessionLoadInput,
-  SessionLoadValue,
   SessionCloseInput,
+  SessionCreateInput,
+  SessionEventFact,
   SessionEventsInput,
   SessionEventsValue,
-  SessionEventFact,
-  TurnSubmitInput,
-  TurnSubmitValue,
-  TurnEventV1,
+  SessionListInput,
+  SessionListValue,
+  SessionLoadInput,
+  SessionLoadValue,
+  SessionSummaryV1,
   TurnCancelInput,
   TurnCancellationValue,
+  TurnEventV1,
+  TurnSubmitInput,
+  TurnSubmitValue,
 } from "../shared/contracts.js";
-import { runCommand, type RunCommand } from "./installation.js";
+import type { ReportValue } from "../shared/reports.js";
+import type { RuntimeTask, TaskControlValue } from "../shared/tasks.js";
+import { publicStatusText } from "./focus-status.js";
+import { type RunCommand, runCommand } from "./installation.js";
 import {
   EVENT_FACTS,
-  validateListInput,
-  validateCreateInput,
-  validateLoadInput,
-  validateCloseInput,
-  validateEventsInput,
-  validateSubmitInput,
-  validateCancelInput,
-  requireRecord,
-  requireArray,
-  requireString,
-  optionalString,
-  responseEvent,
   errorValue,
-  usageValue,
-  turnUsageDisplay,
-  protocolError,
   failure,
   failureFrom,
+  optionalString,
+  protocolError,
+  requireArray,
+  requireRecord,
+  requireString,
+  responseEvent,
+  turnUsageDisplay,
+  usageValue,
+  validateCancelInput,
+  validateCloseInput,
+  validateCreateInput,
+  validateEventsInput,
+  validateListInput,
+  validateLoadInput,
+  validateSubmitInput,
 } from "./openminion-client.js";
 
 export type CliCommandContext = { executable: string; args: readonly string[] };
@@ -145,7 +145,8 @@ export class CliClient {
       const value = requireRecord(input);
       if (
         Object.keys(value).some(
-          (key) => !["kind", "sessionId", "agentFilter", "agentId", "skillId"].includes(key),
+          (key) =>
+            !["kind", "sessionId", "agentFilter", "agentId", "skillId", "proposalId"].includes(key),
         )
       )
         throw protocolError("invalid_request", "Choose a supported report.");
@@ -167,6 +168,15 @@ export class CliClient {
           /[\s\0/]/.test(value.skillId))
       )
         throw protocolError("invalid_request", "Choose an exact skill ID.");
+      if (
+        value.proposalId !== undefined &&
+        (value.kind !== "learning" ||
+          typeof value.proposalId !== "string" ||
+          !value.proposalId.trim() ||
+          value.proposalId.length > 512 ||
+          /[\s\0/]/.test(value.proposalId))
+      )
+        throw protocolError("invalid_request", "Choose an exact proposal ID.");
       if (
         value.agentId !== undefined &&
         (value.kind !== "mcp" ||
@@ -257,6 +267,64 @@ export class CliClient {
             ? `Skills:\n${skills.map((id) => `  - ${id} · catalog`).join("\n")}\nUse /skills <skill-id> to view details.`
             : "(no skills)",
         };
+      }
+      if (value.kind === "learning") {
+        if (value.sessionId !== undefined)
+          throw protocolError("invalid_request", "Skill learning does not take a session ID.");
+        if (value.proposalId) {
+          const payload = await this.#request(
+            `/v1/skills/proposals/${encodeURIComponent(value.proposalId)}`,
+          );
+          if (payload.ok !== true)
+            throw protocolError("report_unavailable", "Learning proposal is unavailable.");
+          const record = requireRecord(payload.proposal);
+          const proposal = requireRecord(record.proposal ?? {});
+          const draft = requireRecord(proposal.proposed_skill_definition ?? {});
+          const review = requireRecord(record.review ?? {});
+          const lines = [
+            `Learning proposal: ${value.proposalId}`,
+            `  state    ${optionalString(record.queue_state ?? null) ?? ""}`,
+            `  workflow ${optionalString(record.source_task_shape_ref ?? null) ?? ""}`,
+            `  name     ${optionalString(draft.display_name ?? null) || optionalString(draft.name ?? null) || ""}`,
+            `  risk     ${optionalString(draft.risk_class ?? null) ?? ""}`,
+            `  replay   ${record.replay_proof ? "recorded" : "missing"}`,
+          ];
+          if (Object.keys(review).length)
+            lines.push(`  review   ${optionalString(review.status ?? null) ?? ""}`);
+          if (record.applied_addition) lines.push("  applied  yes");
+          lines.push(
+            `Review and apply from the operator CLI: openminion skill proposal-inspect ${value.proposalId}`,
+          );
+          return { kind: "learning", text: lines.join("\n") };
+        }
+        const [statusPayload, inboxPayload] = await Promise.all([
+          this.#request("/v1/skills/suggestions/status"),
+          this.#request("/v1/skills/suggestions/inbox"),
+        ]);
+        if (statusPayload.ok !== true || inboxPayload.ok !== true)
+          throw protocolError("report_unavailable", "Skill learning is unavailable.");
+        const status = requireRecord(statusPayload.status);
+        const suggestions = requireArray(inboxPayload.suggestions).slice(0, 20);
+        const lines = [
+          "Skill learning:",
+          `  pending        ${Number(status.pending_count ?? 0)}`,
+          `  surfaced       ${Number(status.surfaced_count ?? 0)}`,
+          `  accepted       ${Number(status.accepted_count ?? 0)}`,
+          `  rejected       ${Number(status.rejected_count ?? 0)}`,
+          `  deferred       ${Number(status.deferred_count ?? 0)}`,
+          `  auto-dismissed ${Number(status.auto_dismissed_count ?? 0)}`,
+        ];
+        if (suggestions.length) {
+          lines.push("Pending proposals:");
+          for (const item of suggestions) {
+            const row = requireRecord(item);
+            lines.push(
+              `  - ${requireString(row.proposal_id)} · ${optionalString(row.display_name ?? null) || requireString(row.proposal_id)}`,
+            );
+          }
+          lines.push("Use /learning <proposal_id> to view details.");
+        } else lines.push("No pending skill proposals.");
+        return { kind: "learning", text: lines.join("\n") };
       }
       if (value.kind === "mcp") {
         if (value.sessionId !== undefined)

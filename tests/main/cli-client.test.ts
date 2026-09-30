@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CliClient } from "../../src/main/cli-client.js";
 import { runCommand } from "../../src/main/installation.js";
@@ -56,6 +56,35 @@ describe("PyPI CLI client", () => {
       ok: false,
       error: { code: "invalid_request" },
     });
+    expect(await client.readReport({ kind: "learning" })).toEqual({
+      ok: true,
+      value: {
+        kind: "learning",
+        text: [
+          "Skill learning:",
+          "  pending        1",
+          "  surfaced       1",
+          "  accepted       0",
+          "  rejected       0",
+          "  deferred       0",
+          "  auto-dismissed 0",
+          "Pending proposals:",
+          "  - proposal-1 · Inventory Workflow",
+          "Use /learning <proposal_id> to view details.",
+        ].join("\n"),
+      },
+    });
+    expect(await client.readReport({ kind: "learning", proposalId: "proposal-1" })).toMatchObject({
+      ok: true,
+      value: {
+        kind: "learning",
+        text: expect.stringContaining("Learning proposal: proposal-1"),
+      },
+    });
+    expect(await client.readReport({ kind: "learning", proposalId: "../private" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
     expect(await client.readReport({ kind: "mcp", agentId: "writer" })).toEqual({
       ok: true,
       value: {
@@ -75,7 +104,7 @@ describe("PyPI CLI client", () => {
       ok: false,
     });
     expect(await client.readReport({ kind: "arbitrary" })).toMatchObject({ ok: false });
-    expect(fixture.requests).toHaveLength(7);
+    expect(fixture.requests).toHaveLength(10);
     expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
   });
 
@@ -777,13 +806,47 @@ async function executableFixture(mode = "normal") {
                         private: "private",
                       },
                     }
-                  : {
-                      ok: true,
-                      tools: [
-                        { name: "search", enabled: true, private: "private" },
-                        { name: "disabled", enabled: false },
-                      ],
-                    },
+                  : req.url === "/v1/skills/suggestions/status"
+                    ? {
+                        ok: true,
+                        status: {
+                          pending_count: 1,
+                          surfaced_count: 1,
+                          accepted_count: 0,
+                          rejected_count: 0,
+                          deferred_count: 0,
+                          auto_dismissed_count: 0,
+                        },
+                      }
+                    : req.url === "/v1/skills/suggestions/inbox"
+                      ? {
+                          ok: true,
+                          suggestions: [
+                            { proposal_id: "proposal-1", display_name: "Inventory Workflow" },
+                          ],
+                        }
+                      : req.url === "/v1/skills/proposals/proposal-1"
+                        ? {
+                            ok: true,
+                            proposal: {
+                              proposal_id: "proposal-1",
+                              queue_state: "pending",
+                              source_task_shape_ref: "shape-1",
+                              proposal: {
+                                proposed_skill_definition: {
+                                  display_name: "Inventory Workflow",
+                                  risk_class: "low",
+                                },
+                              },
+                            },
+                          }
+                        : {
+                            ok: true,
+                            tools: [
+                              { name: "search", enabled: true, private: "private" },
+                              { name: "disabled", enabled: false },
+                            ],
+                          },
         ),
       );
       return;

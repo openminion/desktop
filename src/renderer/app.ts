@@ -1,7 +1,3 @@
-import { renderMarkdown } from "./markdown.js";
-import { mountProfiles } from "./profiles.js";
-import { renderTasks } from "./tasks.js";
-import type { ScheduleInput, TaskAction } from "../shared/tasks.js";
 import type {
   ApprovalDecision,
   ApprovalDecisionV1,
@@ -13,8 +9,8 @@ import type {
   CaptureFrameV1,
   CapturePublicSourceKind,
   CaptureRegionV1,
-  CaptureStateV1,
   CaptureSourceKind,
+  CaptureStateV1,
   ClientResult,
   DaemonStatus,
   ErrorV1,
@@ -33,6 +29,10 @@ import type {
   TurnSubmitValue,
   TurnUsageDisplay,
 } from "../shared/contracts.js";
+import type { ScheduleInput, TaskAction } from "../shared/tasks.js";
+import { renderMarkdown } from "./markdown.js";
+import { mountProfiles } from "./profiles.js";
+import { renderTasks } from "./tasks.js";
 
 declare global {
   interface Window {
@@ -83,6 +83,7 @@ export const DESKTOP_COMMANDS = [
   { name: "/tools", description: "Show available tools" },
   { name: "/mcp", description: "Show configured and exposed MCP servers" },
   { name: "/skills", description: "List skills or inspect one by ID" },
+  { name: "/learning", description: "Show skill-learning proposals" },
   { name: "/tokens", description: "Show durable token usage details" },
   { name: "/export", description: "Export the saved conversation" },
   { name: "/status", description: "Show connection, task, agent, and model" },
@@ -1563,6 +1564,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       command !== "/tasks" &&
       command !== "/agents" &&
       command !== "/skills" &&
+      command !== "/learning" &&
       command !== "/help" &&
       !(command === "/new" && args.join(" ") === "session")
     ) {
@@ -1582,18 +1584,27 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       case "/tools":
       case "/tokens":
       case "/skills":
+      case "/learning":
       case "/mcp":
       case "/graph": {
         if (command === "/agents" && args.length && chat.active) {
           showCommandResult("Agents", "Finish or stop this turn before inspecting an agent.");
           break;
         }
-        const kind = command.slice(1) as "agents" | "tools" | "tokens" | "skills" | "mcp" | "graph";
+        const kind = command.slice(1) as
+          | "agents"
+          | "tools"
+          | "tokens"
+          | "skills"
+          | "learning"
+          | "mcp"
+          | "graph";
         const titles = {
           agents: "Agents",
           tools: "Tools",
           tokens: "Token usage",
           skills: "Skills",
+          learning: "Skill learning",
           mcp: "MCP",
           graph: "Graph viewer",
         };
@@ -1606,10 +1617,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const request = commandResultGeneration;
         const result = await api.reports.read({
           kind,
-          ...(sessionId && !["skills", "mcp", "graph"].includes(kind) ? { sessionId } : {}),
+          ...(sessionId && !["skills", "learning", "mcp", "graph"].includes(kind)
+            ? { sessionId }
+            : {}),
           ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
           ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
+          ...(kind === "learning" && args.length ? { proposalId: args.join(" ") } : {}),
         });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
         if (elements.commandPanel.hidden) break;
