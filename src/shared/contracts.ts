@@ -2,6 +2,7 @@ import type {
   ProfileSaveInput,
   ProfileSettings,
   ProfileSetupInput,
+  ProfileSetupResult,
   SetupPreset,
 } from "./profiles.js";
 import type { TaskControlInput, TaskControlValue } from "./tasks.js";
@@ -39,6 +40,8 @@ export type ErrorV1 = {
 };
 
 export type ClientResult<T> = { ok: true; value: T } | { ok: false; error: ErrorV1 };
+
+export type ProfileSetupApplyResult = ProfileSetupResult & { daemon: DaemonStatus };
 
 export type SessionStatus = "active" | "idle" | "paused" | "stale" | "closed";
 export type TurnUsageDisplay = "off" | "total" | "input_output" | "input_output_calls";
@@ -655,9 +658,7 @@ export type NativeApi = {
   };
   profiles: {
     presets(): Promise<ClientResult<SetupPreset[]>>;
-    setup(
-      input: ProfileSetupInput,
-    ): Promise<ClientResult<{ settings: ProfileSettings; daemon: DaemonStatus }>>;
+    setup(input: ProfileSetupInput): Promise<ClientResult<ProfileSetupApplyResult>>;
     read(): Promise<ClientResult<ProfileSettings>>;
     save(
       input: ProfileSaveInput,

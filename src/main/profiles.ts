@@ -7,6 +7,7 @@ import {
   TOOL_CREDENTIALS,
   type ProfileSaveInput,
   type ProfileSettings,
+  type ProfileSetupResult,
   type SetupPreset,
   type ProfileSetupInput,
 } from "../shared/profiles.js";
@@ -20,6 +21,8 @@ const importedRuntimeSettings = new Set([
   "OPENMINION_BRAIN_MAX_TOOL_CALLS",
   "OPENMINION_WEB_SEARCH_PROVIDER",
 ]);
+const SETUP_TIMEOUT_MS = 30_000;
+const CHECKED_SETUP_TIMEOUT_MS = 600_000;
 
 export class Profiles {
   constructor(
@@ -71,11 +74,12 @@ export class Profiles {
     return presets;
   }
 
-  async setup(input: unknown, executable: string): Promise<ProfileSettings> {
+  async setup(input: unknown, executable: string): Promise<ProfileSetupResult> {
     const value = requireRecord(input);
     if (
       Object.keys(value).some(
-        (key) => !["revision", "presetId", "model", "baseUrl", "apiKey"].includes(key),
+        (key) =>
+          !["revision", "presetId", "model", "baseUrl", "apiKey", "checkProvider"].includes(key),
       )
     )
       throw protocolError("invalid_request", "Unknown setup field.");
@@ -85,6 +89,8 @@ export class Profiles {
         String(value[name]).length > (name === "apiKey" ? 16_384 : 2048)
       )
         throw protocolError("invalid_request", "Enter valid setup fields.");
+    if (typeof value.checkProvider !== "boolean")
+      throw protocolError("invalid_request", "Choose whether to test the provider connection.");
     const request = value as ProfileSetupInput;
     validateEndpoint(request.baseUrl);
     if (!request.model.trim() || request.model.startsWith("-"))
@@ -113,27 +119,29 @@ export class Profiles {
       const environment = preset.credentialEnv
         ? { [preset.credentialEnv]: request.apiKey.trim() }
         : {};
+      const setupArgs = [
+        "--home-root",
+        this.homeRoot,
+        "--data-root",
+        this.dataRoot,
+        "--config",
+        candidate,
+        "setup",
+        "--no-chat",
+        "--provider",
+        preset.id,
+        "--agent",
+        view.defaultAgent || "openminion",
+        "--model",
+        request.model.trim(),
+        "--base-url",
+        request.baseUrl,
+      ];
+      if (request.checkProvider) setupArgs.push("--check-provider");
       const result = await this.run(
         executable,
-        [
-          "--home-root",
-          this.homeRoot,
-          "--data-root",
-          this.dataRoot,
-          "--config",
-          candidate,
-          "setup",
-          "--no-chat",
-          "--provider",
-          preset.id,
-          "--agent",
-          view.defaultAgent || "openminion",
-          "--model",
-          request.model.trim(),
-          "--base-url",
-          request.baseUrl,
-        ],
-        30_000,
+        setupArgs,
+        request.checkProvider ? CHECKED_SETUP_TIMEOUT_MS : SETUP_TIMEOUT_MS,
         environment,
       );
       if (result.exitCode !== 0)
@@ -143,7 +151,10 @@ export class Profiles {
         );
       const configured = requireRecord(JSON.parse(await readFile(candidate, "utf8")));
       this.#setRuntime(configured, { ...runtimeEnv(configured), ...environment });
-      return this.#write(configured, text, executable);
+      return {
+        settings: await this.#write(configured, text, executable),
+        providerCheck: request.checkProvider ? "verified" : "not_requested",
+      };
     } finally {
       await rm(candidate, { force: true });
     }

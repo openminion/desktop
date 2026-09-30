@@ -239,8 +239,9 @@ defaults and the saved model profiles with Desktop, then checks the first
 configured chat, missing-key startup guidance, and subsequent model/key edits.
 It also checks that changing Settings sections preserves unsaved profile values
 and that closing Settings clears entered keys.
-It verifies that saving makes no provider request, stored config permissions
-remain private, and the first chat uses the entered model and credential. It also creates a conversation with the ordinary CLI and
+It verifies that checked setup makes exactly one provider request and reports a
+verified connection, stored config permissions remain private, and the first
+chat makes its own request with the entered model and credential. It also creates a conversation with the ordinary CLI and
 continues it in Desktop while preserving its saved channel and target. Local
 chat naming covers cancel, save, reload, and reset, with unchanged canonical
 session IDs, names, history, and provider request counts.
