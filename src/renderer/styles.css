@@ -1575,6 +1575,25 @@ details[open] > summary .summary-chevron {
   margin: 4px 8px 4px 0;
 }
 
+.task-readiness,
+.task-decisions,
+.task-runs {
+  margin-block: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.task-readiness,
+.task-run {
+  white-space: pre-wrap;
+}
+
+.task-decisions h3,
+.task-runs h4 {
+  margin: 0 0 6px;
+}
+
 .composer textarea {
   flex: 1 1 auto;
   width: 100%;

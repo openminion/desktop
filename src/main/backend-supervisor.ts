@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import type {
   ClientResult,
   DaemonStatus,
+  ProfileSetupApplyResult,
   RuntimeControlInput,
   RuntimeUpdateStatus,
 } from "../shared/contracts.js";
@@ -15,7 +16,7 @@ import type {
   IdentitySettings,
   IdentityValidation,
 } from "../shared/identity.js";
-import type { ProfileSettings } from "../shared/profiles.js";
+import type { ProfileSettings, ProviderCheckStatus } from "../shared/profiles.js";
 import { CliClient } from "./cli-client.js";
 import { IdentitySettingsService } from "./identity.js";
 import {
@@ -155,10 +156,24 @@ export class DaemonSupervisor {
         "Wait for OpenMinion to finish starting, then reopen Settings.",
       );
     try {
-      return { ok: true as const, value: await this.profiles.presets(this.#executable) };
+      return {
+        ok: true as const,
+        value: await this.profiles.presets(this.#executable),
+      };
     } catch (error) {
       return failureFrom(error);
     }
+  }
+
+  async applySetup(input: unknown): Promise<ClientResult<ProfileSetupApplyResult>> {
+    let providerCheck: ProviderCheckStatus = "not_requested";
+    const applied = await this.applyProfiles(async (profiles, executable) => {
+      const result = await profiles.setup(input, executable);
+      providerCheck = result.providerCheck;
+      return result.settings;
+    });
+    if (!applied.ok) return applied;
+    return { ok: true, value: { ...applied.value, providerCheck } };
   }
 
   async applyProfiles(
@@ -528,7 +543,10 @@ export class DaemonSupervisor {
           "diagnostics_unavailable",
           "Could not read daemon diagnostics. The log may not exist yet; try Refresh after reconnecting.",
         );
-      return { ok: true, value: { text: result.stdout.trim() || "No entries reported." } };
+      return {
+        ok: true,
+        value: { text: result.stdout.trim() || "No entries reported." },
+      };
     } catch {
       return failure("diagnostics_unavailable", "Could not read daemon diagnostics. Try Refresh.");
     }
@@ -615,7 +633,7 @@ export class DaemonSupervisor {
   }
 
   getCommandContext(): OpenMinionCommandContext | null {
-    if (this.lifecycle.current !== "running" || !this.#executable) return null;
+    if (!this.#executable) return null;
     return { executable: this.#executable, args: rootArguments(this.#options) };
   }
 
@@ -685,7 +703,10 @@ export class DaemonSupervisor {
         if (store && pending && canActivate) {
           // Persist BEFORE the candidate executes against live configuration or data.
           const candidate = store.beginRuntimeLaunch();
-          installed = { path: candidate.executable, version: candidate.version };
+          installed = {
+            path: candidate.executable,
+            version: candidate.version,
+          };
           this.#executable = candidate.executable;
           launchingUpdate = true;
         }

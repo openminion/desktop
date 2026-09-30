@@ -50,7 +50,11 @@ async function check() {
     const key = async (keyCode, modifiers = []) => {
       window.focus();
       window.webContents.focus();
-      window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+      window.webContents.sendInputEvent({
+        type: "keyDown",
+        keyCode,
+        modifiers,
+      });
       window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
       await settled();
     };
@@ -150,11 +154,11 @@ async function check() {
     assert.equal(await evaluate("document.activeElement.id"), "session-search");
     assert.equal(
       await evaluate("document.querySelector('#session-search-count').textContent"),
-      "0 of 0 tasks",
+      "0 of 0 conversations",
     );
     assert.equal(
       await evaluate("document.querySelector('#session-list').textContent.trim()"),
-      "Your tasks will appear here.",
+      "Your conversations will appear here.",
     );
     assert.equal(
       await evaluate("document.querySelector('#shell-version').previousElementSibling.textContent"),
@@ -264,7 +268,7 @@ async function check() {
       );
       assert.equal(
         await evaluate("document.querySelector('#close-session').textContent.trim()"),
-        "Close task",
+        "Close conversation",
       );
       assert.equal(
         await evaluate("document.querySelector('#close-command').textContent.trim()"),
@@ -345,7 +349,7 @@ async function check() {
     `);
     assert.equal(
       await evaluate("document.querySelector('#command-title').textContent"),
-      "Task status",
+      "Conversation status",
     );
     await evaluate(
       "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
@@ -522,7 +526,9 @@ async function check() {
     // Real readable configuration with a missing CLI produces a distinct setup-catalog failure.
     writeFileSync(
       join(temporaryRoot, "agents.json"),
-      JSON.stringify({ agents: { openminion: { name: "openminion", provider: "echo" } } }),
+      JSON.stringify({
+        agents: { openminion: { name: "openminion", provider: "echo" } },
+      }),
       { mode: 0o600 },
     );
     const profile = await evaluate("window.openminion.profiles.read()");

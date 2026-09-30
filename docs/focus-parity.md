@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -44,18 +44,18 @@ history, skill catalog/detail reads, and skill-learning proposal reads through
 its public CLI/API. The broader Focus command surface, approvals,
 media, and artifacts still require Desktop integration.
 
-| Surface | Current Desktop gap | Required outcome |
-| --- | --- | --- |
-| Catalog and help | A small static renderer list | Discover canonical names, aliases, usage, availability, and descriptions through fixed public OpenMinion operations |
-| Arguments and busy state | `/tasks` supports inspection and pause/resume/cancel arguments; other commands mostly reject arguments and use local button rules | Use the same parser and command admission as Focus, including bare queries during a turn |
-| `/new`, `/sessions` | Saved-task creation and selection exist; Focus directory scope is not established | Preserve working directory, selected agent, session scope, and canonical creation/binding defaults |
-| `/resume` | Not connected; the incorrect `/sessions` alias was removed | Present prior sessions with messages in the current directory, then bind and load history |
-| `/model` | Reports session metadata only | Present configured choices and perform canonical model selection; return effective settings |
-| `/status` | Reports connection and partial session metadata | Include canonical agent, model, session, and working-directory facts |
-| `/clear`, `/copy` | Visible chat clearing and assistant copying exist; canonical tool-output ordering is missing | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback |
-| Tool presentation | `/quiet` and `/normal` toggle summary cards | Match quiet, normal truncation, verbose, details, and expansion using canonical tool content |
-| Type-ahead | Drafts remain unsent during a turn | Match Focus queue admission, inspection, and control through the runtime owner |
-| Recovery | Running turns survive task switches in one app | Reattach to the same running turn and pending approvals after restart |
+| Surface                  | Current Desktop gap                                                                                                               | Required outcome                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Catalog and help         | A small static renderer list                                                                                                      | Discover canonical names, aliases, usage, availability, and descriptions through fixed public OpenMinion operations |
+| Arguments and busy state | `/tasks` supports inspection and pause/resume/cancel arguments; other commands mostly reject arguments and use local button rules | Use the same parser and command admission as Focus, including bare queries during a turn                            |
+| `/new`, `/sessions`      | Saved-task creation and selection exist; Focus directory scope is not established                                                 | Preserve working directory, selected agent, session scope, and canonical creation/binding defaults                  |
+| `/resume`                | Not connected; the incorrect `/sessions` alias was removed                                                                        | Present prior sessions with messages in the current directory, then bind and load history                           |
+| `/model`                 | Reports session metadata only                                                                                                     | Present configured choices and perform canonical model selection; return effective settings                         |
+| `/status`                | Reports connection and partial session metadata                                                                                   | Include canonical agent, model, session, and working-directory facts                                                |
+| `/clear`, `/copy`        | Visible chat clearing and assistant copying exist; canonical tool-output ordering is missing                                      | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback          |
+| Tool presentation        | `/quiet` and `/normal` toggle summary cards                                                                                       | Match quiet, normal truncation, verbose, details, and expansion using canonical tool content                        |
+| Type-ahead               | Drafts remain unsent during a turn                                                                                                | Match Focus queue admission, inspection, and control through the runtime owner                                      |
+| Recovery                 | Running turns survive task switches in one app                                                                                    | Reattach to the same running turn and pending approvals after restart                                               |
 
 The GUI's Context/files panel is not Focus's context-budget report. Screen
 capture remains a GUI input method. Files, screenshots, cancellation, task
@@ -79,27 +79,29 @@ support.
 
 All canonical command families need coverage:
 
-| Commands and aliases | Existing behavior to expose or present |
-| --- | --- |
-| `/help`, `/` | Canonical catalog and help |
-| `/new`, `/new session`, `/sessions`, `/session`, `/resume` | Directory-scoped session creation, inventory, binding, and history |
-| `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Room membership, handoff, messaging, start, and routing |
-| `/agents`, `/agent`, `/model`, `/effort` | Agent inspection/selection, configured model choices, effective effort |
-| `/delegate`, `/goal`, `/project`, `/tasks`, `/task`, `/queue` | Existing delegation, goal, project, durable task, and prompt-queue owners |
-| `/tools`, `/tool`, `/mcp`, `/skills`, `/learning` | Configured tool, server, skill, and learning-proposal inventory and supported changes |
-| `/permissions`, `/readonly` | Canonical policy queries, updates, and effective mode |
-| `/context`, `/context-review`, `/compact`, `/cost`, `/tokens` | Context evidence, supported compaction, live/durable usage, available cost |
-| `/memory`, `/telemetry`, `/trace`, `/overview` | Owner reports and supported operations, with renderer availability preserved; `/graph` guidance is connected while graph workflows remain pending |
-| `/init`, `/browser`, `/undo`, `/diff`, `/review` | Existing workspace/browser operations with policy and audit boundaries |
-| `/clear`, `/cls`, `/copy`, `/quiet`, `/normal`, `/verbose`, `/details`, `/expand` | Canonical transcript content and presentation semantics |
-| `/status`, `/theme`, `/statusline`, `/export`, `/editor`, `/exit`, `/quit` | Status, presentation preferences, external-editor draft composition, and exit intent; the current Desktop `/editor` guidance is not yet equivalent to current Focus |
+| Commands and aliases                                                                                    | Existing behavior to expose or present                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/help`, `/`                                                                                            | Canonical catalog and help                                                                                                                                          |
+| `/new`, `/new session`, `/sessions`, `/session`, `/resume`                                              | Directory-scoped session creation, inventory, binding, and history                                                                                                  |
+| `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Room membership, handoff, messaging, start, and routing                                                                                                             |
+| `/agents`, `/agent`, `/model`, `/effort`                                                                | Agent inspection/selection, configured model choices, effective effort                                                                                              |
+| `/delegate`, `/goal`, `/project`, `/tasks`, `/task`, `/queue`                                           | Existing delegation, goal, project, durable task, and prompt-queue owners                                                                                           |
+| `/tools`, `/tool`, `/mcp`, `/skills`, `/learning`                                                       | Configured tool, server, skill, and learning-proposal inventory and supported changes                                                                               |
+| `/permissions`, `/readonly`                                                                             | Canonical policy queries, updates, and effective mode                                                                                                               |
+| `/context`, `/context-review`, `/compact`, `/cost`, `/tokens`                                           | Context evidence, supported compaction, live/durable usage, available cost                                                                                          |
+| `/memory`, `/telemetry`, `/trace`, `/overview`                                                          | Owner reports and supported operations, with renderer availability preserved; `/graph` guidance is connected while graph workflows remain pending                   |
+| `/init`, `/browser`, `/undo`, `/diff`, `/review`                                                        | Existing workspace/browser operations with policy and audit boundaries                                                                                              |
+| `/clear`, `/cls`, `/copy`, `/quiet`, `/normal`, `/verbose`, `/details`, `/expand`                       | Canonical transcript content and presentation semantics                                                                                                             |
+| `/status`, `/theme`, `/statusline`, `/export`, `/editor`, `/exit`, `/quit`                              | Status, presentation preferences, external-editor draft composition, and exit intent; the current Desktop `/editor` guidance is not yet equivalent to current Focus |
 
 ## Connected Setup And Session Identity
 
 First-launch onboarding reads the installed CLI's `setup --list-providers`
 catalog and invokes fixed `setup --no-chat` arguments against a private candidate
 config. Core owns provider defaults and profile construction. Desktop validates
-and applies that config through its existing Settings lifecycle. Existing
+and applies that config through its existing Settings lifecycle. A checked
+setup adds the CLI's `--check-provider` flag and reports the typed verification
+outcome; unchecked setup does not make a provider request. Existing
 configured agents use Settings or profile import; onboarding does not implement
 the full CLI multi-model setup surface.
 
@@ -117,7 +119,9 @@ surface; Desktop does not copy lifecycle transitions, task ownership, or schedul
 logic. The CLI retains its default inventory limit of 50. GUI buttons come from
 returned `valid_actions`; core validates them again on execution.
 
-The renderer receives only task presentation fields and a pending-decision count.
+The renderer receives task presentation fields and scoped pending-approval facts.
+Those approvals are read-only in the task panel and resolve through the existing
+Focus approval flow, not task lifecycle commands.
 Task changes are fenced against active Desktop turns and Settings updates. Reads
 remain available during a turn. The inline form creates scheduled work using fixed `schedule create` arguments:
 name, instruction, one-time ISO timestamp, interval in minutes, or cron expression
@@ -151,10 +155,11 @@ operations; those remain pending.
 only the report text, not arbitrary HTTP or process access. Skill lifecycle
 operations and configured-only skill entries remain unconnected.
 
-`/learning` and `/learning <exact-proposal-id>` read the public suggestion
-status, inbox, and proposal-detail routes. Desktop presents proposal facts but
-does not review or apply them; those state-changing actions remain explicit
-operator CLI operations.
+Desktop also keeps the public `/learning` read surface even though current
+Focus omits that renderer command. It reads suggestion status/inbox and exact
+proposal detail through the public daemon API; review and apply remain operator
+CLI actions. This explicit renderer-only read exception is tested rather than
+silently treated as Focus command parity.
 
 `/tokens` invokes `status tokens --session-id` and displays the canonical report
 without recalculating usage. Live acceptance found that pinned PyPI returns

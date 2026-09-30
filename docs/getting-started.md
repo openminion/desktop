@@ -132,8 +132,10 @@ OpenMinion**. Choose a provider, enter its model and API key, and click **Set up
 and start**, or import an existing profile. Provider choices and defaults come
 from the installed CLI's setup command. **Try echo demo** repeats input without
 calling a model; setup appears again on the next launch until a real profile is
-configured. Saving setup does not contact the model provider; the first message
-tests access. Use `npm run preview` for sample approval, file,
+configured. **Test connection before continuing** is selected by default and
+sends one provider request, which may use provider resources. Clear it to save
+without testing; Desktop reports either **Connection verified** or **Connection
+not tested** after setup. Use `npm run preview` for sample approval, file,
 artifact, and screen-context interactions that are not connected to PyPI yet.
 
 ## Find A Task
