@@ -32,6 +32,12 @@ export type RuntimeRecord = {
   source_commit: string;
   release_notes_url: string;
   desktop_compatibility: { min_version: string; max_version_exclusive: string } | null;
+  certification?: {
+    repository: "openminion/desktop";
+    commit: string;
+    path: string;
+    sha256: string;
+  };
   pypi?: RuntimeArtifact & { package: "openminion"; version: string; requires_python: string };
   artifacts?: BinaryArtifact[];
 };
@@ -259,9 +265,25 @@ export function parseRuntimeRecord(value: unknown, source: RuntimeSource): Runti
     )
       throw new Error("manifest_invalid");
     if (!validRange(text(wheel.requires_python))) throw new Error("manifest_python_invalid");
+    if (record.desktop_compatibility === null) {
+      if (record.certification !== undefined) throw new Error("manifest_certification_invalid");
+    } else {
+      const certification = object(record.certification);
+      const path = text(certification.path);
+      if (
+        certification.repository !== "openminion/desktop" ||
+        !commitPattern.test(text(certification.commit)) ||
+        !digestPattern.test(text(certification.sha256)) ||
+        !new RegExp(
+          `^releases/runtime-certification/v1/qualification/${version}/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.json$`,
+        ).test(path)
+      )
+        throw new Error("manifest_certification_invalid");
+    }
   } else {
     if (
       record.pypi !== undefined ||
+      record.certification !== undefined ||
       record.desktop_compatibility === null ||
       !Array.isArray(record.artifacts) ||
       !record.artifacts.length ||

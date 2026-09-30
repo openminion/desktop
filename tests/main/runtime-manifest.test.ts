@@ -24,6 +24,12 @@ const record = (version = "1.0.0"): RuntimeRecord => ({
   source_commit: commit,
   release_notes_url: `https://github.com/openminion/openminion/releases/tag/v${version}`,
   desktop_compatibility: { min_version: "0.0.0", max_version_exclusive: "2.0.0" },
+  certification: {
+    repository: "openminion/desktop",
+    commit,
+    path: `releases/runtime-certification/v1/qualification/${version}/desktop-test.json`,
+    sha256: "d".repeat(64),
+  },
   pypi: {
     package: "openminion",
     version,
@@ -50,8 +56,9 @@ const reference = (item: RuntimeRecord, id = item.release_id) => ({
 const options = { source: "pypi" as const, desktopVersion: "0.0.0", installedVersion: "0.0.19" };
 
 const binaryRecord = (artifact: Record<string, unknown>): RuntimeRecord => {
-  const { pypi, ...common } = record();
+  const { pypi, certification, ...common } = record();
   expect(pypi).toBeDefined();
+  expect(certification).toBeDefined();
   return {
     ...common,
     distribution: "binary",
@@ -91,7 +98,7 @@ describe("runtime manifest boundary", () => {
     );
   });
   it("accepts uncertified source metadata without inventing bounds", () => {
-    const item = { ...record(), desktop_compatibility: null };
+    const item = { ...record(), desktop_compatibility: null, certification: undefined };
     expect(parseRuntimeRecord(item, "pypi").desktop_compatibility).toBeNull();
   });
   it.each([
@@ -136,7 +143,7 @@ describe("runtime manifest boundary", () => {
   );
   it("validates binary targets without certifying them as native releases", () => {
     const source = record();
-    const { pypi, ...common } = source;
+    const { pypi, certification, ...common } = source;
     const artifact = {
       platform: "win32",
       arch: "x64",
@@ -173,6 +180,7 @@ describe("runtime manifest boundary", () => {
       }),
     ).not.toBe(firstIdentity);
     expect(pypi).toBeDefined();
+    expect(certification).toBeDefined();
     for (const change of [
       { artifacts: [artifact, artifact] },
       { artifacts: [{ ...artifact, arch: "arm64" }] },
@@ -241,7 +249,7 @@ describe("runtime selection", () => {
   });
 
   it("never lets a pin certify an incompatible record", async () => {
-    const item = { ...record(), desktop_compatibility: null };
+    const item = { ...record(), desktop_compatibility: null, certification: undefined };
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -272,7 +280,11 @@ describe("runtime selection", () => {
     expect((await checkRuntimeManifest(options))?.record.runtime_version).toBe("1.10.0");
   });
   it("skips uncertified records and selects the first eligible equal-version revision", async () => {
-    const uncertified = { ...record(), desktop_compatibility: null };
+    const uncertified = {
+      ...record(),
+      desktop_compatibility: null,
+      certification: undefined,
+    };
     const certified = { ...record(), release_id: "source.2" };
     const second = { ...record(), release_id: "source.3" };
     const fetch = vi.fn(
