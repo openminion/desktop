@@ -99,7 +99,9 @@ All canonical command families need coverage:
 First-launch onboarding reads the installed CLI's `setup --list-providers`
 catalog and invokes fixed `setup --no-chat` arguments against a private candidate
 config. Core owns provider defaults and profile construction. Desktop validates
-and applies that config through its existing Settings lifecycle. Existing
+and applies that config through its existing Settings lifecycle. A checked
+setup adds the CLI's `--check-provider` flag and reports the typed verification
+outcome; unchecked setup does not make a provider request. Existing
 configured agents use Settings or profile import; onboarding does not implement
 the full CLI multi-model setup surface.
 

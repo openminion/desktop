@@ -60,7 +60,11 @@
               </div>
               <label for="setup-key">API key</label>
               <input id="setup-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
-              <p class="settings-note">Your first message tests the connection. Setup does not make a paid model request.</p>
+              <label class="settings-checkbox">
+                <input id="setup-check-provider" type="checkbox" checked />
+                Test connection before continuing
+              </label>
+              <p class="settings-note">Sends one provider request and may use provider resources.</p>
             </fieldset>
             <fieldset id="profile-fields" disabled>
               <legend class="sr-only">Profile settings</legend>

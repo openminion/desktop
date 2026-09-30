@@ -119,11 +119,17 @@ describe("preload surface", () => {
 
     await api.profiles.read();
     await api.profiles.presets();
-    await api.profiles.setup({ presetId: "minimax" });
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesPresets);
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSetup, {
+    const setupInput = {
+      revision: "a".repeat(64),
       presetId: "minimax",
-    });
+      model: "MiniMax-M2.7",
+      baseUrl: "https://api.minimax.io/v1",
+      apiKey: "test-key",
+      checkProvider: false,
+    };
+    await api.profiles.setup(setupInput);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesPresets);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSetup, setupInput);
     await api.profiles.save({ agentId: "writer" });
     await api.profiles.import({ revision: "a".repeat(64) });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesRead);

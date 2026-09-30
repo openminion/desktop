@@ -2,10 +2,19 @@
 import type { DaemonStatus, NativeApi } from "../shared/contracts.js";
 import {
   TOOL_CREDENTIALS,
+  type ProviderCheckStatus,
   type ProfileSaveInput,
   type ProfileSettings,
   type SetupPreset,
 } from "../shared/profiles.js";
+
+export function setupResultMessage(providerCheck: ProviderCheckStatus, reachable: boolean): string {
+  const confirmation =
+    providerCheck === "verified" ? "Connection verified." : "Connection not tested.";
+  return reachable
+    ? `${confirmation} New tasks use the default agent; existing tasks keep their agent.`
+    : `${confirmation} Settings were saved, but OpenMinion could not reconnect. Check the connection details.`;
+}
 
 export function mountProfiles(
   api: NativeApi,
@@ -34,6 +43,7 @@ export function mountProfiles(
   const setupModel = get<HTMLInputElement>("setup-model");
   const setupEndpoint = get<HTMLInputElement>("setup-endpoint");
   const setupKey = get<HTMLInputElement>("setup-key");
+  const setupCheck = get<HTMLInputElement>("setup-check-provider");
   const demo = get<HTMLButtonElement>("setup-demo");
   let returnFocus: HTMLElement = open;
   const sections = ["profiles", "chat", "runtime"] as const;
@@ -146,12 +156,14 @@ export function mountProfiles(
     close.disabled = value;
     demo.disabled = value;
   };
-  const finish = (value: { settings: ProfileSettings; daemon: DaemonStatus }) => {
+  const finish = (value: { settings: ProfileSettings; daemon: DaemonStatus }, message?: string) => {
     populate(value.settings);
     applied(value.daemon);
-    status.textContent = value.daemon.reachable
-      ? "Saved and applied. New tasks use the default agent; existing tasks keep their agent."
-      : "Saved, but OpenMinion could not reconnect. Check the connection details.";
+    status.textContent =
+      message ??
+      (value.daemon.reachable
+        ? "Saved and applied. New tasks use the default agent; existing tasks keep their agent."
+        : "Saved, but OpenMinion could not reconnect. Check the connection details.");
   };
 
   const populatePreset = () => {
@@ -235,7 +247,10 @@ export function mountProfiles(
     if (!settings || pending) return;
     if (settings.setupRequired) {
       setPending(true);
-      status.textContent = "Setting up your agent with OpenMinion…";
+      const checkProvider = setupCheck.checked;
+      status.textContent = checkProvider
+        ? "Testing the connection with OpenMinion…"
+        : "Setting up your agent with OpenMinion…";
       try {
         const result = await api.profiles.setup({
           revision: settings.revision,
@@ -243,8 +258,13 @@ export function mountProfiles(
           model: setupModel.value.trim(),
           baseUrl: setupEndpoint.value.trim(),
           apiKey: setupKey.value.trim(),
+          checkProvider,
         });
-        if (result.ok) finish(result.value);
+        if (result.ok)
+          finish(
+            result.value,
+            setupResultMessage(result.value.providerCheck, result.value.daemon.reachable),
+          );
         else status.textContent = result.error.message;
       } catch {
         status.textContent = "Setup could not finish. Reopen Settings to check what was saved.";

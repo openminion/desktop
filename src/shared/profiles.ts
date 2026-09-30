@@ -39,6 +39,14 @@ export type ProfileSetupInput = {
   model: string;
   baseUrl: string;
   apiKey: string;
+  checkProvider: boolean;
+};
+
+export type ProviderCheckStatus = "verified" | "not_requested";
+
+export type ProfileSetupResult = {
+  settings: ProfileSettings;
+  providerCheck: ProviderCheckStatus;
 };
 
 export type ProfileSaveInput = {

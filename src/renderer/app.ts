@@ -240,6 +240,31 @@ export function captureRegionFromPercentages(values: readonly string[]): Capture
   return region;
 }
 
+const DEGRADED_STATUS_SUMMARIES: Readonly<Record<string, string>> = {
+  python_environment_failed: "Install Python 3.11 on this computer, then reconnect.",
+  openminion_install_failed:
+    "Open Connection details, then reconnect. Reinstall Desktop if the problem continues.",
+  openminion_executable_unavailable:
+    "Open Connection details, then reconnect. Reinstall Desktop if the problem continues.",
+  runtime_root_unavailable:
+    "Open Connection details, then reconnect. Reinstall Desktop if the problem continues.",
+  openminion_version_mismatch: "Check Runtime settings for a compatible update, then reconnect.",
+  runtime_incompatible: "Check Runtime settings for a compatible update, then reconnect.",
+  runtime_recovery_required:
+    "Open Connection details and restart Desktop. Runtime recovery needs review.",
+  config_initialization_failed:
+    "Check Connection details and the configured OpenMinion paths, then restart Desktop.",
+  daemon_roots_unavailable:
+    "Check Connection details and the configured OpenMinion paths, then restart Desktop.",
+  daemon_ownership_unverified: "Stop the externally managed daemon, then reconnect from Desktop.",
+  invalid_daemon_status: "Check Connection details, then reconnect the local OpenMinion daemon.",
+  daemon_status_failed: "Check Connection details, then reconnect the local OpenMinion daemon.",
+  daemon_unavailable: "Check Connection details, then reconnect the local OpenMinion daemon.",
+  daemon_start_failed: "Check Connection details, then reconnect the local OpenMinion daemon.",
+  runtime_health_failed: "Check Connection details, then reconnect the local OpenMinion daemon.",
+  daemon_stop_failed: "Quit Desktop and any remaining OpenMinion process, then reopen Desktop.",
+};
+
 export function statusView(status: DaemonStatus): StatusView {
   if (status.state === "ready" || status.capabilities.includes("turns.text")) {
     return {
@@ -265,7 +290,9 @@ export function statusView(status: DaemonStatus): StatusView {
   if (status.state === "degraded") {
     return {
       label: "Not connected",
-      summary: "Reconnect to send messages.",
+      summary:
+        (status.errorCode && DEGRADED_STATUS_SUMMARIES[status.errorCode]) ||
+        "Reconnect to send messages.",
       tone: "degraded",
       showRetry: true,
       showRecovery: true,
