@@ -40,7 +40,8 @@ differ.
 
 This is a source assessment, not end-to-end parity certification. The current
 Desktop installs and runs ordinary OpenMinion and connects text turns, saved
-history, and skill catalog/detail reads through its public CLI/API. The broader Focus command surface, approvals,
+history, skill catalog/detail reads, and skill-learning proposal reads through
+its public CLI/API. The broader Focus command surface, approvals,
 media, and artifacts still require Desktop integration.
 
 | Surface | Current Desktop gap | Required outcome |
@@ -85,7 +86,7 @@ All canonical command families need coverage:
 | `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Room membership, handoff, messaging, start, and routing |
 | `/agents`, `/agent`, `/model`, `/effort` | Agent inspection/selection, configured model choices, effective effort |
 | `/delegate`, `/goal`, `/project`, `/tasks`, `/task`, `/queue` | Existing delegation, goal, project, durable task, and prompt-queue owners |
-| `/tools`, `/tool`, `/mcp`, `/skills` | Configured tool, server, and skill inventory and supported changes |
+| `/tools`, `/tool`, `/mcp`, `/skills`, `/learning` | Configured tool, server, skill, and learning-proposal inventory and supported changes |
 | `/permissions`, `/readonly` | Canonical policy queries, updates, and effective mode |
 | `/context`, `/context-review`, `/compact`, `/cost`, `/tokens` | Context evidence, supported compaction, live/durable usage, available cost |
 | `/memory`, `/telemetry`, `/trace`, `/overview` | Owner reports and supported operations, with renderer availability preserved; `/graph` guidance is connected while graph workflows remain pending |
@@ -150,6 +151,11 @@ operations; those remain pending.
 only the report text, not arbitrary HTTP or process access. Skill lifecycle
 operations and configured-only skill entries remain unconnected.
 
+`/learning` and `/learning <exact-proposal-id>` read the public suggestion
+status, inbox, and proposal-detail routes. Desktop presents proposal facts but
+does not review or apply them; those state-changing actions remain explicit
+operator CLI operations.
+
 `/tokens` invokes `status tokens --session-id` and displays the canonical report
 without recalculating usage. Live acceptance found that pinned PyPI returns
 "Session was not found" for a daemon-created session which `sessions show` and
@@ -188,7 +194,7 @@ effects while presenting friendly labels and controls; an instruction to switch
 to CLI does not complete a Desktop-supported workflow.
 
 The 2026-09-12 assessment recorded 44 CLI command families and 243 leaf paths.
-The paired 0.0.27 runtime has 55 built-in Focus commands. Desktop advertises 19
+The paired 0.0.27 runtime has 55 built-in Focus commands. Desktop advertises 20
 built-ins with partial semantics.
 Bundled/user/project custom commands and shell intent add separate qualification
 requirements. These counts are a dated source inventory, not execution proof.

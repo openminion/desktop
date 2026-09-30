@@ -43,6 +43,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/tools`, `/tool` | Show the daemon's tool inventory and reported availability. Exposure changes are not connected. |
 | `/mcp` | Show configured and exposed MCP servers plus registered/exposed MCP tool counts from the daemon's capability report. |
 | `/skills` | List the OpenMinion skill catalog or inspect one exact skill ID through the public daemon API. Skill admission and mutation are not connected. |
+| `/learning` | Show the skill-learning suggestion summary or inspect one exact proposal ID through the public daemon API. Review and apply remain operator CLI actions. |
 | `/tokens` | Request the selected session's canonical durable token report. Pinned PyPI may report daemon-created sessions unavailable; no usage is fabricated. |
 | `/export` | Save the selected conversation as Markdown through a native file chooser and the CLI transcript exporter. |
 | `/status` | Show connection, selected task, active agent, reported model, and turn status. |
@@ -85,7 +86,7 @@ link explicitly opens the system browser. Other URL schemes are unavailable.
 Unchanged message elements stay mounted during status updates so text selection
 and reading position can be retained.
 
-Except for task commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/help <connected-command>`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill queries, token reports, graph help, and export remain available during a turn. Agent filtering waits for the turn to finish, matching Focus admission. Export includes only messages already saved by OpenMinion. Model/provider
+Except for task commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help, and export remain available during a turn. Agent filtering waits for the turn to finish, matching Focus admission. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
 The composer remains editable during a turn so you can write a draft or run a
@@ -109,13 +110,13 @@ status. Full tool activity and approval presentation remain separate gaps.
 Focus's canonical command catalog is owned by OpenMinion's CLI presentation
 layer. Its handlers operate on the CLI runtime. Desktop's CLI-backed client
 connects text turns, saved sessions, task inventory/lifecycle controls,
-agent/tool/skill inventories, token reports, and transcript export; approvals, media,
+agent/tool/skill inventories, skill-learning proposal reads, token reports, and transcript export; approvals, media,
 artifacts, and broader Focus commands remain pending.
 
 | Focus command family | Required Desktop adaptation before it is connected |
 | --- | --- |
 | Model changes, `/effort` | Present configured model choices and explicitly update an admitted session's model/effort. Return the effective settings; keep credentials daemon-owned. |
-| Tool exposure changes, MCP lifecycle/browse/authentication, skill admission/mutation | Expose canonical tool-policy changes, richer live MCP status and operations, and skill lifecycle controls. Bare `/tools`, `/mcp`, and skill list/detail are connected read slices. |
+| Tool exposure changes, MCP lifecycle/browse/authentication, skill admission/mutation | Expose canonical tool-policy changes, richer live MCP status and operations, and skill lifecycle controls. Bare `/tools`, `/mcp`, skill list/detail, and learning proposal reads are connected slices; proposal review and apply remain in the operator CLI. |
 | `/permissions`, `/readonly` | Read and update session policy with canonical validation and visible effective policy. |
 | `/context`, `/context-review`, `/compact` | Query the context owner and request supported session compaction. The files panel is not a substitute for context-budget inspection. |
 | `/cost` | Return live session usage and supported cost accounting. `/tokens` is connected to durable CLI accounting; it is not a live-cost substitute. |
