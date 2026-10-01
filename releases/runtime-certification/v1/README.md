@@ -11,6 +11,12 @@ Qualification files use this path:
 qualification/<runtime-version>/<evidence-id>.json
 ```
 
+Binary qualification files use the parallel path:
+
+```text
+binary-qualification/<runtime-version>/<evidence-id>.json
+```
+
 Each file has this shape:
 
 ```json
@@ -58,6 +64,14 @@ The final file must contain exactly one passing target for each supported
 Desktop package: `darwin-arm64`, `linux-x64`, and `win32-x64`. Repeat the target
 object with the exact package and `app.asar` digests from each host. The
 Desktop version must be a real three-part release version; `0.0.0` is rejected.
+
+For a binary qualification, the runtime identity uses the immutable
+`openminion/runtime` release tag. Every target additionally records the exact
+CLI and daemon hashes, its native-verification ID, and the `native_trust`
+check. Run the **Runtime qualification** workflow to build the packaged Desktop
+on all three supported hosts, stage the exact immutable runtime bytes without a
+product feed override, and open the evidence PR. The stable binary feed remains
+unchanged until that PR and the separate OpenMinion metadata PR are reviewed.
 
 Do not hand-author passing results from build logs. Generate the values from
 the exact packaged acceptance runs, review the combined file, and retain the
