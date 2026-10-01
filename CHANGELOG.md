@@ -7,6 +7,21 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Fit user-message bubbles to their text, with compact padding and copy/time
+  controls below the bubble on hover or keyboard focus.
+
+- Rename conversations from a sidebar right-click menu or the chat title, using
+  the existing local names, with keyboard access and focus restoration.
+
+- Explain when the installed runtime cannot provide Identity settings, show a
+  direct path to Runtime settings, and hide the unavailable editor and save controls.
+
+- Open Settings sections at the top, style the Identity editor consistently with
+  other fields, and keep its agent selection fixed while loading, verifying, or saving.
+
+- Clarify model connection-test charges and Identity settings guidance. Setup
+  and profile-save feedback now uses “conversations” consistently with the sidebar.
+
 - Shorten Settings and rename guidance and remove redundant hover help, keeping
   icon hints, keyboard shortcuts, credential instructions, and restart notices.
 

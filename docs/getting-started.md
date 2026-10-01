@@ -132,8 +132,10 @@ OpenMinion**. Choose a provider, enter its model and API key, and click **Set up
 and start**, or import an existing profile. Provider choices and defaults come
 from the installed CLI's setup command. **Try echo demo** repeats input without
 calling a model; setup appears again on the next launch until a real profile is
-configured. Saving setup does not contact the model provider; the first message
-tests access. Use `npm run preview` for sample approval, file,
+configured. **Test connection before continuing** is selected by default and
+sends one provider request, which may use provider resources. Clear it to save
+without testing; Desktop reports either **Connection verified** or **Connection
+not tested** after setup. Use `npm run preview` for sample approval, file,
 artifact, and screen-context interactions that are not connected to PyPI yet.
 
 ## Find A Task
@@ -328,9 +330,12 @@ outside the current product profile.
 
 ## Name a chat
 
-Select a conversation and click **Rename** next to its title. Enter a name and
-choose **Save**. **Cancel** leaves it unchanged; **Reset name** restores the name
-reported by OpenMinion. The dialog also shows the original session ID.
+Click the conversation title, or choose **Rename** from the top-right conversation
+menu. You can also right-click any conversation in the sidebar and choose
+**Rename…** without opening it. With a sidebar conversation focused, press
+**Shift+F10** to open the same menu. Enter a name and choose **Save**. **Cancel**
+leaves it unchanged; **Reset name** restores the name reported by OpenMinion. The
+dialog also shows the original session ID.
 
 Names appear in the sidebar, chat heading, and Desktop session picker, and survive
 restarting Desktop. They are saved only in this Desktop installation. Renaming

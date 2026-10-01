@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { CaptureService, type CapturePlatform } from "../../src/main/capture.js";
+import { type CapturePlatform, CaptureService } from "../../src/main/capture.js";
 import { mount } from "../../src/renderer/app.js";
 import {
   CAPTURE_WORKER_CONFIG_CHANNEL,
@@ -299,6 +299,9 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.openLink,
       IPC_CHANNELS.copyText,
       IPC_CHANNELS.profilesRead,
+      IPC_CHANNELS.identityRead,
+      IPC_CHANNELS.identityVerify,
+      IPC_CHANNELS.identitySave,
       IPC_CHANNELS.profilesPresets,
       IPC_CHANNELS.profilesSetup,
       IPC_CHANNELS.profilesSave,
@@ -1568,6 +1571,8 @@ class CaptureFixtureDocument {
     "new-session",
     "close-session",
     "current-title",
+    "session-context-menu",
+    "session-context-rename",
     "rename-session",
     "rename-dialog",
     "rename-form",

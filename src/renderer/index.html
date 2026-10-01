@@ -18,6 +18,9 @@
       </header>
       <div id="diagnostics-result" class="diagnostics-result"></div>
     </dialog>
+    <section id="session-context-menu" class="action-menu session-context-menu" popover="manual" aria-label="Conversation actions">
+      <button id="session-context-rename" class="quiet-button" type="button">Rename…</button>
+    </section>
     <dialog id="rename-dialog" class="rename-dialog" aria-labelledby="rename-title" aria-describedby="rename-description">
       <form id="rename-form">
         <h2 id="rename-title">Rename chat</h2>
@@ -41,13 +44,14 @@
         </button>
       </div>
       <nav class="settings-nav" aria-label="Settings sections">
-        <button id="settings-profiles-button" type="button" aria-pressed="true" aria-controls="settings-profiles">Profiles</button>
+        <button id="settings-profiles-button" type="button" aria-pressed="true" aria-controls="settings-profiles">Models &amp; credentials</button>
+        <button id="settings-identity-button" type="button" aria-pressed="false" aria-controls="settings-identity">Identity</button>
         <button id="settings-chat-button" type="button" aria-pressed="false" aria-controls="settings-chat">Chat display</button>
         <button id="settings-runtime-button" type="button" aria-pressed="false" aria-controls="settings-runtime">Runtime</button>
       </nav>
       <div class="settings-body">
         <section id="settings-profiles" aria-labelledby="settings-profiles-heading">
-          <h3 id="settings-profiles-heading">Agent profiles</h3>
+          <h3 id="settings-profiles-heading">Models &amp; credentials</h3>
           <p id="profile-intro" class="settings-note">Finish running chats before saving. Applying changes restarts OpenMinion.</p>
           <form id="profile-form">
             <fieldset id="setup-fields" hidden>
@@ -60,7 +64,11 @@
               </div>
               <label for="setup-key">API key</label>
               <input id="setup-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
-              <p class="settings-note">Your first message tests the connection. Setup does not make a paid model request.</p>
+              <label class="settings-checkbox">
+                <input id="setup-check-provider" type="checkbox" checked />
+                Test connection before continuing
+              </label>
+              <p class="settings-note">Sends one test request. Provider charges may apply.</p>
             </fieldset>
             <fieldset id="profile-fields" disabled>
               <legend class="sr-only">Profile settings</legend>
@@ -74,7 +82,7 @@
               <label for="profile-key">Model API key</label>
               <input id="profile-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
               <label class="settings-checkbox"><input id="profile-key-remove" type="checkbox" />Remove saved model key for this agent</label>
-              <label class="settings-checkbox"><input id="profile-default" type="checkbox" />Use this agent for new tasks</label>
+              <label class="settings-checkbox"><input id="profile-default" type="checkbox" />Use this agent for new conversations</label>
               <details class="settings-tools">
                 <summary>Search and web tool keys</summary>
                 <p class="settings-note">Shared across agents. A model key does not include search access. “Set” means saved, not verified with the provider.</p>
@@ -90,6 +98,28 @@
           </form>
           <p id="profile-import-note" class="settings-note">Import a JSON file to add profiles, replace matching agent IDs, and merge runtime keys.</p>
           <p class="settings-note">Keys are saved locally. Leave a key blank to keep it. Closing discards unsaved edits.</p>
+        </section>
+        <section id="settings-identity" aria-labelledby="settings-identity-heading" hidden>
+          <h3 id="settings-identity-heading">Identity</h3>
+          <p class="settings-note">Set the agent’s purpose, tone, and approach to risk and tools.</p>
+          <p id="identity-status" class="settings-note" role="status" aria-live="polite"></p>
+          <div id="identity-availability-actions" class="settings-actions">
+            <button id="identity-reload" class="quiet-button" type="button">Try again</button>
+            <button id="identity-runtime" class="quiet-button" type="button" hidden>Runtime settings</button>
+          </div>
+          <div id="identity-editor" hidden>
+            <label for="identity-agent">Agent</label>
+            <select id="identity-agent"></select>
+            <p id="identity-metadata" class="settings-note"></p>
+            <label for="identity-yaml">Identity profile (YAML)</label>
+            <textarea id="identity-yaml" rows="16" maxlength="262144" spellcheck="false"></textarea>
+            <div class="settings-actions">
+              <button id="identity-verify" class="quiet-button" type="button">Verify draft</button>
+              <button id="identity-save" type="button">Save identity</button>
+            </div>
+            <h4>Read-only preview</h4>
+            <pre id="identity-preview" class="identity-preview">No identity loaded.</pre>
+          </div>
         </section>
         <section id="settings-chat" aria-labelledby="settings-chat-heading" hidden>
           <h3 id="settings-chat-heading">Chat display</h3>
@@ -176,19 +206,19 @@
           </header>
           <button id="new-session" class="new-session-button" type="button" disabled>
             <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-            New task
+            New conversation
           </button>
-          <p class="sidebar-label">Tasks</p>
+          <p class="sidebar-label">Conversations</p>
           <div class="session-search">
-            <label class="sr-only" for="session-search">Search tasks by name or session ID</label>
-            <input id="session-search" type="search" placeholder="Search tasks" autocomplete="off" spellcheck="false" aria-controls="session-list" />
-            <button id="clear-session-search" class="icon-only-button" type="button" aria-label="Clear task search" title="Clear task search" hidden>
+            <label class="sr-only" for="session-search">Search conversations by name or session ID</label>
+            <input id="session-search" type="search" placeholder="Search conversations" autocomplete="off" spellcheck="false" aria-controls="session-list" />
+            <button id="clear-session-search" class="icon-only-button" type="button" aria-label="Clear conversation search" title="Clear conversation search" hidden>
               <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
             </button>
           </div>
           <p id="session-search-count" class="sidebar-label" role="status" hidden></p>
-          <nav id="session-list" class="session-list" aria-label="Sessions">
-            <p class="empty-note">Your tasks will appear here.</p>
+          <nav id="session-list" class="session-list" aria-label="Conversations">
+            <p class="empty-note">Your conversations will appear here.</p>
           </nav>
           <button id="show-settings" class="quiet-button settings-button" type="button">
             <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9m4 0h3M4 17h3m4 0h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>
@@ -215,18 +245,18 @@
         <section class="chat-panel">
           <header class="chat-heading">
             <div class="chat-title">
-              <h2 id="current-title">New task</h2>
+              <h2><button id="current-title" type="button" disabled>New conversation</button></h2>
             </div>
             <div class="chat-heading-actions">
               <button class="context-link" type="button" popovertarget="context-panel">
                 Context
               </button>
-              <button class="icon-only-button" type="button" popovertarget="task-actions" aria-label="Task actions" title="Task actions">
+              <button class="icon-only-button" type="button" popovertarget="task-actions" aria-label="Conversation actions" title="Conversation actions">
                 <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
               </button>
-              <section id="task-actions" class="action-menu task-actions-menu" popover aria-label="Task actions">
+              <section id="task-actions" class="action-menu task-actions-menu" popover aria-label="Conversation actions">
                 <button id="rename-session" class="quiet-button" type="button" popovertarget="task-actions" popovertargetaction="hide" disabled>Rename</button>
-                <button id="close-session" class="quiet-button" type="button" popovertarget="task-actions" popovertargetaction="hide" disabled>Close task</button>
+                <button id="close-session" class="quiet-button" type="button" popovertarget="task-actions" popovertargetaction="hide" disabled>Close conversation</button>
               </section>
             </div>
           </header>
@@ -249,7 +279,7 @@
               <div id="chat-progress" class="chat-progress" hidden>
                 <div class="chat-status-line">
                   <p id="chat-status" class="chat-status" role="status" aria-live="polite" aria-atomic="true">
-                    Choose or create a task to begin.
+                    Choose or create a conversation to begin.
                   </p>
                   <span id="chat-elapsed" class="chat-elapsed" aria-hidden="true" title="Time since you sent this message"></span>
                 </div>
@@ -455,7 +485,7 @@
           </details>
         </aside>
 
-        <aside id="context-panel" class="artifacts-panel" aria-label="Task context" popover>
+        <aside id="context-panel" class="artifacts-panel" aria-label="Conversation context" popover>
           <header class="context-popover-heading">
             <strong>Context</strong>
             <button class="context-close" type="button" popovertarget="context-panel" popovertargetaction="hide" aria-label="Close context options">×</button>
@@ -473,7 +503,7 @@
                 <button id="choose-file" class="quiet-button" type="button" disabled>Choose file</button>
               </div>
               <p id="file-status" class="artifact-status" aria-live="polite">
-                Choose a task to import local files.
+                Choose a conversation to import local files.
               </p>
               <div id="file-grant-list" class="file-grant-list"></div>
             </section>
@@ -482,18 +512,18 @@
             <summary>
               <span>
                 <strong>Outputs</strong>
-                <small>Artifacts from this task</small>
+                <small>Artifacts from this conversation</small>
               </span>
               <span class="summary-chevron" aria-hidden="true">›</span>
             </summary>
-            <section class="secondary-tool-body" aria-label="Session outputs">
+            <section class="secondary-tool-body" aria-label="Conversation outputs">
               <div class="secondary-tool-actions">
                 <button id="refresh-artifacts" class="quiet-button" type="button" disabled>
                   Refresh
                 </button>
               </div>
               <p id="artifact-status" class="artifact-status" aria-live="polite">
-                Choose a task to view its outputs.
+                Choose a conversation to view its outputs.
               </p>
               <div id="artifact-list" class="artifact-list"></div>
               <section id="artifact-detail" class="artifact-detail" hidden>

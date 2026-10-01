@@ -137,8 +137,9 @@ The first launch installs `openminion==0.0.27` under `~/.openminion/desktop`,
 creates a private initial config, and starts an isolated daemon. A setup screen
 offers OpenMinion's provider choices, including MiniMax, model and API-key fields,
 profile import, or an explicit echo demo. Setup uses the ordinary CLI setup
-command and restarts the daemon with the saved profile. The first message tests
-the model connection; saving setup does not make a paid provider request.
+command and restarts the daemon with the saved profile. By default, setup sends
+one provider request and reports whether the connection was verified. Clear
+**Test connection before continuing** to save without making that request.
 Later launches reuse the environment when its installed version matches the pin.
 Desktop chat names live in SQLite; existing installations retain their recorded
 runtime locations. See [Desktop data](docs/getting-started.md#desktop-data) for

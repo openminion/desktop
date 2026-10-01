@@ -1,11 +1,21 @@
 // Profile form and write-only credential entry for the local OpenMinion config.
 import type { DaemonStatus, NativeApi } from "../shared/contracts.js";
+import type { IdentityProfileView, IdentitySettings } from "../shared/identity.js";
 import {
-  TOOL_CREDENTIALS,
   type ProfileSaveInput,
   type ProfileSettings,
+  type ProviderCheckStatus,
   type SetupPreset,
+  TOOL_CREDENTIALS,
 } from "../shared/profiles.js";
+
+export function setupResultMessage(providerCheck: ProviderCheckStatus, reachable: boolean): string {
+  const confirmation =
+    providerCheck === "verified" ? "Connection verified." : "Connection not tested.";
+  return reachable
+    ? `${confirmation} New conversations use the default agent; existing conversations keep their agent.`
+    : `${confirmation} Settings were saved, but OpenMinion could not reconnect. Check the connection details.`;
+}
 
 export function mountProfiles(
   api: NativeApi,
@@ -34,9 +44,19 @@ export function mountProfiles(
   const setupModel = get<HTMLInputElement>("setup-model");
   const setupEndpoint = get<HTMLInputElement>("setup-endpoint");
   const setupKey = get<HTMLInputElement>("setup-key");
+  const setupCheck = get<HTMLInputElement>("setup-check-provider");
   const demo = get<HTMLButtonElement>("setup-demo");
+  const identityAgent = get<HTMLSelectElement>("identity-agent");
+  const identityYaml = get<HTMLTextAreaElement>("identity-yaml");
+  const identityMetadata = get<HTMLElement>("identity-metadata");
+  const identityStatus = get<HTMLElement>("identity-status");
+  const identityPreview = get<HTMLElement>("identity-preview");
+  const identityReload = get<HTMLButtonElement>("identity-reload");
+  const identityRuntime = get<HTMLButtonElement>("identity-runtime");
+  const identityVerify = get<HTMLButtonElement>("identity-verify");
+  const identitySave = get<HTMLButtonElement>("identity-save");
   let returnFocus: HTMLElement = open;
-  const sections = ["profiles", "chat", "runtime"] as const;
+  const sections = ["profiles", "identity", "chat", "runtime"] as const;
   type Section = (typeof sections)[number];
   const selectSection = (selected: Section) => {
     for (const section of sections) {
@@ -46,11 +66,13 @@ export function mountProfiles(
         String(section === selected),
       );
     }
+    root.querySelector(".settings-body")!.scrollTop = 0;
   };
   for (const section of sections) {
-    get<HTMLButtonElement>(`settings-${section}-button`).addEventListener("click", () =>
-      selectSection(section),
-    );
+    get<HTMLButtonElement>(`settings-${section}-button`).addEventListener("click", () => {
+      selectSection(section);
+      if (section === "identity") void loadIdentity();
+    });
   }
   let presets: SetupPreset[] = [];
   const credentials = TOOL_CREDENTIALS.map(([id, label]) => {
@@ -80,6 +102,109 @@ export function mountProfiles(
   });
   let settings: ProfileSettings | null = null;
   let pending = false;
+  let identitySettings: IdentitySettings | null = null;
+  let identityPending = false;
+  let displayedIdentityAgent = "";
+  const identityDrafts = new Map<
+    string,
+    { yaml: string; profileVersion: string; sourceSha256: string | null }
+  >();
+
+  const setIdentityPending = (value: boolean) => {
+    identityPending = value;
+    const profile = selectedIdentity();
+    identityAgent.disabled = value;
+    identityYaml.disabled = value || !profile?.editable;
+    identityReload.disabled = value;
+    identityVerify.disabled = value || !identityYaml.value.trim();
+    identitySave.disabled = value || !profile?.editable;
+  };
+
+  const selectedIdentity = (): IdentityProfileView | undefined =>
+    identitySettings?.profiles.find((item) => item.agentId === identityAgent.value);
+  const populateIdentity = () => {
+    const profile = selectedIdentity();
+    get<HTMLElement>("identity-editor").hidden = !profile;
+    identityReload.textContent = profile ? "Reload from disk" : "Try again";
+    if (profile) identityYaml.after(identityStatus);
+    else get<HTMLElement>("identity-availability-actions").before(identityStatus);
+    if (!profile) {
+      identityYaml.value = "";
+      identityYaml.disabled = true;
+      identityVerify.disabled = true;
+      identitySave.disabled = true;
+      identityMetadata.textContent = "No identity profile is available.";
+      identityPreview.textContent = "No identity loaded.";
+      return;
+    }
+    displayedIdentityAgent = profile.agentId;
+    const draft = identityDrafts.get(profile.agentId);
+    const currentDraft =
+      draft?.profileVersion === profile.profileVersion &&
+      draft.sourceSha256 === profile.sourceSha256
+        ? draft
+        : undefined;
+    if (draft && !currentDraft) {
+      identityDrafts.delete(profile.agentId);
+      identityStatus.textContent = "Identity changed on disk. The stale local draft was discarded.";
+    }
+    identityYaml.value = currentDraft?.yaml ?? profile.authoredYaml ?? "";
+    identityYaml.disabled = !profile.editable || identityPending;
+    identityVerify.disabled = !profile.authoredYaml || identityPending;
+    identitySave.disabled = !profile.editable || identityPending;
+    identityMetadata.textContent = [
+      `Source: ${profile.source}`,
+      `revision ${profile.profileRevision}`,
+      `version ${profile.profileVersion.slice(0, 12)}`,
+      `source ${profile.sourceStatus}`,
+      `sidecars ${profile.generatedStatus}`,
+      profile.generatedFiles.length
+        ? `generated ${profile.generatedFiles.join(", ")}`
+        : "no generated files",
+      profile.readOnlyReason ?? "editable direct YAML",
+      profile.verificationIssues.length
+        ? `issues ${profile.verificationIssues.join("; ")}`
+        : "verification clean",
+    ].join(" · ");
+    identityPreview.textContent = profile.render.text || "Rendered identity is empty.";
+  };
+  const loadIdentity = async (discardSelectedDraft = false) => {
+    if (identityPending) return;
+    if (discardSelectedDraft && identityAgent.value) identityDrafts.delete(identityAgent.value);
+    setIdentityPending(true);
+    identityRuntime.hidden = true;
+    identityStatus.textContent = "Loading identity…";
+    try {
+      const result = await api.identity.read();
+      if (!result.ok) {
+        identitySettings = null;
+        identityStatus.textContent = result.error.message;
+        identityRuntime.hidden = result.error.code !== "runtime_upgrade_required";
+        return;
+      }
+      const selected = identityAgent.value;
+      identitySettings = result.value;
+      identityAgent.replaceChildren(
+        ...result.value.profiles.map((profile) => {
+          const option = root.createElement("option");
+          option.value = profile.agentId;
+          option.textContent = `${profile.displayName} (${profile.agentId})`;
+          return option;
+        }),
+      );
+      if (result.value.profiles.some((profile) => profile.agentId === selected))
+        identityAgent.value = selected;
+      identityStatus.textContent = result.value.profiles.length
+        ? ""
+        : "No identity profiles were found for the configured agents.";
+    } catch {
+      identitySettings = null;
+      identityStatus.textContent = "Could not load identity settings.";
+    } finally {
+      setIdentityPending(false);
+      populateIdentity();
+    }
+  };
 
   const populateAgent = () => {
     const agent = settings?.agents.find((item) => item.id === select.value);
@@ -146,12 +271,14 @@ export function mountProfiles(
     close.disabled = value;
     demo.disabled = value;
   };
-  const finish = (value: { settings: ProfileSettings; daemon: DaemonStatus }) => {
+  const finish = (value: { settings: ProfileSettings; daemon: DaemonStatus }, message?: string) => {
     populate(value.settings);
     applied(value.daemon);
-    status.textContent = value.daemon.reachable
-      ? "Saved and applied. New tasks use the default agent; existing tasks keep their agent."
-      : "Saved, but OpenMinion could not reconnect. Check the connection details.";
+    status.textContent =
+      message ??
+      (value.daemon.reachable
+        ? "Saved and applied. New conversations use the default agent; existing conversations keep their agent."
+        : "Saved, but OpenMinion could not reconnect. Check the connection details.");
   };
 
   const populatePreset = () => {
@@ -226,6 +353,75 @@ export function mountProfiles(
     returnFocus.focus();
   });
   select.addEventListener("change", populateAgent);
+  identityAgent.addEventListener("change", populateIdentity);
+  identityYaml.addEventListener("input", () => {
+    const profile = identitySettings?.profiles.find(
+      (item) => item.agentId === displayedIdentityAgent,
+    );
+    if (profile) {
+      identityDrafts.set(displayedIdentityAgent, {
+        yaml: identityYaml.value,
+        profileVersion: profile.profileVersion,
+        sourceSha256: profile.sourceSha256,
+      });
+    }
+    setIdentityPending(identityPending);
+  });
+  identityReload.addEventListener("click", () => void loadIdentity(true));
+  identityRuntime.addEventListener("click", () => {
+    selectSection("runtime");
+    get<HTMLButtonElement>("settings-runtime-button").focus();
+  });
+  identityVerify.addEventListener("click", async () => {
+    if (identityPending || !identityYaml.value.trim()) return;
+    setIdentityPending(true);
+    identityStatus.textContent = "Verifying draft…";
+    try {
+      const result = await api.identity.verify({ yaml: identityYaml.value });
+      if (!result.ok) identityStatus.textContent = result.error.message;
+      else {
+        identityStatus.textContent = result.value.validationOk
+          ? result.value.issues.length
+            ? `Draft is valid with warnings: ${result.value.issues.join("; ")}`
+            : "Draft is valid and renderable."
+          : result.value.issues.join("; ");
+        identityPreview.textContent = result.value.render?.text ?? "No rendered preview.";
+      }
+    } catch {
+      identityStatus.textContent = "Could not verify the identity draft.";
+    } finally {
+      setIdentityPending(false);
+    }
+  });
+  identitySave.addEventListener("click", async () => {
+    const profile = selectedIdentity();
+    if (!profile || identityPending || !profile.editable) return;
+    setIdentityPending(true);
+    identityStatus.textContent = "Saving identity…";
+    try {
+      const result = await api.identity.save({
+        yaml: identityYaml.value,
+        expectedProfileVersion: profile.profileVersion,
+        expectedSourceSha256: profile.sourceSha256 ?? "missing",
+      });
+      if (!result.ok) identityStatus.textContent = result.error.message;
+      else {
+        identityDrafts.delete(result.value.agentId);
+        identitySettings = {
+          profiles: (identitySettings?.profiles ?? []).map((item) =>
+            item.agentId === result.value.agentId ? result.value : item,
+          ),
+        };
+        identityStatus.textContent =
+          "Identity saved. Prompt changes apply on the next turn; use /identity reload for cached policy and tool constraints.";
+      }
+    } catch {
+      identityStatus.textContent = "Could not save identity. Reload Settings and try again.";
+    } finally {
+      setIdentityPending(false);
+      if (identityStatus.textContent?.startsWith("Identity saved")) populateIdentity();
+    }
+  });
   removeKey.addEventListener("change", () => {
     key.disabled = removeKey.checked;
     key.value = "";
@@ -235,7 +431,10 @@ export function mountProfiles(
     if (!settings || pending) return;
     if (settings.setupRequired) {
       setPending(true);
-      status.textContent = "Setting up your agent with OpenMinion…";
+      const checkProvider = setupCheck.checked;
+      status.textContent = checkProvider
+        ? "Testing the connection with OpenMinion…"
+        : "Setting up your agent with OpenMinion…";
       try {
         const result = await api.profiles.setup({
           revision: settings.revision,
@@ -243,8 +442,13 @@ export function mountProfiles(
           model: setupModel.value.trim(),
           baseUrl: setupEndpoint.value.trim(),
           apiKey: setupKey.value.trim(),
+          checkProvider,
         });
-        if (result.ok) finish(result.value);
+        if (result.ok)
+          finish(
+            result.value,
+            setupResultMessage(result.value.providerCheck, result.value.daemon.reachable),
+          );
         else status.textContent = result.error.message;
       } catch {
         status.textContent = "Setup could not finish. Reopen Settings to check what was saved.";

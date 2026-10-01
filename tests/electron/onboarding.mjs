@@ -95,6 +95,7 @@ async function check() {
       "document.querySelector('#profile-dialog').open && document.querySelector('#setup-provider').options.length > 0 && !document.querySelector('#profile-save').disabled",
     );
     assert.equal(requests.length, 0);
+    assert.equal(await evaluate("document.querySelector('#setup-check-provider').checked"), true);
     const initial = (await evaluate("window.openminion.profiles.read()")).value;
     assert.equal(initial.setupRequired, true);
     const initialConfig = await readFile(join(root, "agents.json"), "utf8");
@@ -175,9 +176,11 @@ async function check() {
     );
     await evaluate("document.querySelector('#profile-save').click()");
     await waitFor(
-      "document.querySelector('#profile-status').textContent.startsWith('Saved and applied')",
+      "document.querySelector('#profile-status').textContent.startsWith('Connection verified')",
     );
-    assert.equal(requests.length, 0, "Saving must not make a provider request.");
+    assert.equal(requests.length, 1, "Checked setup must make one provider request.");
+    assert.equal(requests[0].authorization, "Bearer onboarding-private-key");
+    assert.equal(requests[0].body.model, "fixture-model");
     const settings = (await evaluate("window.openminion.profiles.read()")).value;
     assert.equal(settings.setupRequired, false);
     assert.equal(settings.agents[0].keyConfigured, true);
@@ -196,18 +199,71 @@ async function check() {
     await waitFor(
       "document.querySelector('#cancel').hidden && document.querySelector('#timeline').textContent.includes('Desktop onboarding reply')",
     );
-    assert.equal(requests[0].authorization, "Bearer onboarding-private-key");
-    assert.equal(requests[0].body.model, "fixture-model");
+    assert.equal(requests[1].authorization, "Bearer onboarding-private-key");
+    assert.equal(requests[1].body.model, "fixture-model");
     await capture("05-first-chat.png");
     console.log(
-      "PASS: first launch, discard without writes, independent CLI MiniMax defaults, missing-key validation, matching CLI-created model profiles, private key persistence and first configured chat.",
+      "PASS: first launch, discard without writes, independent CLI MiniMax defaults, missing-key validation, checked provider setup, matching CLI-created model profiles, private key persistence and first configured chat.",
     );
 
     const originalSession = (await evaluate("window.openminion.sessions.list({})")).value
       .sessions[0];
     const requestsBeforeRename = requests.length;
-    await evaluate("document.querySelector('#rename-session').click()");
-    assert.equal(await evaluate("document.querySelector('#rename-dialog').open"), true);
+    const click = async (selector, button = "left") => {
+      const point = await evaluate(`(() => {
+        const element = document.querySelector(${JSON.stringify(selector)});
+        element.scrollIntoView({block:'nearest'});
+        const rect = element.getBoundingClientRect();
+        return {x:Math.round(rect.x + rect.width / 2), y:Math.round(rect.y + rect.height / 2)};
+      })()`);
+      window.focus();
+      window.webContents.focus();
+      window.webContents.sendInputEvent({ type: "mouseDown", button, clickCount: 1, ...point });
+      window.webContents.sendInputEvent({ type: "mouseUp", button, clickCount: 1, ...point });
+      await evaluate("new Promise(resolve => requestAnimationFrame(resolve))");
+    };
+    const key = async (keyCode, modifiers = []) => {
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+      if (keyCode === "Return")
+        window.webContents.sendInputEvent({ type: "char", keyCode: "\r", modifiers });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
+      await evaluate("new Promise(resolve => requestAnimationFrame(resolve))");
+    };
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+    ]) {
+      window.setContentSize(width, height);
+      await waitFor(`innerWidth === ${width} && innerHeight === ${height}`);
+      await click("#session-list .session-item", "right");
+      await waitFor("document.querySelector('#session-context-menu').matches(':popover-open')");
+      const menu = await evaluate(`(() => {
+        const rect = document.querySelector('#session-context-menu').getBoundingClientRect();
+        return {left:rect.left, right:rect.right, top:rect.top, bottom:rect.bottom,
+          width:innerWidth, height:innerHeight};
+      })()`);
+      assert.ok(
+        menu.left >= 0 && menu.right <= menu.width && menu.top >= 0 && menu.bottom <= menu.height,
+      );
+      await capture(`rename-menu-${width}.png`);
+      await key("Escape");
+      assert.equal(
+        await evaluate("document.activeElement.classList.contains('session-item')"),
+        true,
+      );
+    }
+    await click("#session-list .session-item", "right");
+    await waitFor("document.querySelector('#session-context-menu').matches(':popover-open')");
+    await click("#composer");
+    assert.equal(
+      await evaluate("document.querySelector('#session-context-menu').matches(':popover-open')"),
+      false,
+    );
+    await evaluate("document.querySelector('#session-list .session-item').focus()");
+    await key("F10", ["shift"]);
+    await waitFor("document.querySelector('#session-context-menu').matches(':popover-open')");
+    await key("Return");
+    await waitFor("document.querySelector('#rename-dialog').open");
     assert.equal(
       await evaluate("document.querySelector('#rename-session-id').textContent"),
       originalSession.sessionId,
@@ -215,10 +271,12 @@ async function check() {
     await evaluate(
       "document.querySelector('#task-name').value='Discarded name'; document.querySelector('#rename-cancel').click()",
     );
-    await waitFor("!document.querySelector('#rename-dialog').open");
-    await evaluate(
-      "document.querySelector('#rename-session').click(); document.querySelector('#task-name').value='Release planning'",
+    await waitFor(
+      "!document.querySelector('#rename-dialog').open && document.activeElement.classList.contains('session-item')",
     );
+    await click("#current-title");
+    await waitFor("document.querySelector('#rename-dialog').open");
+    await evaluate("document.querySelector('#task-name').value='Release planning'");
     await capture("06-rename-chat.png");
     await evaluate("document.querySelector('#rename-form').requestSubmit()");
     await waitFor("document.querySelector('#current-title').textContent === 'Release planning'");
@@ -306,7 +364,7 @@ async function check() {
     await waitFor("!document.querySelector('#rename-dialog').open");
     assert.equal(
       await evaluate("document.querySelector('#current-title').textContent"),
-      originalSession.title || "Untitled task",
+      originalSession.title || "Untitled conversation",
     );
     await evaluate("document.querySelector('#session-list button').click()");
     await waitFor(

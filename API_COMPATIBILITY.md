@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-09-29
+Last updated: 2026-10-01
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -29,6 +29,20 @@ lifecycle, and operating-system integration.
 Desktop does not require or add a Desktop-specific command, bootstrap endpoint,
 or lease protocol in OpenMinion. The main process keeps the managed executable,
 runtime roots, and configuration path outside renderer control.
+
+## Identity editing availability
+
+Identity settings use the public `identity inspect`, `identity validate`, and
+revision-checked `identity apply` commands. The pinned PyPI `0.0.27` package and
+published `0.0.28` package do not include `inspect` or `apply`. Upgrading to those
+releases does not enable this editor. A new runtime release containing these
+commands is required; Desktop does not replace them with direct profile writes.
+
+The current source CLI has been verified through Desktop read, draft validation,
+revision-checked save, readback, and stale-revision rejection using isolated
+profiles. This is source integration proof, not published-runtime support.
+Unsupported runtimes show an explanation and a link to Runtime settings; the
+unavailable editor stays hidden. Empty profile results are reported separately.
 
 ## Current integration status
 

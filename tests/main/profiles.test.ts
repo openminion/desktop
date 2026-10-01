@@ -66,7 +66,7 @@ describe("profile settings", () => {
     await writeFile(path, JSON.stringify({ ...config, default_agent: "", agents: {} }));
     const initial = await profiles.read();
     expect(initial).toMatchObject({ setupRequired: true, agents: [] });
-    run.mockImplementation(async (_exe, args, _timeout, environment) => {
+    run.mockImplementation(async (_exe, args, timeout, environment) => {
       if (args.includes("--list-providers"))
         return {
           exitCode: 0,
@@ -78,7 +78,8 @@ describe("profile settings", () => {
       const value = JSON.parse(await readFile(candidate, "utf8"));
       if (args.includes("setup")) {
         expect(args).toContain("--no-chat");
-        expect(args).not.toContain("--check-provider");
+        expect(args).toContain("--check-provider");
+        expect(timeout).toBe(600_000);
         expect(args.join(" ")).not.toContain("new-secret");
         expect(environment).toEqual({ MINIMAX_API_KEY: "new-secret" });
         value.default_agent = "openminion";
@@ -104,16 +105,58 @@ describe("profile settings", () => {
         model: "MiniMax-M2.7",
         baseUrl: "https://api.minimax.io/v1",
         apiKey: "new-secret",
+        checkProvider: true,
       },
       "openminion",
     );
-    expect(saved).toMatchObject({ setupRequired: false, agents: [{ keyConfigured: true }] });
+    expect(saved).toMatchObject({
+      providerCheck: "verified",
+      settings: { setupRequired: false, agents: [{ keyConfigured: true }] },
+    });
     expect(JSON.stringify(saved)).not.toContain("new-secret");
     const written = JSON.parse(await readFile(path, "utf8"));
     expect(written.storage).toEqual(config.storage);
     expect(written.runtime.ipc_token).toBe(config.runtime.ipc_token);
     expect(written.runtime.env.MINIMAX_API_KEY).toBe("new-secret");
     if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  it("can save setup without making the optional provider request", async () => {
+    const { profiles, path, run, config } = await setup();
+    await writeFile(path, JSON.stringify({ ...config, default_agent: "", agents: {} }));
+    const initial = await profiles.read();
+    run.mockImplementation(async (_exe, args, timeout) => {
+      if (args.includes("--list-providers"))
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout:
+            "minimax: MiniMax\n  Credential: MINIMAX_API_KEY\n  Endpoint: https://api.minimax.io/v1\n  Recommended models: MiniMax-M2.7\n",
+        };
+      expect(args).not.toContain("--check-provider");
+      expect(timeout).toBe(30_000);
+      const candidate = args[args.indexOf("--config") + 1];
+      const value = JSON.parse(await readFile(candidate, "utf8"));
+      value.default_agent = "openminion";
+      value.agents = { openminion: { name: "openminion", provider: "openai" } };
+      await writeFile(candidate, JSON.stringify(value));
+      return { exitCode: 0, stderr: "", stdout: "" };
+    });
+
+    const saved = await profiles.setup(
+      {
+        revision: initial.revision,
+        presetId: "minimax",
+        model: "MiniMax-M2.7",
+        baseUrl: "https://api.minimax.io/v1",
+        apiKey: "new-secret",
+        checkProvider: false,
+      },
+      "openminion",
+    );
+
+    expect(saved.providerCheck).toBe("not_requested");
+    expect(saved.settings.setupRequired).toBe(false);
   });
 
   it("keeps the original config when CLI setup fails and removes its private candidate", async () => {
@@ -140,6 +183,7 @@ describe("profile settings", () => {
       model: "m",
       baseUrl: "https://api.minimax.io/v1",
       apiKey: "new-secret",
+      checkProvider: false,
     };
     await expect(profiles.setup(input, "openminion")).rejects.toThrow("setup_failed");
     expect(await readFile(path, "utf8")).toBe(original);
@@ -148,6 +192,11 @@ describe("profile settings", () => {
       "invalid_request",
     );
     await expect(profiles.setup({ ...input, presetId: "--help" }, "openminion")).rejects.toThrow(
+      "invalid_request",
+    );
+    const { checkProvider: _, ...withoutCheck } = input;
+    await expect(profiles.setup(withoutCheck, "openminion")).rejects.toThrow("invalid_request");
+    await expect(profiles.setup({ ...input, checkProvider: "yes" }, "openminion")).rejects.toThrow(
       "invalid_request",
     );
   });

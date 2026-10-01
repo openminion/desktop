@@ -33,6 +33,7 @@ describe("preload surface", () => {
       "reports",
       "tasks",
       "profiles",
+      "identity",
       "app",
       "daemon",
       "sessions",
@@ -52,7 +53,9 @@ describe("preload surface", () => {
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStatus);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeCheck);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStage);
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeControl, { action: "pause" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeControl, {
+      action: "pause",
+    });
     expect(Object.keys(api.chatNames)).toEqual(["load", "save"]);
     await api.chatNames.load([]);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.chatNamesLoad, []);
@@ -65,12 +68,18 @@ describe("preload surface", () => {
     await api.presentation.load();
     await api.presentation.save({ quietTools: true });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.presentationLoad);
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.presentationSave, { quietTools: true });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.presentationSave, {
+      quietTools: true,
+    });
     expect(Object.keys(api.reports)).toEqual(["read"]);
     await api.reports.read({ kind: "tools" });
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reportsRead, { kind: "tools" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.reportsRead, {
+      kind: "tools",
+    });
     await api.sessions.export({ sessionId: "session-1" });
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.sessionsExport, { sessionId: "session-1" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.sessionsExport, {
+      sessionId: "session-1",
+    });
     invoke.mockClear();
     expect(Object.keys(api.tasks)).toEqual(["control"]);
     await api.tasks.control({ sessionId: "session-1", action: "list" });
@@ -80,6 +89,7 @@ describe("preload surface", () => {
     });
     invoke.mockClear();
     expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);
+    expect(Object.keys(api.identity)).toEqual(["read", "verify", "save"]);
     expect(Object.keys(api.app)).toEqual(["openLink", "copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["inspect", "status", "retry"]);
     expect(Object.keys(api.sessions)).toEqual([
@@ -111,14 +121,40 @@ describe("preload surface", () => {
 
     await api.profiles.read();
     await api.profiles.presets();
-    await api.profiles.setup({ presetId: "minimax" });
+    const setupInput = {
+      revision: "a".repeat(64),
+      presetId: "minimax",
+      model: "MiniMax-M2.7",
+      baseUrl: "https://api.minimax.io/v1",
+      apiKey: "test-key",
+      checkProvider: false,
+    };
+    await api.profiles.setup(setupInput);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesPresets);
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSetup, { presetId: "minimax" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSetup, setupInput);
     await api.profiles.save({ agentId: "writer" });
     await api.profiles.import({ revision: "a".repeat(64) });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesRead);
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSave, { agentId: "writer" });
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesImport, { revision: "a".repeat(64) });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesSave, {
+      agentId: "writer",
+    });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.profilesImport, {
+      revision: "a".repeat(64),
+    });
+    await api.identity.read();
+    await api.identity.verify({ yaml: "agent_id: ops" });
+    await api.identity.save({
+      yaml: "agent_id: ops",
+      expectedProfileVersion: "v1",
+      expectedSourceSha256: "sha1",
+    });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityRead);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityVerify, { yaml: "agent_id: ops" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identitySave, {
+      yaml: "agent_id: ops",
+      expectedProfileVersion: "v1",
+      expectedSourceSha256: "sha1",
+    });
     invoke.mockClear();
     invoke.mockResolvedValue({ state: "ready" });
     await api.app.copyText("Local reply");
@@ -148,8 +184,14 @@ describe("preload surface", () => {
       artifactId: "a".repeat(48),
       limitBytes: 1024,
     });
-    await api.artifacts.detach({ sessionId: "session-1", artifactId: "a".repeat(48) });
-    await api.artifacts.restore({ sessionId: "session-1", artifactId: "a".repeat(48) });
+    await api.artifacts.detach({
+      sessionId: "session-1",
+      artifactId: "a".repeat(48),
+    });
+    await api.artifacts.restore({
+      sessionId: "session-1",
+      artifactId: "a".repeat(48),
+    });
     await api.files.pick({ sessionId: "session-1", kind: "directory" });
     await api.files.list({ sessionId: "session-1", grantId: "g".repeat(48) });
     await api.files.import({
@@ -157,11 +199,20 @@ describe("preload surface", () => {
       grantId: "g".repeat(48),
       entryId: "e".repeat(48),
     });
-    await api.files.release({ sessionId: "session-1", grantId: "g".repeat(48) });
+    await api.files.release({
+      sessionId: "session-1",
+      grantId: "g".repeat(48),
+    });
     await api.media.pick({ sessionId: "session-1", kind: "image" });
-    await api.media.release({ sessionId: "session-1", mediaId: "a".repeat(48) });
+    await api.media.release({
+      sessionId: "session-1",
+      mediaId: "a".repeat(48),
+    });
     await api.capture.status();
-    await api.capture.sources({ sessionId: "session-1", sourceKind: "display" });
+    await api.capture.sources({
+      sessionId: "session-1",
+      sourceKind: "display",
+    });
     await api.capture.start({
       sessionId: "session-1",
       candidateId: "c".repeat(48),

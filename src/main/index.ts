@@ -1,37 +1,35 @@
-import type { DesktopStore } from "./desktop-store.js";
-import { failure } from "./openminion-client.js";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   app,
   BrowserWindow,
   clipboard,
+  type DisplayMediaRequestHandlerHandlerRequest,
   desktopCapturer,
   dialog,
-  ipcMain,
-  powerMonitor,
-  screen,
-  shell,
-  session,
-  systemPreferences,
-  type DisplayMediaRequestHandlerHandlerRequest,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  ipcMain,
   type PermissionRequest,
+  powerMonitor,
   type Session,
+  screen,
+  session,
+  shell,
+  systemPreferences,
   type WebContents,
   type WebFrameMain,
 } from "electron";
-import { join } from "node:path";
-import { writeFile } from "node:fs/promises";
 import {
   CAPTURE_WORKER_CONFIG_CHANNEL,
   CAPTURE_WORKER_EVENT_CHANNEL,
-  isCaptureWorkerEvent,
   type CaptureWorkerConfigV1,
+  isCaptureWorkerEvent,
 } from "../shared/capture-worker.js";
 import {
-  IPC_CHANNELS,
   type CaptureStateV1,
   type ClientResult,
+  IPC_CHANNELS,
   type ObservationStatusV1,
   type TurnEventV1,
   type TurnSubmitInput,
@@ -39,15 +37,17 @@ import {
 } from "../shared/contracts.js";
 import { DaemonSupervisor } from "./backend-supervisor.js";
 import {
-  CaptureService,
   type CaptureNativeSource,
   type CapturePlatform,
+  CaptureService,
   type CaptureWorkerController,
 } from "./capture.js";
+import type { DesktopStore } from "./desktop-store.js";
 import { FileGrantService } from "./files.js";
 import { MediaService } from "./media.js";
-import { ObservationService } from "./observation.js";
 import type { ObservationPreparedTurn } from "./observation.js";
+import { ObservationService } from "./observation.js";
+import { failure } from "./openminion-client.js";
 import { registerAppProtocol, registerPrivilegedSchemes } from "./protocol.js";
 
 registerPrivilegedSchemes();
@@ -299,13 +299,20 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.profilesRead, (event) =>
     isAppInvocation(event) ? supervisor.readProfiles() : forbiddenResult(),
   );
+  ipcMain.handle(IPC_CHANNELS.identityRead, (event) =>
+    isAppInvocation(event) ? supervisor.readIdentity() : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.identityVerify, (event, input: unknown) =>
+    isAppInvocation(event) ? supervisor.verifyIdentity(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.identitySave, (event, input: unknown) =>
+    isAppInvocation(event) ? supervisor.saveIdentity(input) : forbiddenResult(),
+  );
   ipcMain.handle(IPC_CHANNELS.profilesPresets, (event) =>
     isAppInvocation(event) ? supervisor.setupPresets() : forbiddenResult(),
   );
   ipcMain.handle(IPC_CHANNELS.profilesSetup, (event, input: unknown) =>
-    isAppInvocation(event)
-      ? supervisor.applyProfiles((profiles, executable) => profiles.setup(input, executable))
-      : forbiddenResult(),
+    isAppInvocation(event) ? supervisor.applySetup(input) : forbiddenResult(),
   );
   ipcMain.handle(IPC_CHANNELS.profilesSave, (event, input: unknown) =>
     isAppInvocation(event)

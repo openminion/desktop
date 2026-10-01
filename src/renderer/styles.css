@@ -1026,13 +1026,35 @@ details[open] > summary .summary-chevron {
 }
 
 .chat-title {
+  flex: 1;
   min-width: 0;
 }
 
-.chat-title h2 {
+#current-title {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+#current-title:disabled {
+  opacity: 1;
+}
+
+#current-title:not(:disabled):hover {
+  background: var(--surface-raised);
+}
+
+.chat-title h2 {
   margin: 0;
   font-size: 14px;
   font-weight: 550;
@@ -1198,10 +1220,18 @@ details[open] > summary .summary-chevron {
 }
 
 .message.user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   width: fit-content;
   max-width: 85%;
   align-self: flex-end;
-  padding: 12px 16px;
+  padding: 0;
+}
+
+.message-bubble {
+  max-width: 100%;
+  padding: 10px 14px;
   border-radius: 16px;
   background: #2d2d2d;
 }
@@ -1244,6 +1274,11 @@ details[open] > summary .summary-chevron {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
+}
+
+.message.user .message-actions {
+  max-width: 100%;
+  justify-content: flex-end;
 }
 
 .message:hover .message-actions,
@@ -1575,6 +1610,25 @@ details[open] > summary .summary-chevron {
   margin: 4px 8px 4px 0;
 }
 
+.task-readiness,
+.task-decisions,
+.task-runs {
+  margin-block: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.task-readiness,
+.task-run {
+  white-space: pre-wrap;
+}
+
+.task-decisions h3,
+.task-runs h4 {
+  margin: 0 0 6px;
+}
+
 .composer textarea {
   flex: 1 1 auto;
   width: 100%;
@@ -1694,7 +1748,17 @@ details[open] > summary .summary-chevron {
   margin: 6px 0 0;
 }
 
-.task-actions-menu button {
+.session-context-menu {
+  position-anchor: --session-context-trigger;
+  top: anchor(bottom);
+  left: anchor(left);
+  position-try-fallbacks: flip-block, flip-inline;
+  min-width: 144px;
+  margin: 4px 0 0;
+}
+
+.task-actions-menu button,
+.session-context-menu button {
   min-height: 32px;
   padding: 6px 10px;
   font-size: 13px;
@@ -2042,6 +2106,7 @@ code {
   margin: 12px 0 6px;
 }
 .settings-dialog input:not([type="checkbox"]),
+.settings-dialog textarea,
 .settings-dialog select {
   width: 100%;
   min-width: 0;
@@ -2062,6 +2127,25 @@ code {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+#identity-yaml {
+  width: 100%;
+  min-height: 18rem;
+  resize: vertical;
+  font-family: "SFMono-Regular", "Cascadia Code", monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.identity-preview {
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--surface-soft);
+  white-space: pre-wrap;
 }
 .settings-tools {
   margin-top: 20px;
