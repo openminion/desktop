@@ -433,7 +433,7 @@ export function applyActivityEvent(activity: ActivityItem[], event: ActivityItem
     event.kind === "approval" && prior?.kind === "approval"
       ? {
           ...event,
-          argumentKeys: event.argumentKeys.length ? event.argumentKeys : prior.argumentKeys,
+          consentPreview: event.consentPreview || prior.consentPreview,
           requestedAt: event.requestedAt ?? prior.requestedAt,
           expiresAt: event.expiresAt ?? prior.expiresAt,
         }
@@ -744,6 +744,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let commandDraft: string | null = null;
   let commandsDismissed = false;
   let activity: ActivityItem[] = [];
+  const activityBySession = new Map<string, ActivityItem[]>();
   let attachments: MediaAttachmentV1[] = [];
   let artifacts: ArtifactCatalogItemV1[] = [];
   let artifactView: ArtifactView | null = null;
@@ -753,6 +754,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let fileLabel = "Choose a session to import local files.";
   let attachmentPending = false;
   const deciding = new Set<string>();
+  const approvalErrors = new Map<string, ErrorV1>();
+  const approvalFocus = new Set<string>();
+  const announcedApprovals = new Set<string>();
   let chat = initialChatState();
   let selectionGeneration = 0;
   let submissionGeneration = 0;
@@ -1955,6 +1959,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           attachmentPending ||
           !elements.composer.value.trim() ||
           !attachmentsValid);
+    const restoreFocusAfterStop = !chat.active && root.activeElement === elements.cancel;
     elements.cancel.hidden = !chat.active;
     elements.cancel.disabled = !chat.active || !chat.traceId || chat.stopRequested;
     elements.cancel.title = chat.stopRequested ? "Waiting for OpenMinion to stop" : "Stop response";
@@ -1964,6 +1969,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       : chat.active
         ? "You can keep drafting while OpenMinion works"
         : "Enter to send · Shift+Enter for new line";
+    if (restoreFocusAfterStop) elements.composer.focus();
     elements.send.title = isCommand
       ? "Run command"
       : !daemonReady
@@ -2028,38 +2034,81 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       automaticObservation,
       quietTools ? activity.filter((item) => item.kind === "approval") : activity,
       deciding,
+      approvalErrors,
+      chat.stopRequested,
+      approvalFocus,
+      announcedApprovals,
       (approval, decision) => {
-        if (deciding.has(approval.approvalId)) {
+        if (deciding.has(approval.approvalId) || chat.stopRequested) {
           return;
         }
         deciding.add(approval.approvalId);
-        const generation = selectionGeneration;
+        approvalErrors.delete(approval.approvalId);
+        approvalFocus.add(approval.approvalId);
         renderChat();
-        void api.approvals
-          .decide({
-            sessionId: approval.sessionId,
-            traceId: approval.traceId,
-            approvalId: approval.approvalId,
-            decision,
-          })
-          .then((result) => {
+        void (async () => {
+          let result: ClientResult<ApprovalDecisionV1>;
+          try {
+            result = await api.approvals.decide({
+              sessionId: approval.sessionId,
+              traceId: approval.traceId,
+              approvalId: approval.approvalId,
+              decision,
+            });
+          } catch {
+            result = {
+              ok: false,
+              error: {
+                code: "approval_transport_failed",
+                message: "Could not send the decision. Try again.",
+                retryable: true,
+                retryAfterMs: null,
+              },
+            };
+          } finally {
             deciding.delete(approval.approvalId);
-            const live = liveTurns.get(approval.sessionId);
-            if (result.ok && live)
-              live.activity = applyActivityEvent(
-                live.activity,
-                resolvedApproval(approval, result.value),
-              );
-            if (generation !== selectionGeneration || selected?.sessionId !== approval.sessionId) {
-              return;
+          }
+          const live = liveTurns.get(approval.sessionId);
+          const currentActivity = live?.activity ?? activityBySession.get(approval.sessionId) ?? [];
+          const currentApproval = currentActivity.find(
+            (item): item is ApprovalEventV1 =>
+              item.kind === "approval" && item.approvalId === approval.approvalId,
+          );
+          if (currentApproval?.outcome !== "pending") {
+            approvalErrors.delete(approval.approvalId);
+            renderSessionList();
+            if (selected?.sessionId === approval.sessionId) {
+              approvalFocus.add(approval.approvalId);
+              renderChat();
             }
-            if (!result.ok) {
-              showError(result.error);
-              return;
-            }
-            activity = applyActivityEvent(activity, resolvedApproval(approval, result.value));
+            return;
+          }
+          if (result.ok) {
+            approvalErrors.delete(approval.approvalId);
+            const resolved = resolvedApproval(approval, result.value);
+            const sessionActivity = applyActivityEvent(
+              live?.activity ?? activityBySession.get(approval.sessionId) ?? [approval],
+              resolved,
+            );
+            activityBySession.set(approval.sessionId, sessionActivity);
+            if (live) live.activity = sessionActivity;
+          } else {
+            approvalErrors.set(approval.approvalId, result.error);
+          }
+          approvalFocus.add(approval.approvalId);
+          renderSessionList();
+          if (selected?.sessionId !== approval.sessionId) {
+            return;
+          }
+          if (!result.ok) {
             renderChat();
-          });
+            return;
+          }
+          activity = applyActivityEvent(activity, resolvedApproval(approval, result.value));
+          activityBySession.set(approval.sessionId, activity);
+          renderSessionList();
+          renderChat();
+        })();
       },
     );
     renderObservation();
@@ -2099,6 +2148,25 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       ? `${visible.length} of ${sessions.length} conversations`
       : "";
     sessionSpinners.clear();
+    const needsApproval = new Set<string>();
+    for (const session of visible) {
+      const sessionActivity =
+        session.sessionId === selected?.sessionId
+          ? activity
+          : (liveTurns.get(session.sessionId)?.activity ??
+            activityBySession.get(session.sessionId) ??
+            []);
+      if (
+        sessionActivity.some(
+          (item) =>
+            item.kind === "approval" &&
+            item.outcome === "pending" &&
+            approvalErrors.get(item.approvalId)?.retryable !== false,
+        )
+      ) {
+        needsApproval.add(session.sessionId);
+      }
+    }
     renderSessions(
       root,
       elements.sessionList,
@@ -2106,6 +2174,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       selected?.sessionId ?? null,
       taskName,
       sessionSpinners,
+      needsApproval,
       (id) => {
         const next = sessions.find((item) => item.sessionId === id);
         if (next) void selectSession(next);
@@ -2194,8 +2263,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       artifactView = null;
       artifactLabel = "Loading artifacts…";
       fileLabel = "Choose a local file to import.";
-      activity = live?.activity ?? [];
-      deciding.clear();
+      activity = live?.activity ?? activityBySession.get(session.sessionId) ?? [];
       chat = live?.state ?? {
         ...initialChatState(),
         sessionId: session.sessionId,
@@ -2233,14 +2301,28 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     responseUsage = undefined;
     hiddenMessageCount = 0;
     automaticObservation = null;
-    activity = recoverActivity(recovered.session.sessionId, recovered.events);
+    activity = (activityBySession.get(recovered.session.sessionId) ?? []).reduce(
+      (items, item) => applyActivityEvent(items, item),
+      recoverActivity(recovered.session.sessionId, recovered.events),
+    );
+    activityBySession.set(recovered.session.sessionId, activity);
+    const pendingApproval = terminalState
+      ? undefined
+      : activity.find(
+          (item): item is ApprovalEventV1 => item.kind === "approval" && item.outcome === "pending",
+        );
     chat = {
       ...initialChatState(),
       sessionId: recovered.session.sessionId,
+      traceId: pendingApproval?.traceId ?? null,
       terminalTraceId,
+      active: Boolean(pendingApproval),
+      startedAt: pendingApproval?.requestedAt ? Date.parse(pendingApproval.requestedAt) : null,
       label: recovered.session.isDraft
         ? "Send a message to start this conversation."
-        : terminalLabel(recovered.events),
+        : pendingApproval
+          ? "Needs approval."
+          : terminalLabel(recovered.events),
       ...(terminalState ? { label: terminalState.label, error: terminalState.error } : {}),
     };
     const live = liveTurns.get(session.sessionId);
@@ -2252,7 +2334,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       responseText = live.responseText;
       responseUsage = live.responseUsage;
       for (const item of live.activity) activity = applyActivityEvent(activity, item);
+      activityBySession.set(session.sessionId, activity);
     }
+    renderSessionList();
     renderChat();
   };
 
@@ -2490,11 +2574,32 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       updateSessionActivity();
     }
     acceptGuidanceTurnEvent(event);
-    if (
-      (event.kind === "tool" || event.kind === "approval") &&
-      selected?.sessionId === event.sessionId
-    ) {
-      activity = applyActivityEvent(activity, event);
+    if (event.kind === "tool" || event.kind === "approval") {
+      const sessionActivity = applyActivityEvent(
+        selected?.sessionId === event.sessionId
+          ? activity
+          : (activityBySession.get(event.sessionId) ?? []),
+        event,
+      );
+      activityBySession.set(event.sessionId, sessionActivity);
+      if (selected?.sessionId === event.sessionId) activity = sessionActivity;
+    }
+    if (event.kind === "approval") {
+      if (event.outcome !== "pending") {
+        approvalErrors.delete(event.approvalId);
+        announcedApprovals.delete(event.approvalId);
+        const focusedApprovalId = (root.activeElement as HTMLElement | null)?.dataset.approvalId;
+        if (
+          selected?.sessionId === event.sessionId &&
+          (deciding.has(event.approvalId) || focusedApprovalId === event.approvalId)
+        ) {
+          approvalFocus.add(event.approvalId);
+        }
+      } else if (selected?.sessionId !== event.sessionId) {
+        const session = sessions.find((item) => item.sessionId === event.sessionId);
+        elements.approvalNotice.textContent = `${session ? taskName(session) : "Another conversation"} needs approval for ${event.toolName}.`;
+      }
+      renderSessionList();
     }
     chat = applyTurnEvent(chat, event);
     renderChat();
@@ -3175,6 +3280,7 @@ function rendererElements(root: Document) {
     screenContextStatus: required(root, "screen-context-status"),
     screenContextPreview: required(root, "screen-context-preview") as HTMLImageElement,
     sessionList: required(root, "session-list"),
+    approvalNotice: required(root, "approval-notice"),
     sessionSearch: required(root, "session-search") as HTMLInputElement,
     clearSessionSearch: required(root, "clear-session-search"),
     sessionSearchCount: required(root, "session-search-count"),
@@ -3584,6 +3690,7 @@ function renderSessions(
   selectedId: string | null,
   taskName: (session: SessionSummaryV1) => string,
   spinners: Map<string, HTMLElement>,
+  needsApproval: ReadonlySet<string>,
   select: (sessionId: string) => void,
   showContext: (session: SessionSummaryV1, button: HTMLButtonElement) => void,
   emptyMessage: string,
@@ -3592,8 +3699,19 @@ function renderSessions(
     const button = root.createElement("button");
     button.type = "button";
     button.className = `session-item${session.sessionId === selectedId ? " selected" : ""}`;
-    button.textContent = `${taskName(session)}${session.status === "closed" ? " · Closed" : ""}`;
-    button.title = button.textContent;
+    const label = `${taskName(session)}${session.status === "closed" ? " · Closed" : ""}`;
+    const approvalNeeded = needsApproval.has(session.sessionId);
+    button.dataset.sessionId = session.sessionId;
+    button.textContent = label;
+    button.title = `${label}${approvalNeeded ? " · Needs approval" : ""}`;
+    button.setAttribute("aria-label", button.title);
+    if (approvalNeeded) {
+      const marker = root.createElement("span");
+      marker.className = "session-approval-marker";
+      marker.textContent = "Needs approval";
+      marker.setAttribute("aria-hidden", "true");
+      button.append(marker);
+    }
     const spinner = root.createElement("span");
     spinner.className = "session-spinner";
     spinner.hidden = true;
@@ -3620,7 +3738,11 @@ function renderSessions(
     empty.textContent = emptyMessage;
     items.push(empty);
   }
+  const focusedSessionId = (root.activeElement as HTMLElement | null)?.dataset.sessionId;
   list.replaceChildren(...items);
+  if (focusedSessionId) {
+    items.find((item) => item.dataset.sessionId === focusedSessionId)?.focus();
+  }
 }
 
 type TimelineMessage = {
@@ -3658,6 +3780,10 @@ function renderTimeline(
   automaticObservation: ObservationFrameFactV1 | null,
   activity: ActivityItem[],
   deciding: Set<string>,
+  approvalErrors: ReadonlyMap<string, ErrorV1>,
+  approvalBlocked: boolean,
+  approvalFocus: Set<string>,
+  announcedApprovals: Set<string>,
   decide: (approval: ApprovalEventV1, decision: ApprovalDecision) => void,
 ): void {
   const scrollTop = conversation.scrollTop;
@@ -3781,11 +3907,22 @@ function renderTimeline(
     article.append(bubble);
     items.push(article);
   }
+  const approvalFocusTargets = new Map<string, HTMLElement>();
   items.push(
     ...activity.map((item) =>
       item.kind === "tool"
         ? renderToolCard(root, item)
-        : renderApprovalCard(root, item, deciding.has(item.approvalId), decide),
+        : renderApprovalCard(
+            root,
+            item,
+            deciding.has(item.approvalId),
+            approvalErrors.get(item.approvalId) ?? null,
+            approvalBlocked,
+            approvalFocus.has(item.approvalId),
+            announcedApprovals,
+            approvalFocusTargets,
+            decide,
+          ),
     ),
   );
   if (!items.length && !loading) {
@@ -3805,6 +3942,9 @@ function renderTimeline(
     else timeline.append(item);
   }
   while (timeline.children.length > items.length) timeline.removeChild(timeline.lastElementChild!);
+  for (const [approvalId, button] of approvalFocusTargets) {
+    if (!loading && approvalFocus.delete(approvalId)) button.focus();
+  }
   conversation.scrollTop = followLatest ? conversation.scrollHeight : scrollTop;
 }
 
@@ -3826,39 +3966,71 @@ function renderApprovalCard(
   root: Document,
   item: ApprovalEventV1,
   deciding: boolean,
+  error: ErrorV1 | null,
+  blocked: boolean,
+  focusRequested: boolean,
+  announcedApprovals: Set<string>,
+  focusTargets: Map<string, HTMLElement>,
   decide: (approval: ApprovalEventV1, decision: ApprovalDecision) => void,
 ): HTMLElement {
   const card = root.createElement("article");
   card.className = "activity-card approval-card";
   card.dataset.approvalId = item.approvalId;
+  card.setAttribute("aria-label", `Approval for ${item.toolName}`);
+  const pending = item.outcome === "pending" && error?.retryable !== false;
   const heading = root.createElement("p");
   heading.className = "activity-heading";
-  heading.textContent = `Approval · ${item.toolName}`;
+  heading.textContent = `${pending ? "Needs approval" : error ? "Approval closed" : "Approval"} · ${item.toolName}`;
   const details = root.createElement("p");
   details.className = "activity-details";
-  details.textContent = `${item.callId} · ${item.outcome}`;
-  const keys = root.createElement("p");
-  keys.className = "argument-keys";
-  keys.textContent = item.argumentKeys.length
-    ? `Argument names: ${item.argumentKeys.join(", ")}`
-    : "No argument names provided.";
-  card.append(heading, details, keys);
-  if (item.outcome === "pending") {
+  details.textContent = error
+    ? error.retryable
+      ? `Decision not sent · ${error.message}`
+      : `Approval closed · ${error.message}`
+    : deciding
+      ? "Sending decision…"
+      : blocked
+        ? "Cancelling turn…"
+        : item.outcome === "pending"
+          ? "Waiting for your decision"
+          : `Resolved · ${item.outcome.replaceAll("_", " ")}`;
+  const preview = root.createElement("pre");
+  preview.className = "approval-preview";
+  preview.textContent = item.consentPreview || `${item.toolName}()`;
+  card.append(heading, details, preview);
+  if (pending && !announcedApprovals.has(item.approvalId)) {
+    card.setAttribute("role", "status");
+    card.setAttribute("aria-live", "polite");
+    announcedApprovals.add(item.approvalId);
+  }
+  if (focusRequested) {
+    details.setAttribute("role", "status");
+    details.setAttribute("aria-live", "polite");
+    details.setAttribute("aria-atomic", "true");
+    card.tabIndex = -1;
+    focusTargets.set(item.approvalId, card);
+  }
+  if (pending) {
     const actions = root.createElement("div");
     actions.className = "approval-actions";
     const deny = root.createElement("button");
     deny.type = "button";
     deny.className = "quiet-button";
     deny.textContent = "Deny";
-    deny.disabled = deciding;
+    deny.dataset.approvalId = item.approvalId;
+    deny.disabled = deciding || blocked;
+    deny.setAttribute("aria-label", `Deny ${item.toolName}`);
     deny.addEventListener("click", () => decide(item, "deny"));
     const allow = root.createElement("button");
     allow.type = "button";
     allow.textContent = "Allow once";
-    allow.disabled = deciding;
+    allow.dataset.approvalId = item.approvalId;
+    allow.disabled = deciding || blocked;
+    allow.setAttribute("aria-label", `Allow ${item.toolName} once`);
     allow.addEventListener("click", () => decide(item, "allow_once"));
     actions.append(deny, allow);
     card.append(actions);
+    if (focusRequested && !deciding && !blocked) focusTargets.set(item.approvalId, deny);
   }
   return card;
 }
@@ -3868,7 +4040,7 @@ function resolvedApproval(requested: ApprovalEventV1, result: ApprovalDecisionV1
     ...requested,
     phase: "resolved",
     decision: result.decision,
-    outcome: result.decision === "allow_once" ? "applied" : "denied",
+    outcome: result.outcome,
     resolvedAt: result.resolvedAt,
   };
 }
@@ -3883,10 +4055,11 @@ function activityFromSessionEvent(sessionId: string, event: SessionEventV1): Act
   const traceId = event.traceId;
   const toolName = stringFact(event, "tool_name");
   const callId = stringFact(event, "call_id") ?? stringFact(event, "command_id");
-  if (!traceId || !toolName || !callId) {
+  if (!traceId || !toolName) {
     return null;
   }
   if (event.eventType === "tool.request" || event.eventType === "tool.completed") {
+    if (!callId) return null;
     const completed = event.eventType === "tool.completed";
     return {
       schemaVersion: 1,
@@ -3904,10 +4077,7 @@ function activityFromSessionEvent(sessionId: string, event: SessionEventV1): Act
       exitCode: null,
     };
   }
-  if (
-    event.eventType !== "desktop.approval.requested" &&
-    event.eventType !== "desktop.approval.resolved"
-  ) {
+  if (event.eventType !== "approval.requested" && event.eventType !== "approval.resolved") {
     return null;
   }
   const approvalId = stringFact(event, "approval_id");
@@ -3915,8 +4085,7 @@ function activityFromSessionEvent(sessionId: string, event: SessionEventV1): Act
   if (!approvalId || !outcome || !approvalOutcomes.has(outcome)) {
     return null;
   }
-  const requested = event.eventType === "desktop.approval.requested";
-  const keys = event.facts.argument_keys;
+  const requested = event.eventType === "approval.requested";
   return {
     schemaVersion: 1,
     kind: "approval",
@@ -3925,8 +4094,7 @@ function activityFromSessionEvent(sessionId: string, event: SessionEventV1): Act
     traceId,
     approvalId,
     toolName,
-    callId,
-    argumentKeys: Array.isArray(keys) ? [...keys] : [],
+    consentPreview: stringFact(event, "consent_preview") ?? `${toolName}()`,
     requestedAt: requested ? stringFact(event, "requested_at") : null,
     expiresAt: requested ? stringFact(event, "expires_at") : null,
     decision: decisionFact(event),
@@ -3941,8 +4109,6 @@ const approvalOutcomes = new Set<ApprovalEventV1["outcome"]>([
   "denied",
   "expired",
   "cancelled",
-  "interrupted",
-  "event_failed",
 ]);
 
 function stringFact(event: SessionEventV1, key: string): string | null {

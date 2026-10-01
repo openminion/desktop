@@ -1565,6 +1565,7 @@ class CaptureFixtureDocument {
     "shell-version",
     "connection-label",
     "session-list",
+    "approval-notice",
     "session-search",
     "clear-session-search",
     "session-search-count",

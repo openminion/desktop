@@ -1388,7 +1388,8 @@ details[open] > summary .summary-chevron {
 }
 
 .approval-card {
-  border-color: var(--line-strong);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line-strong));
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 
 .activity-heading {
@@ -1398,15 +1399,22 @@ details[open] > summary .summary-chevron {
 }
 
 .activity-details,
-.argument-keys {
+.approval-preview {
   margin-top: 6px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
-.argument-keys {
+.approval-preview {
+  max-height: 12rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  padding: 9px 10px;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .approval-actions {
@@ -1414,6 +1422,19 @@ details[open] > summary .summary-chevron {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
+}
+
+.session-approval-marker {
+  display: inline-flex;
+  margin-left: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 6px;
+  vertical-align: middle;
 }
 
 .chat-progress {

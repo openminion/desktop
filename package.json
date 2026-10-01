@@ -39,6 +39,7 @@
     "package": "npm run build && electron-forge package && node scripts/package-contents.mjs",
     "make": "npm run build && electron-forge make && node scripts/package-contents.mjs --artifacts",
     "electron-check": "npm run build && electron tests/electron/smoke.mjs && electron tests/electron/identity.mjs",
+    "electron-check:approval": "npm run build && electron tests/electron/approval.mjs",
     "preview": "npm run build && electron scripts/preview.mjs"
   },
   "devDependencies": {

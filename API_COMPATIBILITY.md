@@ -62,10 +62,14 @@ thread. The pinned one-shot `run` command omits that delivery metadata and repla
 an undelivered reply on a follow-up, so it is not used for Desktop turns.
 No empty-session prompt is injected.
 
-Approval decisions, media, artifacts, full Focus commands, and active-turn
-reattachment remain incomplete. They must use existing public interfaces without
-restoring Desktop-only code in the OpenMinion package. The live supervisor uses
-the CLI-backed client exclusively.
+With a compatible OpenMinion source checkout, approval decisions use the
+authenticated local approval-resume operation and negotiated turn stream.
+Desktop can allow once or deny the exact pending request; policy and grant
+ownership remain in OpenMinion. The pinned PyPI `0.0.27` runtime does not expose
+this transport yet. Media, artifacts,
+full Focus commands, and active-turn reattachment remain incomplete. They must
+use existing public interfaces without restoring Desktop-only code in the
+OpenMinion package. The live supervisor uses the CLI-backed client exclusively.
 
 ## Daemon Diagnostics
 

@@ -23,8 +23,9 @@
 </p>
 
 OpenMinion Desktop is the local graphical client for the OpenMinion agent
-runtime. It provides text chat and session history, with preview UI for approvals,
-attachments, artifacts, and screen context, while keeping agent execution,
+runtime. It provides text chat and session history; source-development pairing
+with a compatible OpenMinion checkout also supports request-bound tool approvals.
+Attachments, artifacts, and screen context remain preview UI, while agent execution,
 credentials, policy, and durable session truth in the OpenMinion daemon.
 
 The application is a development alpha. On first launch it creates an isolated
@@ -88,7 +89,8 @@ and DEB and ZIP on Linux. These are development artifacts, not public releases.
 - chat with streaming progress and typed terminal outcomes
 - inspect OpenMinion work with `/tasks` and pause, resume, or cancel it through core controls
 - cancel active turns and recover completed history after renderer reload or daemon restart
-- preview approvals, attachments, artifacts, and screen context in the UI fixture
+- review and allow once or deny policy-gated tool calls when paired with a compatible source runtime
+- preview attachments, artifacts, and screen context in the UI fixture
 - select a screen or window for local preview when native permission is available
 - install, version-check, start, monitor, and stop an app-owned OpenMinion daemon
 - check compatible runtime metadata and explicitly prepare a verified PyPI or
@@ -103,7 +105,8 @@ and DEB and ZIP on Linux. These are development artifacts, not public releases.
 - hidden screen capture, always-on observation, or unrestricted native input
 - remote daemon attachment, hosted synchronization, or multi-device control
 - signed, notarized, automatically updating public releases
-- full Focus slash-command parity, connected approvals, attachment sending, or artifact browsing
+- full Focus slash-command parity, attachment sending, or artifact browsing
+- connected approvals on the default pinned PyPI runtime until a compatible release is published
 - reattachment to an active turn after quitting the application
 
 ## Requirements

@@ -399,8 +399,7 @@ describe("preload surface", () => {
       traceId: "trace-1",
       approvalId: "approval-1",
       toolName: "workspace.search",
-      callId: "call-1",
-      argumentKeys: ["path", "query"],
+      consentPreview: 'workspace.search(query="release notes")',
       requestedAt: "2026-08-20T00:00:00Z",
       expiresAt: "2026-08-20T00:01:00Z",
       decision: null,
@@ -410,13 +409,29 @@ describe("preload surface", () => {
     expect(second).toHaveBeenCalledTimes(4);
     secondWrapped(null, {
       schemaVersion: 1,
+      kind: "approval",
+      phase: "resolved",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      approvalId: "approval-1",
+      toolName: "workspace.search",
+      consentPreview: 'workspace.search(query="release notes")',
+      requestedAt: null,
+      expiresAt: null,
+      decision: null,
+      outcome: "expired",
+      resolvedAt: "2026-08-20T00:01:00Z",
+    });
+    expect(second).toHaveBeenCalledTimes(5);
+    secondWrapped(null, {
+      schemaVersion: 1,
       kind: "started",
       requestId: "request-1",
       traceId: "trace-1",
       sessionId: "session-1",
       token: "must-not-cross",
     });
-    expect(second).toHaveBeenCalledTimes(4);
+    expect(second).toHaveBeenCalledTimes(5);
     firstUnsubscribe();
     secondUnsubscribe();
     secondUnsubscribe();

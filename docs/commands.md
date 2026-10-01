@@ -68,8 +68,9 @@ runtime task inventory, which is distinct from the conversation sidebar.
 Only actions returned by OpenMinion appear as buttons. Reads work during a chat;
 changes wait for that conversation's active turn to finish. OpenMinion validates
 each transition; Desktop does not infer task state or schedule ownership.
-Pending approval decisions are shown read-only and must be resolved through the
-canonical Focus approval flow; task lifecycle controls do not grant or deny them.
+With a compatible source runtime, pending tool approvals can be allowed once or
+denied from their request-bound card. Task lifecycle controls remain separate
+and do not grant or deny them.
 The inventory uses the public CLI's default limit of 50.
 
 The `/tasks` panel includes **Schedule work**. Enter a name and instruction, then
@@ -104,15 +105,18 @@ provides the narrow clipboard-write bridge; neither surface reads the clipboard.
 Progress displays the daemon's label and detail text without inferring brain phases.
 After 15 seconds without a new event, it shows the time since the last update
 while preserving the conversation and stop control. Completion clears the live
-status. Full tool activity and approval presentation remain separate gaps.
+status. Tool activity and request-bound approval cards use the same live turn
+stream; richer tool-output presentation remains a separate gap.
 
 ## Remaining Focus Parity
 
 Focus's canonical command catalog is owned by OpenMinion's CLI presentation
 layer. Its handlers operate on the CLI runtime. Desktop's CLI-backed client
 connects text turns, saved sessions, task inventory/lifecycle controls,
-agent/tool/skill inventories, skill-learning proposal reads, token reports, and transcript export; approvals, media,
-artifacts, and broader Focus commands remain pending.
+agent/tool/skill inventories, skill-learning proposal reads, token reports, and
+transcript export. A compatible source runtime also connects request-bound tool
+approvals; media, artifacts, and
+broader Focus commands remain pending.
 
 | Focus command family                                                                                    | Required Desktop adaptation before it is connected                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

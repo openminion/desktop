@@ -291,6 +291,19 @@ Run the actual sandboxed application startup check on macOS:
 npm run electron-check
 ```
 
+Run the request-bound approval proof against an OpenMinion source checkout:
+
+```bash
+PYTHONPATH=/path/to/openminion/src \
+OPENMINION_APPROVAL_E2E_EXECUTABLE=/path/to/openminion \
+npm run electron-check:approval
+```
+
+This starts an isolated daemon and controlled local provider, waits for the
+approval card in built Electron, selects **Allow once**, verifies the exact
+`file.write` result reaches the provider, and removes the temporary runtime on
+success. It uses no paid provider or user profile.
+
 This launches built Electron main, both CommonJS preload bundles, and the
 renderer through the real local protocol. It checks bridge availability,
 sandbox settings, disconnected draft entry, popovers, and fluid composer
