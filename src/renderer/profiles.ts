@@ -52,6 +52,7 @@ export function mountProfiles(
   const identityStatus = get<HTMLElement>("identity-status");
   const identityPreview = get<HTMLElement>("identity-preview");
   const identityReload = get<HTMLButtonElement>("identity-reload");
+  const identityRuntime = get<HTMLButtonElement>("identity-runtime");
   const identityVerify = get<HTMLButtonElement>("identity-verify");
   const identitySave = get<HTMLButtonElement>("identity-save");
   let returnFocus: HTMLElement = open;
@@ -123,6 +124,10 @@ export function mountProfiles(
     identitySettings?.profiles.find((item) => item.agentId === identityAgent.value);
   const populateIdentity = () => {
     const profile = selectedIdentity();
+    get<HTMLElement>("identity-editor").hidden = !profile;
+    identityReload.textContent = profile ? "Reload from disk" : "Try again";
+    if (profile) identityYaml.after(identityStatus);
+    else get<HTMLElement>("identity-availability-actions").before(identityStatus);
     if (!profile) {
       identityYaml.value = "";
       identityYaml.disabled = true;
@@ -167,11 +172,14 @@ export function mountProfiles(
     if (identityPending) return;
     if (discardSelectedDraft && identityAgent.value) identityDrafts.delete(identityAgent.value);
     setIdentityPending(true);
+    identityRuntime.hidden = true;
     identityStatus.textContent = "Loading identity…";
     try {
       const result = await api.identity.read();
       if (!result.ok) {
+        identitySettings = null;
         identityStatus.textContent = result.error.message;
+        identityRuntime.hidden = result.error.code !== "runtime_upgrade_required";
         return;
       }
       const selected = identityAgent.value;
@@ -186,8 +194,11 @@ export function mountProfiles(
       );
       if (result.value.profiles.some((profile) => profile.agentId === selected))
         identityAgent.value = selected;
-      identityStatus.textContent = "";
+      identityStatus.textContent = result.value.profiles.length
+        ? ""
+        : "No identity profiles were found for the configured agents.";
     } catch {
+      identitySettings = null;
       identityStatus.textContent = "Could not load identity settings.";
     } finally {
       setIdentityPending(false);
@@ -357,6 +368,10 @@ export function mountProfiles(
     setIdentityPending(identityPending);
   });
   identityReload.addEventListener("click", () => void loadIdentity(true));
+  identityRuntime.addEventListener("click", () => {
+    selectSection("runtime");
+    get<HTMLButtonElement>("settings-runtime-button").focus();
+  });
   identityVerify.addEventListener("click", async () => {
     if (identityPending || !identityYaml.value.trim()) return;
     setIdentityPending(true);

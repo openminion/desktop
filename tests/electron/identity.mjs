@@ -11,6 +11,7 @@ const initialYaml = "agent_id: openminion\ndisplay_name: OpenMinion\nmission: In
 writeFileSync(
   statePath,
   JSON.stringify({
+    unsupported: true,
     yaml: initialYaml,
     profileVersion: "profile-v1",
     sourceSha256: "source-v1",
@@ -67,7 +68,36 @@ async function check() {
     await click("show-settings");
     await waitFor("document.querySelector('#profile-dialog').open");
     await click("settings-identity-button");
+    await waitFor("document.querySelector('#identity-status').textContent.includes('release')");
+    assert.equal(await evaluate("document.querySelector('#identity-editor').hidden"), true);
+    assert.equal(await evaluate("document.querySelector('#identity-runtime').hidden"), false);
+    if (process.env.OPENMINION_E2E_ARTIFACTS) {
+      mkdirSync(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
+      writeFileSync(
+        join(process.env.OPENMINION_E2E_ARTIFACTS, "identity-unavailable.png"),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+    }
+    await click("identity-runtime");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-runtime-button");
+    assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        yaml: initialYaml,
+        profileVersion: "profile-v1",
+        sourceSha256: "source-v1",
+      }),
+    );
+    await click("settings-identity-button");
     await waitFor("document.querySelector('#identity-yaml').value.includes('mission: Initial')");
+    assert.equal(await evaluate("document.querySelector('#identity-editor').hidden"), false);
+    assert.equal(
+      await evaluate("document.querySelector('#identity-yaml').nextElementSibling.id"),
+      "identity-status",
+      "Verification and save feedback stays directly below the editor",
+    );
+    assert.equal(await evaluate("document.querySelector('#identity-runtime').hidden"), true);
     assert.match(
       await evaluate("document.querySelector('#identity-metadata').textContent"),
       /source clean/,
@@ -207,8 +237,15 @@ async function check() {
       await evaluate("document.querySelector('#identity-yaml').value"),
       /discard on explicit reload/,
     );
+    writeFileSync(statePath, JSON.stringify({ empty: true }));
+    await click("identity-reload");
+    await waitFor(
+      "document.querySelector('#identity-status').textContent.includes('No identity profiles')",
+    );
+    assert.equal(await evaluate("document.querySelector('#identity-editor').hidden"), true);
+    assert.equal(await evaluate("document.querySelector('#identity-runtime').hidden"), true);
     console.log(
-      "Identity Electron check passed: native view, draft, verify, save, stale conflict, and reload.",
+      "Identity Electron check passed: unavailable/empty recovery, native view, draft, verify, save, stale conflict, and reload.",
     );
   } catch (error) {
     console.error(error);

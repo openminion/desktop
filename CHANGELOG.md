@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Explain when the installed runtime cannot provide Identity settings, show a
+  direct path to Runtime settings, and hide the unavailable editor and save controls.
+
 - Open Settings sections at the top, style the Identity editor consistently with
   other fields, and keep its agent selection fixed while loading, verifying, or saving.
 
