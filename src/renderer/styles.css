@@ -1026,13 +1026,35 @@ details[open] > summary .summary-chevron {
 }
 
 .chat-title {
+  flex: 1;
   min-width: 0;
 }
 
-.chat-title h2 {
+#current-title {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+#current-title:disabled {
+  opacity: 1;
+}
+
+#current-title:not(:disabled):hover {
+  background: var(--surface-raised);
+}
+
+.chat-title h2 {
   margin: 0;
   font-size: 14px;
   font-weight: 550;
@@ -1713,7 +1735,17 @@ details[open] > summary .summary-chevron {
   margin: 6px 0 0;
 }
 
-.task-actions-menu button {
+.session-context-menu {
+  position-anchor: --session-context-trigger;
+  top: anchor(bottom);
+  left: anchor(left);
+  position-try-fallbacks: flip-block, flip-inline;
+  min-width: 144px;
+  margin: 4px 0 0;
+}
+
+.task-actions-menu button,
+.session-context-menu button {
   min-height: 32px;
   padding: 6px 10px;
   font-size: 13px;

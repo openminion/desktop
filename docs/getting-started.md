@@ -330,9 +330,12 @@ outside the current product profile.
 
 ## Name a chat
 
-Select a conversation and click **Rename** next to its title. Enter a name and
-choose **Save**. **Cancel** leaves it unchanged; **Reset name** restores the name
-reported by OpenMinion. The dialog also shows the original session ID.
+Click the conversation title, or choose **Rename** from the top-right conversation
+menu. You can also right-click any conversation in the sidebar and choose
+**Rename…** without opening it. With a sidebar conversation focused, press
+**Shift+F10** to open the same menu. Enter a name and choose **Save**. **Cancel**
+leaves it unchanged; **Reset name** restores the name reported by OpenMinion. The
+dialog also shows the original session ID.
 
 Names appear in the sidebar, chat heading, and Desktop session picker, and survive
 restarting Desktop. They are saved only in this Desktop installation. Renaming

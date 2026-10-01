@@ -889,6 +889,34 @@ describe("renderer status view", () => {
       await mount(api, page.asDocument());
       expect(page.element("current-title").textContent).toBe("Imported name");
       expect(page.names.size).toBe(0);
+      const loadsBeforeRename = load.mock.calls.length;
+      page.element("composer").value = "Keep this draft";
+      const other = page.sessionButtons()[1]!;
+      other.dispatch("contextmenu");
+      expect(page.element("session-context-menu").open).toBe(true);
+      page.element("session-context-menu").dispatch("keydown", { key: "Escape" });
+      expect(other.focus).toHaveBeenCalled();
+      expect(page.element("session-context-menu").open).toBe(false);
+      other.dispatch("keydown", { key: "F10", shiftKey: true });
+      page.element("session-context-rename").click();
+      expect(page.element("rename-session-id").textContent).toBe("session-2");
+      expect(page.element("task-name").value).toBe("Other");
+      page.element("task-name").value = "Background planning";
+      page.element("rename-form").dispatch("submit");
+      await vi.waitFor(() => expect(page.element("rename-dialog").open).toBe(false));
+      expect(page.sessionButtons()[1]!.textContent).toBe("Background planning");
+      expect(page.element("current-title").textContent).toBe("Imported name");
+      expect(page.element("composer").value).toBe("Keep this draft");
+      expect(load).toHaveBeenCalledTimes(loadsBeforeRename);
+      page.sessionButtons()[1]!.dispatch("contextmenu");
+      page.element("session-context-rename").click();
+      page.element("rename-reset").click();
+      await vi.waitFor(() => expect(page.element("rename-dialog").open).toBe(false));
+      expect(page.sessionButtons()[1]!.textContent).toBe("Other");
+      page.element("current-title").click();
+      expect(page.element("rename-session-id").textContent).toBe("session-1");
+      page.element("rename-cancel").click();
+      expect(page.element("current-title").focus).toHaveBeenCalled();
       page.element("rename-session").click();
       expect(page.element("rename-session-id").textContent).toBe("session-1");
       page.element("task-name").value = "Discard this";
@@ -4323,6 +4351,8 @@ class FixtureDocument {
     "new-session",
     "close-session",
     "current-title",
+    "session-context-menu",
+    "session-context-rename",
     "rename-session",
     "rename-dialog",
     "rename-form",

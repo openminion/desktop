@@ -1571,6 +1571,8 @@ class CaptureFixtureDocument {
     "new-session",
     "close-session",
     "current-title",
+    "session-context-menu",
+    "session-context-rename",
     "rename-session",
     "rename-dialog",
     "rename-form",
