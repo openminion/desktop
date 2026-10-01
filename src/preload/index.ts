@@ -10,7 +10,6 @@ import {
 let activeTurnListener: ((_event: unknown, payload: unknown) => void) | null = null;
 let activeCaptureListener: ((_event: unknown, payload: unknown) => void) | null = null;
 let activeObservationListener: ((_event: unknown, payload: unknown) => void) | null = null;
-const textEncoder = new TextEncoder();
 
 const api: NativeApi = {
   runtime: {
@@ -842,16 +841,14 @@ function isApprovalEvent(record: Record<string, unknown>): boolean {
       "traceId",
       "approvalId",
       "toolName",
-      "callId",
-      "argumentKeys",
+      "consentPreview",
       "requestedAt",
       "expiresAt",
       "decision",
       "outcome",
       "resolvedAt",
     ]) ||
-    !strings(record, ["sessionId", "traceId", "approvalId", "toolName", "callId"]) ||
-    !boundedStringArray(record.argumentKeys) ||
+    !strings(record, ["sessionId", "traceId", "approvalId", "toolName", "consentPreview"]) ||
     !nullableString(record.requestedAt) ||
     !nullableString(record.expiresAt) ||
     !nullableString(record.decision) ||
@@ -870,7 +867,6 @@ function isApprovalEvent(record: Record<string, unknown>): boolean {
   }
   if (
     record.phase !== "resolved" ||
-    record.argumentKeys.length !== 0 ||
     record.requestedAt !== null ||
     record.expiresAt !== null ||
     typeof record.resolvedAt !== "string"
@@ -883,10 +879,7 @@ function isApprovalEvent(record: Record<string, unknown>): boolean {
   if (record.outcome === "denied") {
     return record.decision === "deny";
   }
-  return (
-    ["expired", "cancelled", "interrupted", "event_failed"].includes(String(record.outcome)) &&
-    record.decision === null
-  );
+  return ["expired", "cancelled"].includes(String(record.outcome)) && record.decision === null;
 }
 
 function isError(value: unknown): boolean {
@@ -921,17 +914,6 @@ function nullableNumber(value: unknown): boolean {
 
 function nullableBoolean(value: unknown): boolean {
   return value === null || typeof value === "boolean";
-}
-
-function boundedStringArray(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length <= 64 &&
-    value.every((item) => typeof item === "string" && textEncoder.encode(item).byteLength <= 256) &&
-    new Set(value).size === value.length &&
-    value.every((item, index) => index === 0 || value[index - 1] <= item) &&
-    textEncoder.encode(JSON.stringify(value)).byteLength <= 8 * 1024
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

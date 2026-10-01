@@ -24,8 +24,11 @@ import { renderTasks } from "../../src/renderer/tasks.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
 import type {
   ArtifactCatalogItemV1,
+  ApprovalDecisionV1,
+  ApprovalEventV1,
   CaptureEventV1,
   CaptureStateV1,
+  ClientResult,
   DaemonStatus,
   MediaAttachmentV1,
   NativeApi,
@@ -2234,13 +2237,11 @@ describe("renderer status view", () => {
   it("recovers one approval and tool card from canonical safe facts", () => {
     const requested = {
       ...eventValue("event-one", "pending"),
-      eventType: "desktop.approval.requested",
+      eventType: "approval.requested",
       facts: {
         approval_id: "approval-1",
-        call_id: "call-1",
         tool_name: "workspace.write",
-        argument_keys: ["path", "text"],
-        argument_keys_count: 2,
+        consent_preview: 'workspace.write(path="notes.txt", text="[bounded]")',
         requested_at: "2026-08-19T00:00:02Z",
         expires_at: "2026-08-19T00:01:02Z",
         outcome: "pending",
@@ -2248,11 +2249,11 @@ describe("renderer status view", () => {
     };
     const resolved = {
       ...eventValue("event-two", "terminal"),
-      eventType: "desktop.approval.resolved",
+      eventType: "approval.resolved",
       facts: {
         approval_id: "approval-1",
-        call_id: "call-1",
         tool_name: "workspace.write",
+        consent_preview: 'workspace.write(path="notes.txt", text="[bounded]")',
         decision: "deny",
         outcome: "denied",
         resolved_at: "2026-08-19T00:00:03Z",
@@ -2275,7 +2276,7 @@ describe("renderer status view", () => {
       expect.objectContaining({
         kind: "approval",
         approvalId: "approval-1",
-        argumentKeys: ["path", "text"],
+        consentPreview: 'workspace.write(path="notes.txt", text="[bounded]")',
         decision: "deny",
         outcome: "denied",
       }),
@@ -2289,7 +2290,7 @@ describe("renderer status view", () => {
     expect(JSON.stringify(activity)).not.toMatch(/secret|argument.*value|\/private/i);
   });
 
-  it("replaces live approval state without losing safe argument names", () => {
+  it("replaces live approval state without losing the consent preview", () => {
     const requested = {
       schemaVersion: 1 as const,
       kind: "approval" as const,
@@ -2298,29 +2299,28 @@ describe("renderer status view", () => {
       traceId: "trace-1",
       approvalId: "approval-1",
       toolName: "workspace.write",
-      callId: "call-1",
-      argumentKeys: ["path"],
+      consentPreview: 'workspace.write(path="notes.txt")',
       requestedAt: "2026-08-19T00:00:02Z",
       expiresAt: "2026-08-19T00:01:02Z",
       decision: null,
       outcome: "pending" as const,
       resolvedAt: null,
-    };
+    } as unknown as ApprovalEventV1;
     const resolved = {
       ...requested,
       phase: "resolved" as const,
-      argumentKeys: [],
+      consentPreview: "",
       requestedAt: null,
       expiresAt: null,
       decision: "allow_once" as const,
       outcome: "applied" as const,
       resolvedAt: "2026-08-19T00:00:03Z",
-    };
+    } as ApprovalEventV1;
 
     expect(applyActivityEvent([requested], resolved)).toEqual([
       expect.objectContaining({
         phase: "resolved",
-        argumentKeys: ["path"],
+        consentPreview: 'workspace.write(path="notes.txt")',
         decision: "allow_once",
         outcome: "applied",
       }),
@@ -2432,6 +2432,17 @@ describe("renderer status view", () => {
       firstDocument.element("composer").dispatch("input");
       expect(timeline.scrollTop).toBe(1600);
       const pendingButtons = firstDocument.findButtons();
+      const pendingCard = firstDocument
+        .element("timeline")
+        .descendants()
+        .find((item) => item.className.includes("approval-card"))!;
+      expect(pendingCard.getAttribute("aria-label")).toBe("Approval for workspace.write");
+      expect(firstDocument.element("cancel").hidden).toBe(false);
+      expect(firstDocument.element("send").disabled).toBe(true);
+      expect(firstDocument.sessionButtons()[0]?.title).toContain("Needs approval");
+      expect(firstDocument.findText()).toContain(
+        'workspace.write(path="notes.txt", text="[bounded]")',
+      );
       expect(pendingButtons.map((button) => button.textContent)).toEqual(["Deny", "Allow once"]);
       expect(pendingButtons.every((button) => !button.disabled)).toBe(true);
       pendingButtons[1]!.click();
@@ -2453,8 +2464,8 @@ describe("renderer status view", () => {
       expect(reloadedDocument.findText()).toEqual(
         expect.arrayContaining([
           "Approval · workspace.write",
-          "call-1 · applied",
-          "Argument names: path, text",
+          "Resolved · applied",
+          'workspace.write(path="notes.txt", text="[bounded]")',
         ]),
       );
       expect({
@@ -2488,12 +2499,350 @@ describe("renderer status view", () => {
           approvalId: "approval-1",
           sessionId: "session-1",
           traceId: "trace-1",
-          callId: "call-1",
           decision: "allow_once",
           outcome: "applied",
           resolvedAt: "2026-08-19T00:00:03Z",
         },
       });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("disables approval actions while Stop is settling", async () => {
+    let finishCancellation!: () => void;
+    const cancellation = new Promise<void>((resolve) => {
+      finishCancellation = resolve;
+    });
+    const decide = vi.fn();
+    const api = approvalRendererApi(decide);
+    api.turns.cancel = vi.fn<NativeApi["turns"]["cancel"]>(async () => {
+      await cancellation;
+      return {
+        ok: true,
+        value: {
+          sessionId: "session-1",
+          traceId: "trace-1",
+          runId: "trace-1",
+          state: "requested",
+          terminal: false,
+        },
+      };
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("cancel").click();
+      const actions = page.findButtons();
+      expect(actions.every((button) => button.disabled)).toBe(true);
+      expect(page.findText()).toContain("Cancelling turn…");
+      actions.find((button) => button.textContent === "Allow once")!.click();
+      expect(decide).not.toHaveBeenCalled();
+    } finally {
+      finishCancellation();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps an in-flight decision disabled across conversation switches", async () => {
+    let finishDecision: ((value: unknown) => void) | undefined;
+    const decide = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        finishDecision = resolve;
+      }),
+    );
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Other conversation" },
+    ];
+    const api = approvalRendererApi(decide, sessions);
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page
+        .findButtons()
+        .find((button) => button.textContent === "Allow once")!
+        .click();
+      expect(page.findButtons().every((button) => button.disabled)).toBe(true);
+
+      page
+        .sessionButtons()
+        .find((button) => button.textContent === "Other conversation")!
+        .click();
+      await vi.waitFor(() =>
+        expect(page.element("current-title").textContent).toBe("Other conversation"),
+      );
+      expect(
+        page.sessionButtons().find((button) => button.textContent === "Recovered chat")?.title,
+      ).toContain("Needs approval");
+      page
+        .sessionButtons()
+        .find((button) => button.textContent === "Recovered chat")!
+        .click();
+      await vi.waitFor(() =>
+        expect(page.element("current-title").textContent).toBe("Recovered chat"),
+      );
+      expect(page.findButtons().every((button) => button.disabled)).toBe(true);
+      expect(decide).toHaveBeenCalledOnce();
+      finishDecision?.({
+        ok: true,
+        value: {
+          schemaVersion: 1,
+          approvalId: "approval-1",
+          sessionId: "session-1",
+          traceId: "trace-1",
+          decision: "allow_once",
+          outcome: "applied",
+          resolvedAt: "2026-08-19T00:00:03Z",
+        },
+      });
+      finishDecision = undefined;
+      let resolvedCard!: FixtureElement;
+      await vi.waitFor(() => {
+        resolvedCard = page
+          .element("timeline")
+          .descendants()
+          .find((item) => item.className.includes("approval-card"))!;
+        expect(resolvedCard.focus).toHaveBeenCalledOnce();
+      });
+      expect(page.findButtons()).toEqual([]);
+      const resolutionStatus = resolvedCard.children.find((item) =>
+        item.className.includes("activity-details"),
+      )!;
+      expect(resolutionStatus.getAttribute("role")).toBe("status");
+      expect(page.sessionButtons()[0]?.title).not.toContain("Needs approval");
+    } finally {
+      finishDecision?.({
+        ok: true,
+        value: {
+          schemaVersion: 1,
+          approvalId: "approval-1",
+          sessionId: "session-1",
+          traceId: "trace-1",
+          decision: "allow_once",
+          outcome: "applied",
+          resolvedAt: "2026-08-19T00:00:03Z",
+        },
+      });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    {
+      retryable: true,
+      message: "Could not send the decision. Try again.",
+      expected: "Decision not sent · Could not send the decision. Try again.",
+      actions: 2,
+    },
+    {
+      retryable: false,
+      message: "This approval has expired.",
+      expected: "Approval closed · This approval has expired.",
+      actions: 0,
+    },
+  ])(
+    "settles rejected decisions deterministically (retryable=$retryable)",
+    async ({ retryable, message, expected, actions }) => {
+      const decide = retryable
+        ? vi.fn().mockRejectedValue(new Error("IPC disconnected"))
+        : vi.fn().mockResolvedValue({
+            ok: false,
+            error: {
+              code: "approval_expired",
+              message,
+              retryable: false,
+              retryAfterMs: null,
+            },
+          });
+      const api = approvalRendererApi(decide);
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        page
+          .findButtons()
+          .find((button) => button.textContent === "Allow once")!
+          .click();
+        await vi.waitFor(() => expect(page.findText()).toContain(expected));
+        expect(page.findButtons()).toHaveLength(actions);
+        if (retryable) {
+          expect(page.findButtons()[0]?.focus).toHaveBeenCalledOnce();
+          expect(page.findButtons().every((button) => !button.disabled)).toBe(true);
+          expect(page.sessionButtons()[0]?.title).toContain("Needs approval");
+        } else {
+          expect(page.sessionButtons()[0]?.title).not.toContain("Needs approval");
+        }
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it("keeps a newer stream resolution when a delayed decision request fails", async () => {
+    let finishDecision!: (value: ClientResult<ApprovalDecisionV1>) => void;
+    const decide = vi.fn().mockReturnValue(
+      new Promise<ClientResult<ApprovalDecisionV1>>((resolve) => {
+        finishDecision = resolve;
+      }),
+    );
+    const api = approvalRendererApi(decide);
+    let turnListener: ((event: TurnEventV1) => void) | null = null;
+    api.turns.subscribe = vi.fn((listener) => {
+      turnListener = listener;
+      return vi.fn();
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page
+        .findButtons()
+        .find((button) => button.textContent === "Allow once")!
+        .click();
+
+      turnListener!({
+        schemaVersion: 1,
+        kind: "approval",
+        phase: "resolved",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        approvalId: "approval-1",
+        toolName: "workspace.write",
+        consentPreview: 'workspace.write(path="notes.txt", text="[bounded]")',
+        requestedAt: null,
+        expiresAt: null,
+        decision: null,
+        outcome: "expired",
+        resolvedAt: "2026-08-19T00:00:03Z",
+      });
+      finishDecision({
+        ok: false,
+        error: {
+          code: "approval_transport_failed",
+          message: "Could not send the decision. Try again.",
+          retryable: true,
+          retryAfterMs: null,
+        },
+      });
+
+      await vi.waitFor(() => expect(page.findText()).toContain("Resolved · expired"));
+      const resolvedCard = page
+        .element("timeline")
+        .descendants()
+        .find((item) => item.className.includes("approval-card"))!;
+      expect(resolvedCard.focus).toHaveBeenCalledOnce();
+      expect(
+        resolvedCard.children
+          .find((item) => item.className.includes("activity-details"))
+          ?.getAttribute("role"),
+      ).toBe("status");
+      expect(page.findText()).not.toContain(
+        "Decision not sent · Could not send the decision. Try again.",
+      );
+      expect(page.findButtons()).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("moves focus from an expired approval action to the resolved card", async () => {
+    const api = approvalRendererApi(vi.fn());
+    let turnListener: ((event: TurnEventV1) => void) | null = null;
+    api.turns.subscribe = vi.fn((listener) => {
+      turnListener = listener;
+      return vi.fn();
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page
+        .findButtons()
+        .find((button) => button.textContent === "Deny")!
+        .focus();
+
+      turnListener!({
+        schemaVersion: 1,
+        kind: "approval",
+        phase: "resolved",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        approvalId: "approval-1",
+        toolName: "workspace.write",
+        consentPreview: 'workspace.write(path="notes.txt", text="[bounded]")',
+        requestedAt: null,
+        expiresAt: null,
+        decision: null,
+        outcome: "expired",
+        resolvedAt: "2026-08-19T00:00:03Z",
+      });
+
+      const resolvedCard = page
+        .element("timeline")
+        .descendants()
+        .find((item) => item.className.includes("approval-card"))!;
+      expect(resolvedCard.focus).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("marks a background approval without stealing focus", async () => {
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Other conversation" },
+    ];
+    const api = approvalRendererApi(vi.fn(), sessions);
+    let turnListener: ((event: TurnEventV1) => void) | null = null;
+    api.sessions!.events = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { events: [], nextCursor: "event-zero", hasMore: false },
+    });
+    api.turns.subscribe = vi.fn((listener) => {
+      turnListener = listener;
+      return vi.fn();
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const focusCalls = page.element("composer").focus.mock.calls.length;
+      const focusedSession = page
+        .sessionButtons()
+        .find((button) => button.textContent === "Recovered chat")!;
+      focusedSession.focus();
+      const backgroundApproval: ApprovalEventV1 = {
+        schemaVersion: 1,
+        kind: "approval",
+        phase: "requested",
+        sessionId: "session-2",
+        traceId: "trace-2",
+        approvalId: "approval-2",
+        toolName: "exec.run",
+        consentPreview: 'exec.run(command="npm test")',
+        requestedAt: "2026-08-19T00:00:02Z",
+        expiresAt: "2026-08-19T00:01:02Z",
+        decision: null,
+        outcome: "pending",
+        resolvedAt: null,
+      };
+
+      turnListener!(backgroundApproval);
+
+      expect(page.element("composer").focus).toHaveBeenCalledTimes(focusCalls);
+      expect(page.findButtons()).toEqual([]);
+      expect(
+        page.sessionButtons().find((button) => button.textContent === "Other conversation")?.title,
+      ).toContain("Needs approval");
+      expect(page.element("approval-notice").textContent).toBe(
+        "Other conversation needs approval for exec.run.",
+      );
+      expect(
+        page.sessionButtons().find((button) => button.textContent === "Recovered chat")?.focus,
+      ).toHaveBeenCalledOnce();
+    } finally {
       vi.unstubAllGlobals();
     }
   });
@@ -2800,6 +3149,8 @@ describe("renderer status view", () => {
         await historyRefresh;
         return load(input);
       });
+      const composerFocusCalls = page.element("composer").focus.mock.calls.length;
+      page.element("cancel").focus();
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "done",
@@ -2807,6 +3158,7 @@ describe("renderer status view", () => {
         traceId: "trace-1",
         outcome: "complete",
       });
+      expect(page.element("composer").focus).toHaveBeenCalledTimes(composerFocusCalls + 1);
       expect(page.findText()).toContain("History for session-1");
       expect(page.findText()).toContain("First chunk");
       expect(page.findText()).not.toContain("What would you like to work on?");
@@ -4246,6 +4598,7 @@ class FixtureElement {
   scrollHeight = 0;
   clientHeight = 0;
   children: FixtureElement[] = [];
+  private readonly attributes = new Map<string, string>();
   private readonly listeners = new Map<string, Array<(event: FixtureEvent) => void>>();
 
   constructor(readonly tagName: string) {}
@@ -4265,7 +4618,13 @@ class FixtureElement {
   replaceChildren(...children: FixtureElement[]): void {
     this.children = children;
   }
-  setAttribute(_name: string, _value: string): void {}
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
 
   addEventListener(type: string, listener: (event: FixtureEvent) => void): void {
     const listeners = this.listeners.get(type) ?? [];
@@ -4345,6 +4704,7 @@ class FixtureDocument {
     "shell-version",
     "connection-label",
     "session-list",
+    "approval-notice",
     "session-search",
     "clear-session-search",
     "session-search-count",
@@ -4452,6 +4812,7 @@ class FixtureDocument {
   private readonly elements: Map<string, FixtureElement> = new Map(
     FixtureDocument.requiredIds.map((id) => [id, new FixtureElement("div")]),
   );
+  activeElement: FixtureElement | null = null;
 
   constructor() {
     Object.defineProperty(this.defaultView.localStorage, "length", {
@@ -4463,6 +4824,7 @@ class FixtureDocument {
     this.element("capture-region-x").value = "0";
     this.element("capture-region-y").value = "0";
     this.element("observation-trigger").value = "changes";
+    for (const element of this.elements.values()) this.trackFocus(element);
   }
 
   addEventListener = vi.fn();
@@ -4472,7 +4834,7 @@ class FixtureDocument {
   }
 
   createElement(tagName: string): FixtureElement {
-    return new FixtureElement(tagName);
+    return this.trackFocus(new FixtureElement(tagName));
   }
   asDocument(): Document {
     return this as unknown as Document;
@@ -4505,6 +4867,13 @@ class FixtureDocument {
     return this.element("session-list")
       .descendants()
       .filter((item) => item.tagName === "button");
+  }
+
+  private trackFocus(element: FixtureElement): FixtureElement {
+    element.focus = vi.fn(() => {
+      this.activeElement = element;
+    });
+    return element;
   }
 
   attachmentText(): string[] {
@@ -4579,7 +4948,7 @@ function approvalEvent(phase: "requested" | "resolved") {
   const requested = phase === "requested";
   return {
     schemaVersion: 1 as const,
-    eventType: `desktop.approval.${phase}`,
+    eventType: `approval.${phase}`,
     cursor: requested ? "event-one" : "event-two",
     createdAt: requested ? "2026-08-19T00:00:02Z" : "2026-08-19T00:00:03Z",
     runId: null,
@@ -4588,23 +4957,74 @@ function approvalEvent(phase: "requested" | "resolved") {
     facts: requested
       ? {
           approval_id: "approval-1",
-          call_id: "call-1",
           tool_name: "workspace.write",
-          argument_keys: ["path", "text"],
-          argument_keys_count: 2,
+          consent_preview: 'workspace.write(path="notes.txt", text="[bounded]")',
           requested_at: "2026-08-19T00:00:02Z",
           expires_at: "2026-08-19T00:01:02Z",
           outcome: "pending",
         }
       : {
           approval_id: "approval-1",
-          call_id: "call-1",
           tool_name: "workspace.write",
+          consent_preview: 'workspace.write(path="notes.txt", text="[bounded]")',
           decision: "allow_once",
           outcome: "applied",
           resolved_at: "2026-08-19T00:00:03Z",
         },
   };
+}
+
+function approvalRendererApi(
+  decide: ReturnType<typeof vi.fn>,
+  sessions: SessionSummaryV1[] = [sessionSummary()],
+): NativeApi {
+  return {
+    app: {
+      openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
+      copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+      info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+    },
+    daemon: {
+      status: vi
+        .fn()
+        .mockResolvedValue(
+          status({ state: "ready", reachable: true, daemonVersion: "0.0.9", protocol: 1 }),
+        ),
+      retry: vi.fn(),
+    },
+    sessions: {
+      list: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { sessions, nextCursor: null, hasMore: false },
+      }),
+      load: vi.fn(async ({ sessionId }) => ({
+        ok: true,
+        value: {
+          session: sessions.find((session) => session.sessionId === sessionId)!,
+          messages: [],
+          nextMessageCursor: "message-zero",
+          messagesHasMore: false,
+        },
+      })),
+      events: vi.fn(async ({ sessionId }) => ({
+        ok: true,
+        value: {
+          events: sessionId === "session-1" ? [approvalEvent("requested")] : [],
+          nextCursor: sessionId === "session-1" ? "event-one" : "event-zero",
+          hasMore: false,
+        },
+      })),
+      create: vi.fn(),
+      close: vi.fn(),
+    },
+    turns: {
+      submit: vi.fn(),
+      cancel: vi.fn(),
+      subscribe: vi.fn().mockReturnValue(vi.fn()),
+    },
+    approvals: { decide },
+    media: { pick: vi.fn(), release: vi.fn() },
+  } as unknown as NativeApi;
 }
 
 function sessionSummary(): SessionSummaryV1 {

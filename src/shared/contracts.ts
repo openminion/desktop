@@ -175,14 +175,7 @@ export type ToolProgressV1 = {
 };
 
 export type ApprovalDecision = "allow_once" | "deny";
-export type ApprovalOutcome =
-  | "pending"
-  | "applied"
-  | "denied"
-  | "expired"
-  | "cancelled"
-  | "interrupted"
-  | "event_failed";
+export type ApprovalOutcome = "pending" | "applied" | "denied" | "expired" | "cancelled";
 
 export type ApprovalEventV1 = {
   schemaVersion: 1;
@@ -192,8 +185,7 @@ export type ApprovalEventV1 = {
   traceId: string;
   approvalId: string;
   toolName: string;
-  callId: string;
-  argumentKeys: string[];
+  consentPreview: string;
   requestedAt: string | null;
   expiresAt: string | null;
   decision: ApprovalDecision | null;
@@ -206,9 +198,8 @@ export type ApprovalDecisionV1 = {
   approvalId: string;
   sessionId: string;
   traceId: string;
-  callId: string;
   decision: ApprovalDecision;
-  outcome: "applied" | "denied" | "already_applied" | "already_denied";
+  outcome: "applied" | "denied";
   resolvedAt: string;
 };
 

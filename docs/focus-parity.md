@@ -120,8 +120,9 @@ logic. The CLI retains its default inventory limit of 50. GUI buttons come from
 returned `valid_actions`; core validates them again on execution.
 
 The renderer receives task presentation fields and scoped pending-approval facts.
-Those approvals are read-only in the task panel and resolve through the existing
-Focus approval flow, not task lifecycle commands.
+When paired with a compatible source runtime, tool approval cards resolve the
+exact active request through the authenticated approval-resume route, not
+through task lifecycle commands.
 Task changes are fenced against active Desktop turns and Settings updates. Reads
 remain available during a turn. The inline form creates scheduled work using fixed `schedule create` arguments:
 name, instruction, one-time ISO timestamp, interval in minutes, or cron expression
@@ -180,8 +181,9 @@ changes cannot stand in for those session operations.
 
 The pinned 0.0.27 package contains public session turn-input queue,
 approval-resume, trace stream attachment, and runtime capability routes. Desktop
-must qualify and consume their exact semantics before calling those workflows
-connected or declaring a missing-core blocker. An approval grant alone does not
+now qualifies and consumes the request-bound approval semantics in source-runtime
+proof. Other workflows
+still require their own proof before being called connected. An approval grant alone does not
 prove the original pending action resumed. Missing public semantics require an
 explicit generic-owner dependency; Desktop must not import private Python runtime
 code, start another interactive session, or duplicate those owners.

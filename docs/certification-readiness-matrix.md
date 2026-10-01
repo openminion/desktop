@@ -22,7 +22,8 @@ application.
 | Text chat and saved sessions | real PyPI 0.0.27 CLI and production Electron GUI; first send, task switching, drafts, resizing, outage/restart recovery, canonical close | development-ready |
 | Provider errors and recovery | real PyPI daemon with a local controlled HTTP provider | locally verified; paid-provider acceptance pending |
 | Cancellation | authenticated request and saved-event evidence; PyPI 0.0.27 can complete an in-flight provider request after acknowledgement | runtime interruption gap remains |
-| Approvals, media, artifacts, full Focus commands | preview UI only; public-interface adaptation pending | not connected |
+| Request-bound tool approvals | compatible source daemon + built Electron allow-once proof; deny/retry/replay/unit coverage | source-runtime verified; published managed runtime pending |
+| Media, artifacts, full Focus commands | preview UI only; public-interface adaptation pending | not connected |
 | Signed and notarized macOS app | no evidence | not ready |
 | Desktop SQLite name migration and restart | fresh native legacy-browser import, saved/reset names and preserved runtime paths | verified for this bounded migration |
 | Full runtime update, rollback, restore and uninstall | no complete end-to-end evidence | not ready |
@@ -36,7 +37,7 @@ application.
    behavior.
 2. Native capture requires an authorized macOS permission context.
 3. Daemon lifecycle proof does not certify chat, sessions, approvals, media, or
-   provider-backed outcomes.
+   provider-backed outcomes; each connected surface needs its own evidence.
 4. A packaged application is not a release candidate until the release floor
    in [RELEASING.md](../RELEASING.md) is complete.
 

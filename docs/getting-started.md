@@ -250,9 +250,11 @@ use **Reconnect** when offered. Your unsent message stays in the composer.
 **Stop** requests cancellation. Desktop waits for and displays the outcome
 reported by the daemon rather than treating the request itself as completion.
 
-Text chat and completed conversation history work in the real app. Attachment
-sending, artifact browsing, approval decisions, and automatic watch remain
-preview-only; the connected app marks those integrations unavailable.
+Text chat and completed conversation history work with the pinned runtime.
+Request-bound allow-once or deny tool approvals work when Desktop is paired
+with a compatible OpenMinion source checkout. Attachment sending, artifact browsing, and
+automatic watch remain preview-only; the connected app marks those integrations
+unavailable.
 
 You can write a local draft before the daemon connects. Creating a task draft and sending require the daemon connection. A new task is
 explicitly local until its first message creates the canonical saved session. Draft text

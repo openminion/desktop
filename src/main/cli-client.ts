@@ -3,6 +3,7 @@ import { type IncomingMessage, request } from "node:http";
 import type {
   ApprovalDecisionInput,
   ApprovalDecisionV1,
+  ApprovalEventV1,
   ArtifactContentV1,
   ArtifactDecisionInput,
   ArtifactDecisionValue,
@@ -54,6 +55,7 @@ import {
   responseEvent,
   turnUsageDisplay,
   usageValue,
+  validateApprovalDecisionInput,
   validateCancelInput,
   validateCloseInput,
   validateCreateInput,
@@ -67,6 +69,87 @@ export type CliCommandContext = { executable: string; args: readonly string[] };
 type DraftSession = SessionSummaryV1 & { isDraft: true };
 type TranscriptRecord = Record<string, unknown>;
 type ActiveTurn = { identity: TurnSubmitValue | null };
+
+function toolProgressEvent(
+  chunk: Record<string, unknown>,
+  detail: Record<string, unknown>,
+  identity: TurnSubmitValue,
+): TurnEventV1 {
+  const phase = chunk.kind === "tool_started" ? ("started" as const) : ("completed" as const);
+  const base = {
+    schemaVersion: 1 as const,
+    kind: "tool" as const,
+    phase,
+    sessionId: identity.sessionId,
+    traceId: identity.traceId,
+    toolName: requireString(detail.tool_name),
+    callId: requireString(detail.call_id),
+    state: requireString(detail.state),
+    createdAt: requireString(chunk.ts),
+  };
+  if (phase === "started") {
+    return { ...base, ok: null, durationMs: null, exitCode: null };
+  }
+  if (
+    typeof detail.ok !== "boolean" ||
+    !Number.isSafeInteger(detail.duration_ms) ||
+    Number(detail.duration_ms) < 0 ||
+    (detail.exit_code !== undefined &&
+      detail.exit_code !== null &&
+      !Number.isSafeInteger(detail.exit_code))
+  ) {
+    throw protocolError("invalid_daemon_response", "OpenMinion returned invalid tool progress.");
+  }
+  return {
+    ...base,
+    ok: detail.ok,
+    durationMs: Number(detail.duration_ms),
+    exitCode: detail.exit_code == null ? null : Number(detail.exit_code),
+  };
+}
+
+function approvalEvent(detail: Record<string, unknown>, identity: TurnSubmitValue): TurnEventV1 {
+  if (detail.session_id !== identity.sessionId || detail.trace_id !== identity.traceId) {
+    throw protocolError(
+      "stream_identity_mismatch",
+      "The approval identity did not match the turn.",
+    );
+  }
+  const phase = requireString(detail.phase);
+  const decision = optionalString(detail.decision ?? null);
+  const outcome = requireString(detail.outcome);
+  const requestedAt = optionalString(detail.requested_at ?? null);
+  const expiresAt = optionalString(detail.expires_at ?? null);
+  const resolvedAt = optionalString(detail.resolved_at ?? null);
+  if (
+    (phase !== "requested" && phase !== "resolved") ||
+    (decision !== null && decision !== "allow_once" && decision !== "deny") ||
+    !["pending", "applied", "denied", "expired", "cancelled"].includes(outcome) ||
+    (phase === "requested" &&
+      (outcome !== "pending" || decision !== null || !requestedAt || !expiresAt || resolvedAt)) ||
+    (phase === "resolved" && (!resolvedAt || outcome === "pending"))
+  ) {
+    throw protocolError(
+      "invalid_daemon_response",
+      "OpenMinion returned an invalid approval event.",
+    );
+  }
+  return {
+    schemaVersion: 1,
+    kind: "approval",
+    phase,
+    sessionId: identity.sessionId,
+    traceId: identity.traceId,
+    approvalId: requireString(detail.approval_id),
+    toolName: requireString(detail.tool_name),
+    consentPreview: requireString(detail.consent_preview),
+    requestedAt,
+    expiresAt,
+    decision,
+    outcome: outcome as ApprovalEventV1["outcome"],
+    resolvedAt,
+  };
+}
 
 function runtimeTask(value: unknown): RuntimeTask {
   const row = requireRecord(value);
@@ -814,6 +897,7 @@ export class CliClient {
         channel: details ? requireString(details.channel) : "console",
         user: details ? requireString(details.target) : "api-user",
         stream: true,
+        approval_transport: "turn_stream",
         deliver: false,
         idempotency_key: randomUUID(),
         inbound_metadata: { caller_handles_delivery: "true", resume: "true" },
@@ -904,8 +988,47 @@ export class CliClient {
     }
   }
 
-  async decide(_input: ApprovalDecisionInput): Promise<ClientResult<ApprovalDecisionV1>> {
-    return unsupported("Approval decisions");
+  decide(input: ApprovalDecisionInput): Promise<ClientResult<ApprovalDecisionV1>> {
+    return this.#control(async () => {
+      const value = validateApprovalDecisionInput(input);
+      const payload = await this.#request("/v1/approvals/resume", {
+        session_id: value.sessionId,
+        trace_id: value.traceId,
+        approval_id: value.approvalId,
+        decision: value.decision,
+      });
+      if (payload.ok !== true) {
+        throw protocolError("invalid_daemon_response", "OpenMinion did not resolve the approval.");
+      }
+      const outcome = requireString(payload.outcome) as ApprovalDecisionV1["outcome"];
+      if (outcome !== "applied" && outcome !== "denied") {
+        throw protocolError(
+          "invalid_daemon_response",
+          "OpenMinion returned an invalid approval outcome.",
+        );
+      }
+      const result = {
+        schemaVersion: 1 as const,
+        sessionId: requireString(payload.session_id),
+        traceId: requireString(payload.trace_id),
+        approvalId: requireString(payload.approval_id),
+        decision: requireString(payload.decision),
+        outcome,
+        resolvedAt: requireString(payload.resolved_at),
+      };
+      if (
+        result.sessionId !== value.sessionId ||
+        result.traceId !== value.traceId ||
+        result.approvalId !== value.approvalId ||
+        result.decision !== value.decision
+      ) {
+        throw protocolError(
+          "invalid_daemon_response",
+          "The resolved approval identity did not match.",
+        );
+      }
+      return { ...result, decision: value.decision };
+    });
   }
 
   async listArtifacts(_input: ArtifactListInput): Promise<ClientResult<ArtifactListValue>> {
@@ -1047,8 +1170,10 @@ export class CliClient {
           response.on("end", () => {
             try {
               const payload = requireRecord(JSON.parse(text));
-              if (response.statusCode !== 200)
-                throw protocolError("daemon_request_failed", "OpenMinion rejected this operation.");
+              if (response.statusCode !== 200) {
+                const error = errorValue(payload.error);
+                throw protocolError(error.code, error.message, error.retryable, error.retryAfterMs);
+              }
               resolve(payload);
             } catch (error) {
               reject(error);
@@ -1178,6 +1303,11 @@ export class CliClient {
                       text: requireString(detail.text),
                       createdAt: requireString(data.ts),
                     });
+                  if (data.kind === "tool_started" || data.kind === "tool_completed")
+                    emit(toolProgressEvent(data, detail, active.identity));
+                  if (data.kind === "approval") {
+                    emit(approvalEvent(detail, active.identity));
+                  }
                 } else if (row.event === "response") {
                   const response = responseEvent(data, active.identity);
                   receivedResponse = true;

@@ -831,6 +831,36 @@ describe("PyPI CLI client", () => {
                 agent_id: "writer",
               },
             },
+            {
+              type: "event",
+              id: "e2",
+              event_type: "approval.requested",
+              created_at: now,
+              payload: {
+                trace_id: "trace",
+                approval_id: "approval-1",
+                tool_name: "exec.run",
+                consent_preview: 'exec.run(command="npm test")',
+                requested_at: now,
+                expires_at: "2026-09-08T00:00:50Z",
+                outcome: "pending",
+              },
+            },
+            {
+              type: "event",
+              id: "e3",
+              event_type: "approval.resolved",
+              created_at: now,
+              payload: {
+                trace_id: "trace",
+                approval_id: "approval-1",
+                tool_name: "exec.run",
+                consent_preview: 'exec.run(command="npm test")',
+                decision: "allow_once",
+                outcome: "applied",
+                resolved_at: now,
+              },
+            },
           ]
             .map((row) => {
               if (format === "metadata" && row.stats) {
@@ -901,6 +931,23 @@ describe("PyPI CLI client", () => {
             state: "completed",
             facts: { agent_id: "writer" },
           },
+          {
+            eventType: "approval.requested",
+            facts: {
+              approval_id: "approval-1",
+              consent_preview: 'exec.run(command="npm test")',
+              outcome: "pending",
+            },
+          },
+          {
+            eventType: "approval.resolved",
+            facts: {
+              approval_id: "approval-1",
+              consent_preview: 'exec.run(command="npm test")',
+              decision: "allow_once",
+              outcome: "applied",
+            },
+          },
         ],
       },
     });
@@ -957,6 +1004,7 @@ describe("PyPI CLI client", () => {
     expect(JSON.stringify(events)).not.toContain("private diagnostic");
     const recorded = fixture.requests[0]!;
     expect(recorded.body.input_text).toBe("literal $(touch nope) `secret`\nsecond line");
+    expect(recorded.body.approval_transport).toBe("turn_stream");
     expect(recorded.token).toBe("test-private-token");
     expect(recorded.body.inbound_metadata).toEqual({
       caller_handles_delivery: "true",
@@ -966,6 +1014,147 @@ describe("PyPI CLI client", () => {
       ok: true,
       value: { session: { sessionId }, messages: [{ body: "Reply" }] },
     });
+  });
+
+  it.each([
+    ["allow_once", "applied", true],
+    ["deny", "denied", false],
+  ] as const)("streams tool and approval events for %s", async (decision, outcome, ok) => {
+    const fixture = await executableFixture("approval");
+    const events: TurnEventV1[] = [];
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const submitted = await client.submit(
+      { sessionId: created.value.sessionId, message: "run tests" },
+      (event) => events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "approval",
+          phase: "requested",
+          approvalId: "approval-1",
+          consentPreview: 'exec.run(command="npm test")',
+          outcome: "pending",
+        }),
+      ),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: "tool",
+        phase: "started",
+        toolName: "exec.run",
+        callId: "call-1",
+      }),
+    );
+
+    expect(
+      await client.decide({
+        sessionId: submitted.value.sessionId,
+        traceId: submitted.value.traceId,
+        approvalId: "approval-1",
+        decision,
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: { decision, outcome, approvalId: "approval-1" },
+    });
+    expect(fixture.requests[1]?.body).toEqual({
+      session_id: submitted.value.sessionId,
+      trace_id: submitted.value.traceId,
+      approval_id: "approval-1",
+      decision,
+    });
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "approval",
+          phase: "resolved",
+          decision,
+          outcome,
+        }),
+      ),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: "tool", phase: "completed", ok, exitCode: null }),
+    );
+  });
+
+  it("preserves typed retryable approval errors", async () => {
+    const fixture = await executableFixture("approval-retryable");
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const submitted = await client.submit(
+      { sessionId: created.value.sessionId, message: "run tests" },
+      vi.fn(),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    expect(
+      await client.decide({
+        sessionId: submitted.value.sessionId,
+        traceId: submitted.value.traceId,
+        approvalId: "approval-1",
+        decision: "allow_once",
+      }),
+    ).toEqual({
+      ok: false,
+      error: {
+        code: "approval_temporarily_unavailable",
+        message: "Try the approval again.",
+        retryable: true,
+        retryAfterMs: 250,
+      },
+    });
+  });
+
+  it("accepts expiry settlement without a human decision", async () => {
+    const fixture = await executableFixture("approval-expired");
+    const events: TurnEventV1[] = [];
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const submitted = await client.submit(
+      { sessionId: created.value.sessionId, message: "run tests" },
+      (event) => events.push(event),
+    );
+    expect(submitted.ok).toBe(true);
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "approval",
+          phase: "resolved",
+          decision: null,
+          outcome: "expired",
+        }),
+      ),
+    );
+    expect(events).toContainEqual(expect.objectContaining({ kind: "done", outcome: "complete" }));
+  });
+
+  it("keeps ordinary chat compatible when approvals are not advertised", async () => {
+    const fixture = await executableFixture("missing-approval-capability");
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    expect(
+      await client.submit({ sessionId: created.value.sessionId, message: "hello" }, vi.fn()),
+    ).toMatchObject({ ok: true });
+    expect(fixture.requests[0]?.body.approval_transport).toBe("turn_stream");
   });
 
   it("preserves the saved agent and surfaces canonical stream errors", async () => {
@@ -1079,6 +1268,8 @@ async function executableFixture(mode = "normal") {
     token: string | string[] | undefined;
   }> = [];
   let complete: ((cancelled: boolean) => void) | null = null;
+  let emitSse: ((event: string, value: unknown) => void) | null = null;
+  let activeSessionId = "";
   let traceId = "";
   const server = createServer((req, res) => {
     if (req.method === "GET") {
@@ -1200,16 +1391,85 @@ async function executableFixture(mode = "normal") {
         complete?.(true);
         return;
       }
+      if (req.url === "/v1/approvals/resume") {
+        expect(req.headers["x-ipc-token"]).toBe("test-private-token");
+        res.setHeader("Content-Type", "application/json");
+        if (mode === "approval-retryable") {
+          res.statusCode = 503;
+          res.end(
+            JSON.stringify({
+              ok: false,
+              error: {
+                code: "approval_temporarily_unavailable",
+                message: "Try the approval again.",
+                retryable: true,
+                retry_after_ms: 250,
+              },
+            }),
+          );
+          return;
+        }
+        const outcome = body.decision === "allow_once" ? "applied" : "denied";
+        emitSse?.("chunk", {
+          trace_id: traceId,
+          kind: "approval",
+          data: {
+            phase: "resolved",
+            session_id: activeSessionId,
+            trace_id: traceId,
+            approval_id: "approval-1",
+            tool_name: "exec.run",
+            consent_preview: 'exec.run(command="npm test")',
+            requested_at: null,
+            expires_at: null,
+            decision: body.decision,
+            outcome,
+            resolved_at: now,
+          },
+          ts: now,
+        });
+        emitSse?.("chunk", {
+          trace_id: traceId,
+          kind: "tool_completed",
+          data: {
+            tool_name: "exec.run",
+            call_id: "call-1",
+            state: outcome === "applied" ? "ok" : "denied",
+            ok: outcome === "applied",
+            duration_ms: 12,
+          },
+          ts: now,
+        });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            session_id: activeSessionId,
+            trace_id: traceId,
+            approval_id: "approval-1",
+            decision: body.decision,
+            outcome,
+            resolved_at: now,
+          }),
+        );
+        complete?.(false);
+        return;
+      }
       expect(req.url).toBe("/v1/turn/stream");
       traceId = body.trace_id;
+      activeSessionId = body.session_id;
       res.setHeader("Content-Type", "text/event-stream");
       const output = (event: string, value: unknown) =>
         res.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
+      emitSse = output;
       output("meta", {
         session_id: mode === "wrong-session" ? "different" : body.session_id,
         trace_id: traceId,
         request_id: "request-1",
         stream_schema_version: "openminion.turn-stream.v1",
+        capabilities:
+          mode === "missing-approval-capability"
+            ? ["active_turn_replay"]
+            : ["active_turn_replay", "approval_interaction_v1"],
       });
       for (const data of [
         {
@@ -1262,6 +1522,55 @@ async function executableFixture(mode = "normal") {
         output("done", { trace_id: traceId, status: "complete" });
         res.end();
       };
+      if (mode === "approval" || mode === "approval-retryable" || mode === "approval-expired") {
+        output("chunk", {
+          trace_id: traceId,
+          kind: "tool_started",
+          data: {
+            tool_name: "exec.run",
+            call_id: "call-1",
+            state: "running",
+          },
+          ts: now,
+        });
+        output("chunk", {
+          trace_id: traceId,
+          kind: "approval",
+          data: {
+            phase: "requested",
+            session_id: body.session_id,
+            trace_id: traceId,
+            approval_id: "approval-1",
+            tool_name: "exec.run",
+            consent_preview: 'exec.run(command="npm test")',
+            requested_at: now,
+            expires_at: "2026-09-08T00:00:50Z",
+            decision: null,
+            outcome: "pending",
+            resolved_at: null,
+          },
+          ts: now,
+        });
+        if (mode === "approval-expired") {
+          output("chunk", {
+            trace_id: traceId,
+            kind: "approval",
+            data: {
+              phase: "resolved",
+              session_id: body.session_id,
+              trace_id: traceId,
+              approval_id: "approval-1",
+              tool_name: "exec.run",
+              consent_preview: 'exec.run(command="npm test")',
+              decision: null,
+              outcome: "expired",
+              resolved_at: now,
+            },
+            ts: now,
+          });
+          complete(false);
+        }
+      }
       if (mode === "error") {
         output("error", {
           code: "turn_failed",
@@ -1271,7 +1580,13 @@ async function executableFixture(mode = "normal") {
         });
         output("done", { trace_id: traceId, status: "error" });
         res.end();
-      } else if (mode !== "wait") complete(false);
+      } else if (
+        mode !== "wait" &&
+        mode !== "approval" &&
+        mode !== "approval-retryable" &&
+        mode !== "approval-expired"
+      )
+        complete(false);
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
