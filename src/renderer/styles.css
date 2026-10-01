@@ -2061,6 +2061,7 @@ code {
   margin: 12px 0 6px;
 }
 .settings-dialog input:not([type="checkbox"]),
+.settings-dialog textarea,
 .settings-dialog select {
   width: 100%;
   min-width: 0;

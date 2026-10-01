@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Open Settings sections at the top, style the Identity editor consistently with
+  other fields, and keep its agent selection fixed while loading, verifying, or saving.
+
 - Clarify model connection-test charges and Identity settings guidance. Setup
   and profile-save feedback now uses “conversations” consistently with the sidebar.
 
