@@ -48,7 +48,12 @@ const profile = (state) => ({
 });
 
 if (command === "inspect") {
-  process.stdout.write(JSON.stringify({ profiles: [profile(readState())] }));
+  const state = readState();
+  if (state.unsupported) {
+    process.stderr.write("invalid choice: inspect");
+    process.exit(2);
+  }
+  process.stdout.write(JSON.stringify({ profiles: state.empty ? [] : [profile(state)] }));
   process.exit(0);
 }
 

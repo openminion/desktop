@@ -99,19 +99,24 @@
         <section id="settings-identity" aria-labelledby="settings-identity-heading" hidden>
           <h3 id="settings-identity-heading">Identity</h3>
           <p class="settings-note">Set the agent’s purpose, tone, and approach to risk and tools.</p>
-          <label for="identity-agent">Agent</label>
-          <select id="identity-agent"></select>
-          <p id="identity-metadata" class="settings-note"></p>
-          <label for="identity-yaml">Identity profile (YAML)</label>
-          <textarea id="identity-yaml" rows="16" maxlength="262144" spellcheck="false"></textarea>
           <p id="identity-status" class="settings-note" role="status" aria-live="polite"></p>
-          <div class="settings-actions">
-            <button id="identity-reload" class="quiet-button" type="button">Reload from disk</button>
-            <button id="identity-verify" class="quiet-button" type="button">Verify draft</button>
-            <button id="identity-save" type="button">Save identity</button>
+          <div id="identity-availability-actions" class="settings-actions">
+            <button id="identity-reload" class="quiet-button" type="button">Try again</button>
+            <button id="identity-runtime" class="quiet-button" type="button" hidden>Runtime settings</button>
           </div>
-          <h4>Read-only preview</h4>
-          <pre id="identity-preview" class="identity-preview">No identity loaded.</pre>
+          <div id="identity-editor" hidden>
+            <label for="identity-agent">Agent</label>
+            <select id="identity-agent"></select>
+            <p id="identity-metadata" class="settings-note"></p>
+            <label for="identity-yaml">Identity profile (YAML)</label>
+            <textarea id="identity-yaml" rows="16" maxlength="262144" spellcheck="false"></textarea>
+            <div class="settings-actions">
+              <button id="identity-verify" class="quiet-button" type="button">Verify draft</button>
+              <button id="identity-save" type="button">Save identity</button>
+            </div>
+            <h4>Read-only preview</h4>
+            <pre id="identity-preview" class="identity-preview">No identity loaded.</pre>
+          </div>
         </section>
         <section id="settings-chat" aria-labelledby="settings-chat-heading" hidden>
           <h3 id="settings-chat-heading">Chat display</h3>

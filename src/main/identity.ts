@@ -110,7 +110,7 @@ export class IdentitySettingsService {
   #unsupported(): Error {
     return protocolError(
       "runtime_upgrade_required",
-      "Update OpenMinion before using Desktop identity settings.",
+      "Identity settings are not available in this OpenMinion runtime. A runtime release with identity editing support is required.",
     );
   }
 }
