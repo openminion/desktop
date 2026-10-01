@@ -65,6 +65,7 @@ export function mountProfiles(
         String(section === selected),
       );
     }
+    root.querySelector(".settings-body")!.scrollTop = 0;
   };
   for (const section of sections) {
     get<HTMLButtonElement>(`settings-${section}-button`).addEventListener("click", () => {
@@ -111,6 +112,7 @@ export function mountProfiles(
   const setIdentityPending = (value: boolean) => {
     identityPending = value;
     const profile = selectedIdentity();
+    identityAgent.disabled = value;
     identityYaml.disabled = value || !profile?.editable;
     identityReload.disabled = value;
     identityVerify.disabled = value || !identityYaml.value.trim();
@@ -164,7 +166,7 @@ export function mountProfiles(
   const loadIdentity = async (discardSelectedDraft = false) => {
     if (identityPending) return;
     if (discardSelectedDraft && identityAgent.value) identityDrafts.delete(identityAgent.value);
-    identityPending = true;
+    setIdentityPending(true);
     identityStatus.textContent = "Loading identity…";
     try {
       const result = await api.identity.read();
@@ -188,7 +190,7 @@ export function mountProfiles(
     } catch {
       identityStatus.textContent = "Could not load identity settings.";
     } finally {
-      identityPending = false;
+      setIdentityPending(false);
       populateIdentity();
     }
   };

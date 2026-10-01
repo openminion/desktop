@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import { chmodSync, copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
@@ -73,6 +73,51 @@ async function check() {
       /source clean/,
     );
 
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+    ]) {
+      window.setContentSize(width, height);
+      await click("settings-runtime-button");
+      await evaluate(`(() => {
+        document.querySelector('.runtime-update-options').open = true;
+        const body = document.querySelector('.settings-body');
+        body.scrollTop = body.scrollHeight;
+      })()`);
+      if (width === 760)
+        assert.ok(await evaluate("document.querySelector('.settings-body').scrollTop > 0"));
+      await click("settings-identity-button");
+      await waitFor(
+        "document.querySelector('#identity-status').textContent !== 'Loading identity…'",
+      );
+      assert.equal(
+        await evaluate("document.querySelector('.settings-body').scrollTop"),
+        0,
+        "Each Settings section opens at its heading",
+      );
+      const editor = await evaluate(`(() => {
+        const field = document.querySelector('#identity-yaml');
+        const style = getComputedStyle(field);
+        const select = getComputedStyle(document.querySelector('#identity-agent'));
+        const dialog = document.querySelector('#profile-dialog');
+        return {background:style.backgroundColor, fieldBackground:select.backgroundColor,
+          padding:parseFloat(style.paddingLeft), overflow:dialog.scrollWidth > dialog.clientWidth};
+      })()`);
+      assert.equal(editor.background, editor.fieldBackground);
+      assert.ok(
+        editor.padding >= 8,
+        "Identity text has the same readable inset as Settings fields",
+      );
+      assert.equal(editor.overflow, false);
+      if (process.env.OPENMINION_E2E_ARTIFACTS) {
+        mkdirSync(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
+        writeFileSync(
+          join(process.env.OPENMINION_E2E_ARTIFACTS, `identity-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+    }
+
     const editedYaml = `${initialYaml}note: unsaved draft\n`;
     await evaluate(`(() => {
     const editor = document.querySelector('#identity-yaml');
@@ -84,17 +129,33 @@ async function check() {
     await waitFor("document.querySelector('#identity-status').textContent !== 'Loading identity…'");
     assert.equal(await evaluate("document.querySelector('#identity-yaml').value"), editedYaml);
 
-    await click("identity-verify");
+    assert.equal(
+      await evaluate(`(() => {
+      document.querySelector('#identity-verify').click();
+      return document.querySelector('#identity-agent').disabled;
+    })()`),
+      true,
+      "The selected agent stays fixed while verification is pending",
+    );
     await waitFor("document.querySelector('#identity-status').textContent.includes('valid')");
+    assert.equal(await evaluate("document.querySelector('#identity-agent').disabled"), false);
     assert.match(
       await evaluate("document.querySelector('#identity-preview').textContent"),
       /Verified draft/,
     );
-    await click("identity-save");
+    assert.equal(
+      await evaluate(`(() => {
+      document.querySelector('#identity-save').click();
+      return document.querySelector('#identity-agent').disabled;
+    })()`),
+      true,
+      "The selected agent stays fixed while saving is pending",
+    );
     await waitFor(
       "document.querySelector('#identity-status').textContent.startsWith('Identity saved')",
     );
     const readback = await evaluate("window.openminion.identity.read()");
+    assert.equal(await evaluate("document.querySelector('#identity-agent').disabled"), false);
     assert.equal(readback.ok, true);
     assert.equal(readback.value.profiles[0].authoredYaml, editedYaml);
 
@@ -115,6 +176,7 @@ async function check() {
     await waitFor(
       "document.querySelector('#identity-status').textContent.includes('changed since')",
     );
+    assert.equal(await evaluate("document.querySelector('#identity-agent').disabled"), false);
     await click("settings-profiles-button");
     await click("settings-identity-button");
     await waitFor("document.querySelector('#identity-yaml').value.includes('external edit')");
@@ -131,8 +193,16 @@ async function check() {
     editor.value += 'note: discard on explicit reload\\n';
     editor.dispatchEvent(new Event('input', {bubbles:true}));
   })()`);
-    await click("identity-reload");
+    assert.equal(
+      await evaluate(`(() => {
+      document.querySelector('#identity-reload').click();
+      return document.querySelector('#identity-agent').disabled;
+    })()`),
+      true,
+      "The selected agent stays fixed while reloading",
+    );
     await waitFor("document.querySelector('#identity-status').textContent !== 'Loading identity…'");
+    assert.equal(await evaluate("document.querySelector('#identity-agent').disabled"), false);
     assert.doesNotMatch(
       await evaluate("document.querySelector('#identity-yaml').value"),
       /discard on explicit reload/,
