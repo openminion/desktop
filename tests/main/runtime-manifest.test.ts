@@ -62,6 +62,10 @@ const binaryRecord = (artifact: Record<string, unknown>): RuntimeRecord => {
   return {
     ...common,
     distribution: "binary",
+    certification: {
+      ...certification,
+      path: "releases/runtime-certification/v1/binary-qualification/1.0.0/desktop-test.json",
+    },
     artifacts: [artifact],
   } as RuntimeRecord;
 };
@@ -163,7 +167,15 @@ describe("runtime manifest boundary", () => {
         url: "https://github.com/openminion/runtime/releases/download/runtime-v1.0.0-build.1/openminiond.exe",
       },
     };
-    const binary = { ...common, distribution: "binary", artifacts: [artifact] };
+    const binary = {
+      ...common,
+      distribution: "binary",
+      certification: {
+        ...certification,
+        path: "releases/runtime-certification/v1/binary-qualification/1.0.0/desktop-test.json",
+      },
+      artifacts: [artifact],
+    };
     const parsed = parseRuntimeRecord(binary, "binary");
     expect(parsed.artifacts).toHaveLength(1);
     const selected = parsed.artifacts![0];
