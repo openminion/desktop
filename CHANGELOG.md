@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Rename conversations from a sidebar right-click menu or the chat title, using
+  the existing local names, with keyboard access and focus restoration.
+
 - Explain when the installed runtime cannot provide Identity settings, show a
   direct path to Runtime settings, and hide the unavailable editor and save controls.
 

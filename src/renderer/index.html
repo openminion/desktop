@@ -18,6 +18,9 @@
       </header>
       <div id="diagnostics-result" class="diagnostics-result"></div>
     </dialog>
+    <section id="session-context-menu" class="action-menu session-context-menu" popover="manual" aria-label="Conversation actions">
+      <button id="session-context-rename" class="quiet-button" type="button">Rename…</button>
+    </section>
     <dialog id="rename-dialog" class="rename-dialog" aria-labelledby="rename-title" aria-describedby="rename-description">
       <form id="rename-form">
         <h2 id="rename-title">Rename chat</h2>
@@ -242,7 +245,7 @@
         <section class="chat-panel">
           <header class="chat-heading">
             <div class="chat-title">
-              <h2 id="current-title">New conversation</h2>
+              <h2><button id="current-title" type="button" disabled>New conversation</button></h2>
             </div>
             <div class="chat-heading-actions">
               <button class="context-link" type="button" popovertarget="context-panel">

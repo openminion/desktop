@@ -698,6 +698,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     names.get(session.sessionId) || session.title || "Untitled conversation";
   let savingName = false;
   let renameGeneration = 0;
+  let renameFromSidebar = false;
+  let contextSession: SessionSummaryV1 | null = null;
+  let contextAnchor: HTMLButtonElement | null = null;
   let daemonReady = false;
   let connecting = true;
   let richContextReady = false;
@@ -1981,7 +1984,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.attachFile.disabled = elements.attachImage.disabled;
     elements.renameSession.disabled = !selected;
     elements.currentTitle.textContent = selected ? taskName(selected) : "New conversation";
-    elements.currentTitle.title = elements.currentTitle.textContent;
+    elements.currentTitle.disabled = !selected;
+    elements.currentTitle.title = selected ? `Rename conversation: ${taskName(selected)}` : "";
+    elements.currentTitle.setAttribute(
+      "aria-label",
+      selected ? `Rename conversation: ${taskName(selected)}` : "New conversation",
+    );
     renderAttachments(root, elements.attachments, attachments, (mediaId) => {
       const attachment = attachments.find((item) => item.mediaId === mediaId);
       if (!attachment) {
@@ -2076,6 +2084,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   };
   const renderSessionList = () => {
+    elements.sessionContextMenu.hidePopover();
     const query = elements.sessionSearch.value.trim().toLowerCase();
     const visible = query
       ? sessions.filter(
@@ -2100,6 +2109,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       (id) => {
         const next = sessions.find((item) => item.sessionId === id);
         if (next) void selectSession(next);
+      },
+      (session, button) => {
+        if (contextAnchor) contextAnchor.style.anchorName = "";
+        contextSession = session;
+        contextAnchor = button;
+        button.style.anchorName = "--session-context-trigger";
+        elements.sessionContextMenu.showPopover();
+        elements.sessionContextRename.focus();
       },
       sessions.length && query
         ? "No matching conversations. Try another name or session ID."
@@ -2579,23 +2596,49 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.composer.focus();
     return true;
   };
-  elements.renameSession.addEventListener("click", () => {
-    if (!selected) return;
+  const openRename = (session: SessionSummaryV1, fromSidebar = false) => {
     renameGeneration += 1;
-    renamingSession = selected;
-    elements.taskName.value = taskName(selected);
-    elements.renameSessionId.textContent = selected.sessionId;
+    renameFromSidebar = fromSidebar;
+    renamingSession = session;
+    elements.taskName.value = taskName(session);
+    elements.renameSessionId.textContent = session.sessionId;
     elements.renameError.textContent = savedNames.ok ? "" : savedNames.error.message;
     elements.renameDialog.showModal();
     elements.taskName.focus();
     elements.taskName.select();
+  };
+  elements.renameSession.addEventListener("click", () => {
+    if (selected) openRename(selected);
+  });
+  elements.currentTitle.addEventListener("click", () => {
+    if (selected) openRename(selected);
+  });
+  elements.sessionContextRename.addEventListener("click", () => {
+    elements.sessionContextMenu.hidePopover();
+    if (contextSession) openRename(contextSession, true);
+  });
+  root.addEventListener("pointerdown", (event) => {
+    if (!elements.sessionContextMenu.contains(event.target as Node))
+      elements.sessionContextMenu.hidePopover();
+  });
+  elements.sessionContextMenu.addEventListener("focusout", (event) => {
+    if (!elements.sessionContextMenu.contains(event.relatedTarget as Node | null))
+      elements.sessionContextMenu.hidePopover();
+  });
+  elements.sessionContextMenu.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    elements.sessionContextMenu.hidePopover();
+    contextAnchor?.focus();
   });
   elements.renameCancel.addEventListener("click", () => elements.renameDialog.close());
   elements.renameDialog.addEventListener("close", () => {
     if (elements.renameDialog.open) return;
     renameGeneration += 1;
+    const sessionId = renamingSession?.sessionId;
     renamingSession = null;
-    elements.renameSession.focus();
+    const sidebarRow = sessionId ? sessionSpinners.get(sessionId)?.parentElement : null;
+    (renameFromSidebar ? (sidebarRow ?? elements.sessionSearch) : elements.currentTitle).focus();
   });
   const saveTaskName = async (name: string | null) => {
     if (!renamingSession || savingName || !savedNames.ok) return;
@@ -3137,7 +3180,9 @@ function rendererElements(root: Document) {
     sessionSearchCount: required(root, "session-search-count"),
     newSession: required(root, "new-session") as HTMLButtonElement,
     closeSession: required(root, "close-session") as HTMLButtonElement,
-    currentTitle: required(root, "current-title"),
+    currentTitle: required(root, "current-title") as HTMLButtonElement,
+    sessionContextMenu: required(root, "session-context-menu"),
+    sessionContextRename: required(root, "session-context-rename") as HTMLButtonElement,
     renameSession: required(root, "rename-session") as HTMLButtonElement,
     renameDialog: required(root, "rename-dialog") as HTMLDialogElement,
     renameForm: required(root, "rename-form") as HTMLFormElement,
@@ -3540,6 +3585,7 @@ function renderSessions(
   taskName: (session: SessionSummaryV1) => string,
   spinners: Map<string, HTMLElement>,
   select: (sessionId: string) => void,
+  showContext: (session: SessionSummaryV1, button: HTMLButtonElement) => void,
   emptyMessage: string,
 ): void {
   const items: HTMLElement[] = sessions.map((session) => {
@@ -3556,6 +3602,16 @@ function renderSessions(
     spinners.set(session.sessionId, spinner);
     button.setAttribute("aria-current", session.sessionId === selectedId ? "true" : "false");
     button.addEventListener("click", () => select(session.sessionId));
+    button.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      showContext(session, button);
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+        event.preventDefault();
+        showContext(session, button);
+      }
+    });
     return button;
   });
   if (!items.length) {
