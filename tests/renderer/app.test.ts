@@ -436,12 +436,12 @@ describe("renderer status view", () => {
     [
       "verified",
       true,
-      "Connection verified. New tasks use the default agent; existing tasks keep their agent.",
+      "Connection verified. New conversations use the default agent; existing conversations keep their agent.",
     ],
     [
       "not_requested",
       true,
-      "Connection not tested. New tasks use the default agent; existing tasks keep their agent.",
+      "Connection not tested. New conversations use the default agent; existing conversations keep their agent.",
     ],
     [
       "verified",
