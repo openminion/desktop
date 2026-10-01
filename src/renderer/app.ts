@@ -3695,7 +3695,7 @@ function renderTimeline(
     const article = root.createElement("article");
     article.className = `message ${message.role}`;
     const role = root.createElement("p");
-    role.className = "message-role";
+    role.className = message.role === "user" ? "message-role sr-only" : "message-role";
     role.textContent = message.role === "user" ? "You" : "OpenMinion";
     const profile = message.role === "assistant" ? root.createElement("span") : null;
     if (profile) {
@@ -3710,7 +3710,12 @@ function renderTimeline(
       body.className += " markdown";
       renderMarkdown(root, body, bodyText);
     } else body.textContent = bodyText;
-    article.append(role, body);
+    if (message.role === "user") {
+      const bubble = root.createElement("div");
+      bubble.className = "message-bubble";
+      bubble.append(role, body);
+      article.append(bubble);
+    } else article.append(role, body);
     const usage = message.role === "assistant" ? root.createElement("p") : null;
     if (usage) {
       usage.className = "message-usage";
@@ -3770,7 +3775,10 @@ function renderTimeline(
     preview.className = "observation-message-preview";
     preview.alt = "Frame sent by automatic observation";
     preview.src = automaticObservation.previewUrl;
-    article.append(role, body, preview);
+    const bubble = root.createElement("div");
+    bubble.className = "message-bubble";
+    bubble.append(role, body, preview);
+    article.append(bubble);
     items.push(article);
   }
   items.push(

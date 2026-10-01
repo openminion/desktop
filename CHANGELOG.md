@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Fit user-message bubbles to their text, with compact padding and copy/time
+  controls below the bubble on hover or keyboard focus.
+
 - Rename conversations from a sidebar right-click menu or the chat title, using
   the existing local names, with keyboard access and focus restoration.
 
