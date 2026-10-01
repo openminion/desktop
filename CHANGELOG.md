@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Clarify model connection-test charges and Identity settings guidance. Setup
+  and profile-save feedback now uses “conversations” consistently with the sidebar.
+
 - Shorten Settings and rename guidance and remove redundant hover help, keeping
   icon hints, keyboard shortcuts, credential instructions, and restart notices.
 

@@ -13,7 +13,7 @@ export function setupResultMessage(providerCheck: ProviderCheckStatus, reachable
   const confirmation =
     providerCheck === "verified" ? "Connection verified." : "Connection not tested.";
   return reachable
-    ? `${confirmation} New tasks use the default agent; existing tasks keep their agent.`
+    ? `${confirmation} New conversations use the default agent; existing conversations keep their agent.`
     : `${confirmation} Settings were saved, but OpenMinion could not reconnect. Check the connection details.`;
 }
 
@@ -264,7 +264,7 @@ export function mountProfiles(
     status.textContent =
       message ??
       (value.daemon.reachable
-        ? "Saved and applied. New tasks use the default agent; existing tasks keep their agent."
+        ? "Saved and applied. New conversations use the default agent; existing conversations keep their agent."
         : "Saved, but OpenMinion could not reconnect. Check the connection details.");
   };
 

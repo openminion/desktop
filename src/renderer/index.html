@@ -65,7 +65,7 @@
                 <input id="setup-check-provider" type="checkbox" checked />
                 Test connection before continuing
               </label>
-              <p class="settings-note">Sends one provider request and may use provider resources.</p>
+              <p class="settings-note">Sends one test request. Provider charges may apply.</p>
             </fieldset>
             <fieldset id="profile-fields" disabled>
               <legend class="sr-only">Profile settings</legend>
@@ -98,11 +98,11 @@
         </section>
         <section id="settings-identity" aria-labelledby="settings-identity-heading" hidden>
           <h3 id="settings-identity-heading">Identity</h3>
-          <p class="settings-note">Identity controls how the selected agent describes its mission, voice, risk posture, and tool posture. YAML is authoritative; generated Markdown is read-only.</p>
+          <p class="settings-note">Set the agent’s purpose, tone, and approach to risk and tools.</p>
           <label for="identity-agent">Agent</label>
           <select id="identity-agent"></select>
           <p id="identity-metadata" class="settings-note"></p>
-          <label for="identity-yaml">Authoritative profile.yaml</label>
+          <label for="identity-yaml">Identity profile (YAML)</label>
           <textarea id="identity-yaml" rows="16" maxlength="262144" spellcheck="false"></textarea>
           <p id="identity-status" class="settings-note" role="status" aria-live="polite"></p>
           <div class="settings-actions">
@@ -110,7 +110,7 @@
             <button id="identity-verify" class="quiet-button" type="button">Verify draft</button>
             <button id="identity-save" type="button">Save identity</button>
           </div>
-          <h4>Rendered preview</h4>
+          <h4>Read-only preview</h4>
           <pre id="identity-preview" class="identity-preview">No identity loaded.</pre>
         </section>
         <section id="settings-chat" aria-labelledby="settings-chat-heading" hidden>
