@@ -1984,6 +1984,13 @@ code {
     font-size: 14px;
   }
 
+  .new-session-button {
+    gap: 6px;
+    padding-inline: 8px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
   .workspace {
     grid-template-columns: 164px minmax(0, 1fr);
   }
@@ -2052,7 +2059,7 @@ code {
 .settings-body {
   min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 4px;
 }
 .settings-nav {
   display: flex;

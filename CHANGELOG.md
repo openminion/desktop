@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Keep sidebar creation and search controls readable in narrow windows, and
+  preserve keyboard-focus outlines inside scrollable Settings panels.
+
 - Fit user-message bubbles to their text, with compact padding and copy/time
   controls below the bubble on hover or keyboard focus.
 
