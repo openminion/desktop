@@ -754,6 +754,10 @@ h2 {
   font-size: 12px;
 }
 
+.artifact-detail-heading strong {
+  overflow-wrap: anywhere;
+}
+
 .artifact-content {
   max-height: 320px;
   margin: 0;
@@ -2075,6 +2079,7 @@ code {
   color: var(--muted);
   font-size: 13px;
 }
+.settings-nav button:not(:disabled):hover,
 .settings-nav button[aria-pressed="true"] {
   background: var(--surface-raised);
   color: var(--text);
