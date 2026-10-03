@@ -7,6 +7,9 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
 
+- Keep Settings tabs readable on hover and long output filenames wrapped so
+  the preview's Close action stays visible.
+
 - Keep sidebar creation and search controls readable in narrow windows, and
   preserve keyboard-focus outlines inside scrollable Settings panels.
 
