@@ -1290,8 +1290,41 @@ describe("renderer status view", () => {
       ok: true,
       value: { kind: "tokens", text: "Canonical token report" },
     });
+    const readIdentity = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        profiles: [
+          {
+            agentId: session.activeAgentId,
+            displayName: "Writer",
+            source: "yaml",
+            editable: true,
+            readOnlyReason: null,
+            authoredYaml: "agent_id: writer\n",
+            profileRevision: 2,
+            profileVersion: "profile-v2",
+            sourceSha256: "source-v2",
+            validationOk: true,
+            sourceStatus: "clean",
+            verificationIssues: [],
+            generatedStatus: "clean",
+            generatedFiles: ["AGENT.md"],
+            render: {
+              text: "Mission: Write clearly.",
+              purpose: "act",
+              profileVersion: "profile-v2",
+              renderVersion: "render-v1",
+              includedFields: ["role.mission"],
+              omittedFields: [],
+            },
+          },
+        ],
+      },
+    });
+    const reloadIdentity = vi.fn().mockImplementation(readIdentity);
     const api = {
       reports: { read },
+      identity: { read: readIdentity, reload: reloadIdentity },
       app: {
         openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
@@ -1375,6 +1408,28 @@ describe("renderer status view", () => {
         agentFilter: "Writer",
         sessionId: session.sessionId,
       });
+      page.element("composer").value = "/identity";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain(
+          "Mission: Write clearly.",
+        ),
+      );
+      page.element("composer").value = "/identity verify";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-title").textContent).toBe("Identity verification"),
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Verification: valid",
+      );
+      page.element("composer").value = "/identity reload";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() => expect(reloadIdentity).toHaveBeenCalledOnce());
+      expect(page.element("command-title").textContent).toBe("Identity reloaded");
+      page.element("composer").value = "/identity unknown";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-title").textContent).toBe("Identity command");
       read.mockResolvedValue({
         ok: true,
         value: { kind: "skills", text: "Skill: Example" },

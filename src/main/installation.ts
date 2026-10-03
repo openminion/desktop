@@ -10,7 +10,7 @@ import {
   type RuntimeOffer,
 } from "./runtime-manifest.js";
 
-export const OPENMINION_VERSION = "0.0.27";
+export const OPENMINION_VERSION = "0.0.29";
 
 export type CommandResult = {
   exitCode: number | null;

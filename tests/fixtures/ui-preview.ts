@@ -346,6 +346,7 @@ const api: NativeApi = {
       const result = await api.identity.read();
       return result.ok ? ok(result.value.profiles[0]) : result;
     },
+    reload: async () => api.identity.read(),
   },
   app: {
     openLink: async () => ({ ok: true, value: null }),

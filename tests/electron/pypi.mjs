@@ -166,7 +166,7 @@ async function check() {
       "[...document.querySelectorAll('#diagnostics-result button')].some(button => button.textContent === 'Copied')",
     );
     assert.equal(
-      clipboard.readText(),
+      await clipboard.readText(),
       await evaluate("document.querySelector('.diagnostic-output').textContent"),
     );
     for (const [width, height] of [
@@ -317,7 +317,7 @@ async function check() {
       await fill(text);
       await evaluate("document.querySelector('#send').click()");
       await waitFor(
-        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)} && !/Loading from OpenMinion|Preparing the saved conversation/.test(document.querySelector('#command-result').textContent)`,
+        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)} && !/Loading from OpenMinion|Preparing the saved conversation|Reading identity|Reloading identity/.test(document.querySelector('#command-result').textContent)`,
       );
       return evaluate("document.querySelector('#command-result').textContent");
     };
@@ -439,6 +439,43 @@ async function check() {
     } finally {
       dialog.showSaveDialog = saveDialog;
     }
+    const identityPath = join(root, "desktop-identity.yaml");
+    await writeFile(
+      identityPath,
+      `agent_id: openminion
+display_name: OpenMinion
+profile_revision: 1
+role:
+  mission: Prove Desktop identity parity.
+  responsibilities: [Assist the operator.]
+personality:
+  tone: direct
+  verbosity: normal
+risk:
+  risk_level: low
+tool_posture:
+  tool_use: restricted
+`,
+    );
+    const identityUpsert = await runCommand(
+      executable,
+      [...args, "identity", "upsert", identityPath],
+      30_000,
+    );
+    assert.equal(identityUpsert.exitCode, 0, identityUpsert.stderr);
+    assert.match(await reportCommand("/identity", "Identity"), /Prove Desktop identity parity/);
+    assert.match(
+      await reportCommand("/identity verify", "Identity verification"),
+      /Verification: needs attention/,
+    );
+    assert.match(
+      await reportCommand("/identity reload", "Identity reloaded"),
+      /Prove Desktop identity parity/,
+    );
+    await waitFor("document.querySelector('#connection-label').textContent === 'Connected'");
+    console.log(
+      "PASS: canonical identity show, verification and app-owned daemon reload work through Desktop.",
+    );
     await evaluate("document.querySelector('#close-command').click()");
     console.log(
       "PASS: Desktop subset names/aliases exist in installed Focus; daemon tools, canonical tokens, and native transcript export checked.",
@@ -1230,14 +1267,14 @@ async function check() {
     await waitFor(
       "[...document.querySelectorAll('.message.user .message-copy')].at(-1).textContent === 'Copied'",
     );
-    assert.equal(clipboard.readText(), "Render the next fixture reply");
+    assert.equal(await clipboard.readText(), "Render the next fixture reply");
     await evaluate(
       "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).click()",
     );
     await waitFor(
       "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).textContent === 'Copied'",
     );
-    assert.equal(clipboard.readText(), providerText);
+    assert.equal(await clipboard.readText(), providerText);
     await waitFor(
       "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).textContent === 'Copy'",
     );

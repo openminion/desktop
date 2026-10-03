@@ -308,6 +308,9 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.identitySave, (event, input: unknown) =>
     isAppInvocation(event) ? supervisor.saveIdentity(input) : forbiddenResult(),
   );
+  ipcMain.handle(IPC_CHANNELS.identityReload, (event) =>
+    isAppInvocation(event) ? supervisor.reloadIdentity() : forbiddenResult(),
+  );
   ipcMain.handle(IPC_CHANNELS.profilesPresets, (event) =>
     isAppInvocation(event) ? supervisor.setupPresets() : forbiddenResult(),
   );

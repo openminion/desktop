@@ -669,6 +669,7 @@ export type NativeApi = {
     read(): Promise<ClientResult<IdentitySettings>>;
     verify(input: IdentityVerifyInput): Promise<ClientResult<IdentityValidation>>;
     save(input: IdentitySaveInput): Promise<ClientResult<IdentityProfileView>>;
+    reload(): Promise<ClientResult<IdentitySettings>>;
   };
   app: {
     info(): Promise<AppInfo>;
@@ -751,6 +752,7 @@ export const IPC_CHANNELS = {
   identityRead: "openminion:identity:read",
   identityVerify: "openminion:identity:verify",
   identitySave: "openminion:identity:save",
+  identityReload: "openminion:identity:reload",
   copyText: "openminion:copy-text",
   openLink: "openminion:open-link",
   daemonInspect: "openminion:daemon-inspect",

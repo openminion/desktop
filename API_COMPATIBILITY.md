@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-10-01
+Last updated: 2026-10-03
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -17,7 +17,7 @@ in [README.md](README.md), [SUPPORT.md](SUPPORT.md), and `docs/`.
 ## Desktop-daemon boundary
 
 The Desktop main process owns installation and lifecycle. It currently installs
-the pinned `openminion==0.0.27` PyPI package into app-managed storage and calls
+the pinned `openminion==0.0.29` PyPI package into app-managed storage and calls
 the ordinary `config init` and `daemon status/logs` commands. Main starts the
 public `openminiond serve` entrypoint as a foreground child and retains its
 process handle. It signals that child only after rechecking the PID and canonical
@@ -33,20 +33,17 @@ runtime roots, and configuration path outside renderer control.
 ## Identity editing availability
 
 Identity settings use the public `identity inspect`, `identity validate`, and
-revision-checked `identity apply` commands. The pinned PyPI `0.0.27` package and
-published `0.0.28` package do not include `inspect` or `apply`. Upgrading to those
-releases does not enable this editor. A new runtime release containing these
-commands is required; Desktop does not replace them with direct profile writes.
-
-The current source CLI has been verified through Desktop read, draft validation,
-revision-checked save, readback, and stale-revision rejection using isolated
-profiles. This is source integration proof, not published-runtime support.
-Unsupported runtimes show an explanation and a link to Runtime settings; the
-unavailable editor stays hidden. Empty profile results are reported separately.
+revision-checked `identity apply` commands included in the pinned PyPI `0.0.29`
+runtime. Desktop reads, validates, saves, verifies, and reloads identity through
+fixed typed operations; it does not write profiles directly. `/identity reload`
+restarts the app-owned daemon so cached policy and tool constraints reload from
+the canonical profile. Unsupported older runtimes show an explanation and a
+link to Runtime settings; the unavailable editor stays hidden. Empty profile
+results are reported separately.
 
 ## Current integration status
 
-Lifecycle integration works with the public PyPI `0.0.27` command surface and
+Lifecycle integration works with the public PyPI `0.0.29` command surface and
 has real-daemon start/status/stop proof. Desktop main invokes fixed `sessions
 list/show/close` and `export transcript` operations for saved conversations.
 Text turns use authenticated loopback `POST /v1/turn/stream`; cancellation uses
@@ -62,11 +59,10 @@ thread. The pinned one-shot `run` command omits that delivery metadata and repla
 an undelivered reply on a follow-up, so it is not used for Desktop turns.
 No empty-session prompt is injected.
 
-With a compatible OpenMinion source checkout, approval decisions use the
+Approval decisions use the
 authenticated local approval-resume operation and negotiated turn stream.
 Desktop can allow once or deny the exact pending request; policy and grant
-ownership remain in OpenMinion. The pinned PyPI `0.0.27` runtime does not expose
-this transport yet. Media, artifacts,
+ownership remain in OpenMinion. Media, artifacts,
 full Focus commands, and active-turn reattachment remain incomplete. They must
 use existing public interfaces without restoring Desktop-only code in the
 OpenMinion package. The live supervisor uses the CLI-backed client exclusively.
