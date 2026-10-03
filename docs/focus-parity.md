@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-09-30
+Last updated: 2026-10-03
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -31,7 +31,7 @@ The canonical OpenMinion owners are:
 
 Inspect the actual handlers as well as the catalog: a help entry alone does not
 prove an operation works in Focus. Current Focus `/editor` opens an external
-editor and loads the returned text as an unsent draft; the pinned 0.0.27 Desktop
+editor and loads the returned text as an unsent draft; the pinned 0.0.29 Desktop
 runtime and Desktop's shortcut guidance do not provide that behavior yet.
 Preserve explicit renderer availability where Focus and the rich CLI renderer
 differ.
@@ -110,9 +110,19 @@ and target. Desktop continues CLI-created conversations without rebinding them
 to the identity used for new GUI sessions. Working-directory scope and the
 broader `/resume` picker remain separate gaps.
 
+Desktop Settings and `/identity`, `/identity verify`, and `/identity reload`
+read the same OpenMinion identity files through fixed CLI operations under the
+Desktop-owned config and data roots. Show and verify report the active
+conversation's agent identity. Reload restarts the app-owned daemon before it
+rereads the profile so runtime policy and tool constraints are refreshed; an
+external daemon remains under its operator's lifecycle. Desktop does not copy
+identity state into SQLite or expose a generic command bridge. The ordinary CLI
+keeps its separate config and data roots unless the operator explicitly points
+both interfaces at the same installation.
+
 ## Connected Task Controls
 
-On pinned PyPI 0.0.27, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
+On pinned PyPI 0.0.29, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
 CLI calls. Main derives agent scope from the selected canonical session and passes
 its session ID. Focus's task report and these CLI commands share OpenMinion's task
 surface; Desktop does not copy lifecycle transitions, task ownership, or scheduler
@@ -131,14 +141,14 @@ canonical task list. Core owns schedule validation and execution. Pending
 decisions, non-scheduled task creation and richer run-history inspection still
 need integration.
 
-Pinned PyPI 0.0.27 includes `/close`; Desktop routes that command to its
+Pinned PyPI 0.0.29 includes `/close`; Desktop routes that command to its
 existing canonical Close operation. `/resume` remains unavailable because the
 current saved-task picker does not establish Focus directory and non-empty
 history filtering. Broader catalog discovery remains a gap.
 
 ## Connected Reports And Export
 
-On pinned PyPI 0.0.27, `/agents` (`/agent`) reads `GET /v1/agents`, backed by
+On pinned PyPI 0.0.29, `/agents` (`/agent`) reads `GET /v1/agents`, backed by
 Focus's agent-discovery owner. An exact ID or display name filters the returned
 list; Desktop does not interpret it as agent selection. `/tools` (`/tool`)
 reads `GET /v1/tools`, the daemon's live inventory. These narrow bridges return
@@ -179,7 +189,7 @@ operate on interactive-runtime state. The pinned public CLI/daemon surface does
 not provide a general Focus command dispatcher. Separate CLI reports or config
 changes cannot stand in for those session operations.
 
-The pinned 0.0.27 package contains public session turn-input queue,
+The pinned 0.0.29 package contains public session turn-input queue,
 approval-resume, trace stream attachment, and runtime capability routes. Desktop
 now qualifies and consumes the request-bound approval semantics in source-runtime
 proof. Other workflows
@@ -201,7 +211,7 @@ effects while presenting friendly labels and controls; an instruction to switch
 to CLI does not complete a Desktop-supported workflow.
 
 The 2026-09-12 assessment recorded 44 CLI command families and 243 leaf paths.
-The paired 0.0.27 runtime has 55 built-in Focus commands. Desktop advertises 20
+The paired 0.0.29 runtime has 56 built-in Focus commands. Desktop advertises 21
 built-ins with partial semantics.
 Bundled/user/project custom commands and shell intent add separate qualification
 requirements. These counts are a dated source inventory, not execution proof.

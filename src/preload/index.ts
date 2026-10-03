@@ -41,6 +41,7 @@ const api: NativeApi = {
     read: () => ipcRenderer.invoke(IPC_CHANNELS.identityRead),
     verify: (input) => ipcRenderer.invoke(IPC_CHANNELS.identityVerify, input),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.identitySave, input),
+    reload: () => ipcRenderer.invoke(IPC_CHANNELS.identityReload),
   },
   app: {
     openLink: (url) => ipcRenderer.invoke(IPC_CHANNELS.openLink, url),

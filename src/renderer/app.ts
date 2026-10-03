@@ -84,6 +84,11 @@ export const DESKTOP_COMMANDS = [
   { name: "/mcp", description: "Show configured and exposed MCP servers" },
   { name: "/skills", description: "List skills or inspect one by ID" },
   { name: "/learning", description: "Show skill-learning proposals" },
+  {
+    name: "/identity",
+    description: "Show, verify, or reload the active identity",
+    usage: "/identity [verify|reload]",
+  },
   { name: "/tokens", description: "Show durable token usage details" },
   { name: "/export", description: "Export the saved conversation" },
   {
@@ -1639,6 +1644,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       command !== "/agents" &&
       command !== "/skills" &&
       command !== "/learning" &&
+      command !== "/identity" &&
       command !== "/help" &&
       !(command === "/new" && args.join(" ") === "session")
     ) {
@@ -1757,6 +1763,59 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             "Task command",
             "Use /tasks, /tasks <task-id>, or /tasks pause|resume|cancel <task-id>.",
           );
+        break;
+      }
+      case "/identity": {
+        const action = args[0]?.toLowerCase() ?? "show";
+        if (args.length > 1 || !["show", "verify", "reload"].includes(action)) {
+          showCommandResult(
+            "Identity command",
+            "Use /identity, /identity verify, or /identity reload.",
+          );
+          break;
+        }
+        if (!selected?.activeAgentId) {
+          showCommandResult("Identity", "Choose a saved conversation with an active agent first.");
+          break;
+        }
+        const sessionId = selected.sessionId;
+        const agentId = selected.activeAgentId;
+        showCommandResult(
+          "Identity",
+          action === "reload" ? "Reloading identity…" : "Reading identity…",
+        );
+        const request = commandResultGeneration;
+        const result =
+          action === "reload" ? await api.identity.reload() : await api.identity.read();
+        if (request !== commandResultGeneration || selected?.sessionId !== sessionId) break;
+        if (elements.commandPanel.hidden) break;
+        if (!result.ok) {
+          showCommandResult("Identity", result.error.message);
+          break;
+        }
+        const profile = result.value.profiles.find((item) => item.agentId === agentId);
+        if (!profile) {
+          showCommandResult("Identity", `No identity profile is configured for ${agentId}.`);
+          break;
+        }
+        showCommandResult(
+          action === "reload"
+            ? "Identity reloaded"
+            : action === "verify"
+              ? "Identity verification"
+              : "Identity",
+          [
+            `${profile.displayName} (${profile.agentId})`,
+            `Source: ${profile.source}`,
+            `Profile version: ${profile.profileVersion}`,
+            `Verification: ${profile.validationOk ? "valid" : "needs attention"}`,
+            `Source status: ${profile.sourceStatus}`,
+            `Generated files: ${profile.generatedStatus}`,
+            ...profile.verificationIssues.map((issue) => `Issue: ${issue}`),
+            "",
+            profile.render.text,
+          ].join("\n"),
+        );
         break;
       }
       case "/help": {

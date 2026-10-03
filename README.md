@@ -64,7 +64,7 @@ and should be treated as a scam.
 | Current runtime profile | macOS development |
 | Native package targets | macOS, Windows, and Linux |
 | Runtime | Node.js 24, npm 11, and Electron |
-| Managed core | Pinned `openminion==0.0.27` from PyPI |
+| Managed core | Pinned `openminion==0.0.29` from PyPI |
 | Best fit | Local chat, saved sessions, task controls, and visible-context preview |
 | Not the claim | Signed release, remote operation, or autonomous native control |
 
@@ -106,7 +106,6 @@ and DEB and ZIP on Linux. These are development artifacts, not public releases.
 - remote daemon attachment, hosted synchronization, or multi-device control
 - signed, notarized, automatically updating public releases
 - full Focus slash-command parity, attachment sending, or artifact browsing
-- connected approvals on the default pinned PyPI runtime until a compatible release is published
 - reattachment to an active turn after quitting the application
 
 ## Requirements
@@ -136,7 +135,7 @@ Start the development app:
 npm start
 ```
 
-The first launch installs `openminion==0.0.27` under `~/.openminion/desktop`,
+The first launch installs `openminion==0.0.29` under `~/.openminion/desktop`,
 creates a private initial config, and starts an isolated daemon. A setup screen
 offers OpenMinion's provider choices, including MiniMax, model and API-key fields,
 profile import, or an explicit echo demo. Setup uses the ordinary CLI setup

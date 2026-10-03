@@ -413,7 +413,7 @@ export function mountProfiles(
           ),
         };
         identityStatus.textContent =
-          "Identity saved. Prompt changes apply on the next turn; use /identity reload for cached policy and tool constraints.";
+          "Identity saved. Prompt changes apply on the next turn; /identity reload restarts OpenMinion to refresh cached policy and tool constraints.";
       }
     } catch {
       identityStatus.textContent = "Could not save identity. Reload Settings and try again.";

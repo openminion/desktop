@@ -228,6 +228,7 @@ describe("desktop main boundary", () => {
       inspect: vi.fn().mockResolvedValue({ ok: true, value: { text: "daemon status" } }),
       status: vi.fn().mockResolvedValue({ state: "ready" }),
       retry: vi.fn().mockResolvedValue({ state: "probing" }),
+      reloadIdentity: vi.fn().mockResolvedValue({ ok: true, value: { profiles: [] } }),
       client,
     };
     const media = { pick: vi.fn(), release: vi.fn() };
@@ -302,6 +303,7 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.identityRead,
       IPC_CHANNELS.identityVerify,
       IPC_CHANNELS.identitySave,
+      IPC_CHANNELS.identityReload,
       IPC_CHANNELS.profilesPresets,
       IPC_CHANNELS.profilesSetup,
       IPC_CHANNELS.profilesSave,
@@ -369,6 +371,10 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.reportsRead,
       IPC_CHANNELS.sessionsExport,
       IPC_CHANNELS.profilesRead,
+      IPC_CHANNELS.identityRead,
+      IPC_CHANNELS.identityVerify,
+      IPC_CHANNELS.identitySave,
+      IPC_CHANNELS.identityReload,
       IPC_CHANNELS.profilesPresets,
       IPC_CHANNELS.profilesSetup,
       IPC_CHANNELS.profilesSave,
@@ -381,6 +387,8 @@ describe("desktop main boundary", () => {
         ),
       ).toMatchObject({ ok: false, error: { code: "forbidden" } });
     }
+    await mocks.ipcHandlers.get(IPC_CHANNELS.identityReload)!(event);
+    expect(supervisor.reloadIdentity).toHaveBeenCalledOnce();
     expect(
       await mocks.ipcHandlers.get(IPC_CHANNELS.profilesImport)!(event, { path: "/arbitrary" }),
     ).toMatchObject({ ok: false, error: { code: "invalid_request" } });

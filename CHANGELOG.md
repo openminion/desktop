@@ -1,11 +1,15 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-29
+Last updated: 2026-10-03
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Align first-run managed installations with OpenMinion 0.0.29 and connect
+  `/identity`, `/identity verify`, and `/identity reload` to the canonical
+  identity owner.
 
 - Keep Settings tabs readable on hover and long output filenames wrapped so
   the preview's Close action stays visible.
@@ -41,7 +45,7 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
   saved Normal/Quiet preference, keyboard help, and a ⌘ / Ctrl + , shortcut.
   Runtime diagnostics and update controls now live together in Settings.
 
-- Update the managed PyPI runtime baseline to OpenMinion 0.0.27.
+- Update the managed PyPI runtime baseline to OpenMinion 0.0.29.
 - Add command-specific help, fixed installed-runtime `/graph` help, and native `/editor` composition guidance.
 - Allow repairing model credentials in Settings after the daemon exits, while
   continuing to reject profile changes when another live process owns the daemon.

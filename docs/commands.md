@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-09-30
+Last updated: 2026-10-03
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -44,6 +44,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/mcp`                  | Show configured and exposed MCP servers plus registered/exposed MCP tool counts from the daemon's capability report.                                                                                                      |
 | `/skills`               | List the OpenMinion skill catalog or inspect one exact skill ID through the public daemon API. Skill admission and mutation are not connected.                                                                            |
 | `/learning`             | Show the skill-learning suggestion summary or inspect one exact proposal ID through the public daemon API. Review and apply remain operator CLI actions.                                                                  |
+| `/identity`             | Show the selected conversation agent's canonical identity. Add `verify` to inspect source/render status or `reload` to restart the app-owned daemon and refresh cached identity policy.                                  |
 | `/tokens`               | Request the selected session's canonical durable token report. Pinned PyPI may report daemon-created sessions unavailable; no usage is fabricated.                                                                        |
 | `/export`               | Save the selected conversation as Markdown through a native file chooser and the CLI transcript exporter.                                                                                                                 |
 | `/status`               | Show connection, selected task, active agent, reported model, and turn status.                                                                                                                                            |
@@ -53,7 +54,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/quiet`                | Hide tool activity cards while keeping approvals visible; saved as a Desktop display preference.                                                                                                                          |
 | `/normal`               | Restore tool activity cards; saved as a Desktop display preference.                                                                                                                                                       |
 | `/graph`                | Show the installed OpenMinion CLI's graph help through a fixed read-only invocation. This is guidance, not an embedded graph workflow.                                                                                    |
-| `/editor`               | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.27 runtime.                                                                               |
+| `/editor`               | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.29 runtime.                                                                               |
 
 Files, screenshots, cancellation, task closing, and reconnection use their
 existing GUI controls. Their former Desktop-only slash shortcuts were removed

@@ -89,7 +89,7 @@ describe("preload surface", () => {
     });
     invoke.mockClear();
     expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);
-    expect(Object.keys(api.identity)).toEqual(["read", "verify", "save"]);
+    expect(Object.keys(api.identity)).toEqual(["read", "verify", "save", "reload"]);
     expect(Object.keys(api.app)).toEqual(["openLink", "copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["inspect", "status", "retry"]);
     expect(Object.keys(api.sessions)).toEqual([
@@ -148,6 +148,7 @@ describe("preload surface", () => {
       expectedProfileVersion: "v1",
       expectedSourceSha256: "sha1",
     });
+    await api.identity.reload();
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityRead);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityVerify, { yaml: "agent_id: ops" });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identitySave, {
@@ -155,6 +156,7 @@ describe("preload surface", () => {
       expectedProfileVersion: "v1",
       expectedSourceSha256: "sha1",
     });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityReload);
     invoke.mockClear();
     invoke.mockResolvedValue({ state: "ready" });
     await api.app.copyText("Local reply");

@@ -195,9 +195,78 @@ describe("DaemonSupervisor", () => {
     });
   });
 
+  it("restarts its daemon and reads the refreshed identity", async () => {
+    const root = await temporaryRoot();
+    const executable = await fakeExecutable(root);
+    await writeFile(join(root, "agents.json"), '{"runtime":{}}');
+    let reachable = false;
+    const spawnDaemon = vi.fn(() => {
+      reachable = true;
+      return fakeDaemon(() => {
+        reachable = false;
+      });
+    });
+    const runCommand = vi.fn<RunCommand>(async (_command, args) => {
+      if (args.length === 1) return result(0, "0.0.29");
+      if (args.includes("identity"))
+        return result(
+          0,
+          JSON.stringify({
+            profiles: [
+              {
+                agent_id: "openminion",
+                display_name: "OpenMinion",
+                source: "yaml",
+                editable: true,
+                authored_yaml: "agent_id: openminion\n",
+                profile_revision: 1,
+                profile_version: "profile-v1",
+                source_sha256: "source-v1",
+                validation: { ok: true },
+                verification: { ok: true, source_status: "clean", issues: [] },
+                generated_sidecars: { status: "clean", files: [] },
+                render: {
+                  text: "Mission: Help.",
+                  purpose: "act",
+                  profile_version: "profile-v1",
+                  render_version: "render-v1",
+                  included_fields: [],
+                  omitted_fields: [],
+                },
+              },
+            ],
+          }),
+        );
+      if (args.at(-1) === "--json")
+        return result(reachable ? 0 : 1, JSON.stringify(daemonPayload(reachable, root)));
+      return result(2);
+    });
+    const supervisor = new DaemonSupervisor({
+      openminionExecutable: executable,
+      homeRoot: root,
+      dataRoot: join(root, "data"),
+      configPath: join(root, "agents.json"),
+      runCommand,
+      spawnDaemon,
+    });
+    vi.spyOn(supervisor.client, "list").mockResolvedValue({
+      ok: true,
+      value: { sessions: [], nextCursor: null, hasMore: false },
+    });
+
+    expect(await supervisor.start()).toMatchObject({ state: "ready" });
+    expect(await supervisor.reloadIdentity()).toMatchObject({
+      ok: true,
+      value: { profiles: [{ agentId: "openminion", validationOk: true }] },
+    });
+    expect(spawnDaemon).toHaveBeenCalledTimes(2);
+    await supervisor.stop();
+  });
+
   it("never starts or stops an external already-reachable daemon", async () => {
     const root = await temporaryRoot();
     const executable = await fakeExecutable(root);
+    await writeFile(join(root, "agents.json"), '{"runtime":{}}');
     const runCommand = vi.fn<RunCommand>(async (_command, args) => {
       if (args.length === 1) return result(0, "0.0.19\n");
       if (args.at(-1) === "--json") return result(0, JSON.stringify({ reachable: true }));
@@ -207,11 +276,21 @@ describe("DaemonSupervisor", () => {
     const supervisor = new DaemonSupervisor({
       runtimeRoot: join(root, "runtime"),
       openminionExecutable: executable,
+      homeRoot: root,
+      dataRoot: join(root, "data"),
+      configPath: join(root, "agents.json"),
       runCommand,
     });
 
     expect(await supervisor.start()).toMatchObject({ state: "running" });
     expect(runCommand.mock.calls.some(([, args]) => args.at(-1) === "start")).toBe(false);
+    expect(await supervisor.reloadIdentity()).toMatchObject({
+      ok: false,
+      error: {
+        code: "runtime_external",
+        message: "This daemon is managed outside Desktop. Restart it to reload identity.",
+      },
+    });
     expect(await supervisor.stop()).toEqual({ stopped: false });
     expect(runCommand.mock.calls.some(([, args]) => args.at(-1) === "stop")).toBe(false);
   });
