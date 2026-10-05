@@ -1,11 +1,25 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-03
+Last updated: 2026-10-05
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Preserve replacement drafts when leaving command mode, retain command arguments
+  during selection, and show usage and contextual help without invoking an action.
+
+- Confirm before discarding unsaved agent edits when switching profiles.
+
+- Refresh conversation ordering from OpenMinion after a turn completes, and add
+  Copy to inline command reports.
+
+- Copy the newest available assistant or tool output and provide Copy output on
+  completed tool cards when the runtime supplies content, with reported truncation.
+
+- Connect `/tools status` and `/tools list` through the existing public tool
+  reports. Tool activation and deactivation remain unconnected.
 
 - Align first-run managed installations with OpenMinion 0.0.29 and connect
   `/identity`, `/identity verify`, and `/identity reload` to the canonical

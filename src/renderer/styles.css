@@ -1579,6 +1579,12 @@ details[open] > summary .summary-chevron {
   line-height: 1.5;
 }
 
+.command-usage {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .command-panel {
   min-width: 0;
   flex-shrink: 0;

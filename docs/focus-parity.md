@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-10-03
+Last updated: 2026-10-05
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -46,13 +46,13 @@ media, and artifacts still require Desktop integration.
 
 | Surface                  | Current Desktop gap                                                                                                               | Required outcome                                                                                                    |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Catalog and help         | A small static renderer list                                                                                                      | Discover canonical names, aliases, usage, availability, and descriptions through fixed public OpenMinion operations |
-| Arguments and busy state | `/tasks` supports inspection and pause/resume/cancel arguments; other commands mostly reject arguments and use local button rules | Use the same parser and command admission as Focus, including bare queries during a turn                            |
+| Catalog and help         | A small static renderer list with argument hints, alias matching and local command help                                                                                                      | Discover canonical names, aliases, usage, availability, and descriptions through fixed public OpenMinion operations |
+| Arguments and busy state | `/tasks` supports inspection and pause/resume/cancel arguments; tool status/list and selected read filters are connected; other commands mostly reject arguments | Use the same parser and command admission as Focus, including bare queries during a turn                            |
 | `/new`, `/sessions`      | Saved-task creation and selection exist; Focus directory scope is not established                                                 | Preserve working directory, selected agent, session scope, and canonical creation/binding defaults                  |
 | `/resume`                | Not connected; the incorrect `/sessions` alias was removed                                                                        | Present prior sessions with messages in the current directory, then bind and load history                           |
 | `/model`                 | Reports session metadata only                                                                                                     | Present configured choices and perform canonical model selection; return effective settings                         |
 | `/status`                | Reports connection and partial session metadata                                                                                   | Include canonical agent, model, session, and working-directory facts                                                |
-| `/clear`, `/copy`        | Visible chat clearing and assistant copying exist; canonical tool-output ordering is missing                                      | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback          |
+| `/clear`, `/copy`        | Visible chat clearing and newest assistant/runtime-supplied tool copying exist; missing raw tool content is not reconstructed                                      | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback          |
 | Tool presentation        | `/quiet` and `/normal` toggle summary cards                                                                                       | Match quiet, normal truncation, verbose, details, and expansion using canonical tool content                        |
 | Type-ahead               | Drafts remain unsent during a turn                                                                                                | Match Focus queue admission, inspection, and control through the runtime owner                                      |
 | Recovery                 | Running turns survive task switches in one app                                                                                    | Reattach to the same running turn and pending approvals after restart                                               |

@@ -75,15 +75,31 @@ export const DESKTOP_COMMANDS = [
     description: "Show commands currently connected in Desktop",
     usage: "/help [connected-command]",
   },
-  { name: "/new", description: "Start a new session" },
+  { name: "/new", description: "Start a new session", usage: "/new [session]" },
   { name: "/sessions", description: "Pick a session" },
   { name: "/close", description: "Close the current session" },
-  { name: "/tasks", description: "Inspect and control tasks" },
-  { name: "/agents", description: "List agents or find one by ID or name" },
-  { name: "/tools", description: "Show available tools" },
+  {
+    name: "/tasks",
+    description: "Inspect and control tasks",
+    usage: "/tasks [task-id] · /tasks pause|resume|cancel <task-id>",
+  },
+  {
+    name: "/agents",
+    description: "List agents or find one by ID or name",
+    usage: "/agents [agent-id-or-label]",
+  },
+  {
+    name: "/tools",
+    description: "Show tool exposure or list available tools",
+    usage: "/tools [status|list]",
+  },
   { name: "/mcp", description: "Show configured and exposed MCP servers" },
-  { name: "/skills", description: "List skills or inspect one by ID" },
-  { name: "/learning", description: "Show skill-learning proposals" },
+  { name: "/skills", description: "List skills or inspect one by ID", usage: "/skills [skill-id]" },
+  {
+    name: "/learning",
+    description: "Show skill-learning proposals",
+    usage: "/learning [proposal-id]",
+  },
   {
     name: "/identity",
     description: "Show, verify, or reload the active identity",
@@ -99,7 +115,7 @@ export const DESKTOP_COMMANDS = [
     name: "/model",
     description: "Show reported model (selection not connected yet)",
   },
-  { name: "/copy", description: "Copy the latest reply" },
+  { name: "/copy", description: "Copy the latest reply or tool output" },
   { name: "/clear", description: "Clear the visible chat; keep saved history" },
   { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
   { name: "/normal", description: "Show tool activity" },
@@ -117,7 +133,14 @@ export const DESKTOP_ALIASES: Record<string, string> = {
 };
 
 export function commandMatches(text: string) {
-  return DESKTOP_COMMANDS.filter((command) => command.name.startsWith(text.trim()));
+  const name = text.trim().split(/\s+/, 1)[0];
+  return DESKTOP_COMMANDS.filter(
+    (command) =>
+      command.name.startsWith(name) ||
+      Object.entries(DESKTOP_ALIASES).some(
+        ([alias, target]) => target === command.name && alias.startsWith(name),
+      ),
+  );
 }
 
 function isTaskCommand(text: string): boolean {
@@ -716,6 +739,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const drafts = new Map<string, string>();
   let submittedText: string | null = null;
   let responseText = "";
+  let latestCopyText: string | null = null;
   let responseUsage: InferenceUsageV1 | undefined;
   const liveTurns = new Map<
     string,
@@ -724,6 +748,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       messages: MessageV1[];
       submittedText: string;
       responseText: string;
+      latestCopyText: string | null;
       responseUsage?: InferenceUsageV1;
       activity: ActivityItem[];
     }
@@ -1447,7 +1472,16 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         description.className = "command-description";
         description.textContent = command.description;
         button.append(name, description);
-        button.addEventListener("click", () => void runCommand(command.name));
+        if ("usage" in command) {
+          const usage = root.createElement("span");
+          usage.className = "command-usage";
+          usage.textContent = command.usage;
+          button.append(usage);
+        }
+        button.addEventListener(
+          "click",
+          () => void runCommand(value.replace(/^\S+/, command.name)),
+        );
         return button;
       }),
     );
@@ -1480,7 +1514,21 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.commandTitle.textContent = title;
     const paragraph = root.createElement("p");
     paragraph.textContent = text;
-    elements.commandResult.replaceChildren(paragraph);
+    const copy = root.createElement("button");
+    copy.type = "button";
+    copy.className = "quiet-button";
+    copy.textContent = "Copy";
+    copy.setAttribute("aria-label", "Copy command result");
+    copy.setAttribute("aria-live", "polite");
+    copy.addEventListener("click", async () => {
+      try {
+        const result = await api.app.copyText(text);
+        copy.textContent = result.ok ? "Copied" : "Copy failed";
+      } catch {
+        copy.textContent = "Copy failed";
+      }
+    });
+    elements.commandResult.replaceChildren(paragraph, copy);
     elements.commandPanel.hidden = false;
     elements.commandPanel.scrollIntoView({ block: "start" });
   };
@@ -1630,6 +1678,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (!value.startsWith("/") || value.startsWith("//")) return false;
     const [name, ...args] = value.split(/\s+/);
     const command = DESKTOP_ALIASES[name] ?? name;
+    if (args.length === 1 && ["--help", "?"].includes(args[0])) {
+      return runCommand(`/help ${command}`);
+    }
     if (!DESKTOP_COMMANDS.some((item) => item.name === command)) {
       hideCommandMenu();
       showCommandResult(
@@ -1640,6 +1691,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     if (
       args.length &&
+      command !== "/tools" &&
       command !== "/tasks" &&
       command !== "/agents" &&
       command !== "/skills" &&
@@ -1667,8 +1719,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       case "/learning":
       case "/mcp":
       case "/graph": {
-        if (command === "/agents" && args.length && chat.active) {
-          showCommandResult("Agents", "Finish or stop this turn before inspecting an agent.");
+        if (["/agents", "/tools"].includes(command) && args.length && chat.active) {
+          showCommandResult(
+            "Turn in progress",
+            "Finish or stop this turn before using these command arguments.",
+          );
           break;
         }
         const kind = command.slice(1) as
@@ -1692,6 +1747,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           showCommandResult(titles[kind], "No active session.");
           break;
         }
+        if (
+          kind === "tools" &&
+          args.length &&
+          (args.length !== 1 || !["status", "list"].includes(args[0]))
+        ) {
+          showCommandResult(
+            "Command arguments",
+            "Use /tools, /tools status, or /tools list. Tool activation is not connected yet.",
+          );
+          break;
+        }
         const sessionId = selected?.sessionId;
         showCommandResult(titles[kind], "Loading from OpenMinion…");
         const request = commandResultGeneration;
@@ -1701,6 +1767,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             ? { sessionId }
             : {}),
           ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
+          ...(kind === "tools" && args.length ? { toolView: args[0] as "status" | "list" } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
           ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
           ...(kind === "learning" && args.length ? { proposalId: args.join(" ") } : {}),
@@ -1719,7 +1786,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
                     `${agent.id === selected?.activeAgentId ? "● " : ""}${agent.id}${agent.label !== agent.id ? ` — ${agent.label}` : ""}`,
                 )
                 .join("\n") || "No matching agents.";
-          else if (report.kind === "tools")
+          else if (report.kind === "tools" && "tools" in report)
             text =
               report.tools
                 .map((tool) => `${tool.name}${tool.enabled ? "" : " · disabled"}`)
@@ -1820,7 +1887,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       }
       case "/help": {
         if (args.length) {
-          const requested = args[0].startsWith("/") ? args[0] : `/${args[0]}`;
+          const target = args.join(" ");
+          const requested = target.startsWith("/") ? target : `/${target}`;
           const canonical = DESKTOP_ALIASES[requested] ?? requested;
           const item = DESKTOP_COMMANDS.find((candidate) => candidate.name === canonical);
           showCommandResult(
@@ -1908,17 +1976,29 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         );
         break;
       case "/copy": {
-        const reply = responseText
-          ? { body: responseText, profileName: selected?.activeAgentId }
-          : messages.slice(hiddenMessageCount).findLast((item) => item.role === "assistant");
-        const text = reply && assistantBody(reply.body, reply.profileName);
-        if (!text) showCommandResult("Copy reply", "There is no reply to copy yet.");
+        const reply = messages
+          .slice(hiddenMessageCount)
+          .findLast((item) => item.role === "assistant");
+        let text = latestCopyText ?? (reply ? assistantBody(reply.body, reply.profileName) : null);
+        if (latestCopyText === null) {
+          let latestAt = reply ? Date.parse(reply.createdAt) : -Infinity;
+          for (const item of activity) {
+            if (item.kind !== "tool" || item.phase !== "completed" || !item.content) continue;
+            const createdAt = Date.parse(item.createdAt);
+            if (createdAt > latestAt) {
+              text = item.content;
+              latestAt = createdAt;
+            }
+          }
+        }
+        if (!text) showCommandResult("Copy", "There is no reply or tool output to copy yet.");
         else {
-          const result = await api.app.copyText(text);
-          showCommandResult(
-            "Copy reply",
-            result.ok ? "Copied to clipboard." : result.error.message,
-          );
+          try {
+            const result = await api.app.copyText(text);
+            showCommandResult("Copy", result.ok ? "Copied to clipboard." : result.error.message);
+          } catch {
+            showCommandResult("Copy", "Copy failed");
+          }
         }
         break;
       }
@@ -1930,6 +2010,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           );
         else {
           hiddenMessageCount = messages.length;
+          latestCopyText = null;
           activity = [];
           showCommandResult(
             "Chat cleared",
@@ -2315,6 +2396,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       messages = live?.messages ?? [];
       submittedText = live?.submittedText ?? null;
       responseText = live?.responseText ?? "";
+      latestCopyText = live?.latestCopyText ?? null;
       responseUsage = live?.responseUsage;
       hiddenMessageCount = 0;
       capturePending = Boolean(captureApi);
@@ -2357,6 +2439,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     messages = recovered.messages;
     submittedText = null;
     responseText = "";
+    latestCopyText = null;
     responseUsage = undefined;
     hiddenMessageCount = 0;
     automaticObservation = null;
@@ -2391,6 +2474,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       messages = live.messages;
       submittedText = live.submittedText;
       responseText = live.responseText;
+      latestCopyText = live.latestCopyText;
       responseUsage = live.responseUsage;
       for (const item of live.activity) activity = applyActivityEvent(activity, item);
       activityBySession.set(session.sessionId, activity);
@@ -2399,8 +2483,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderChat();
   };
 
+  let sessionsGeneration = 0;
   const loadSessions = async () => {
+    const generation = ++sessionsGeneration;
     const result = await listSessions(api);
+    if (generation !== sessionsGeneration) return;
     if ("code" in result) {
       showError(result);
       return;
@@ -2618,15 +2705,28 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       const matchesTurn = live.state.traceId === event.traceId;
       if (matchesTurn && (event.kind === "tool" || event.kind === "approval"))
         live.activity = applyActivityEvent(live.activity, event);
-      if (matchesTurn && event.kind === "progress" && event.progressKind === "text")
+      if (matchesTurn && event.kind === "progress" && event.progressKind === "text") {
         live.responseText += event.text;
+        live.latestCopyText = assistantBody(
+          live.responseText,
+          sessions.find((session) => session.sessionId === event.sessionId)?.activeAgentId,
+        );
+      }
+      if (matchesTurn && event.kind === "tool" && event.phase === "completed" && event.content)
+        live.latestCopyText = event.content;
       if (matchesTurn && event.kind === "response") {
         live.responseText = event.finalText;
+        if (event.finalText)
+          live.latestCopyText = assistantBody(
+            event.finalText,
+            sessions.find((session) => session.sessionId === event.sessionId)?.activeAgentId,
+          );
         live.responseUsage = event.usage;
       }
       live.state = applyTurnEvent(live.state, event);
       if (selected?.sessionId === event.sessionId) {
         responseText = live.responseText;
+        latestCopyText = live.latestCopyText;
         responseUsage = live.responseUsage;
       }
       if (event.kind === "done" && matchesTurn) liveTurns.delete(event.sessionId);
@@ -2662,6 +2762,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     chat = applyTurnEvent(chat, event);
     renderChat();
+    if (event.kind === "done" && live?.state.terminalTraceId === event.traceId) void loadSessions();
     if (event.kind === "done" && matchesSelectedTurn && selected) {
       void selectSession(selected, event.traceId, true);
     }
@@ -2753,6 +2854,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       showError(result.error);
       return false;
     }
+    sessionsGeneration += 1;
     sessions = [result.value, ...sessions];
     await selectSession(result.value);
     creatingTask = false;
@@ -2853,6 +2955,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       showError(result.error);
       return;
     }
+    sessionsGeneration += 1;
     selectionGeneration += 1;
     captureGeneration += 1;
     observationGeneration += 1;
@@ -2937,6 +3040,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     };
     submittedText = message;
     responseText = "";
+    latestCopyText = null;
     responseUsage = undefined;
     const sessionId = selected.sessionId;
     if (elements.composer.value === draft) elements.composer.value = "";
@@ -2947,6 +3051,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       messages,
       submittedText: message,
       responseText: "",
+      latestCopyText: null,
       responseUsage: undefined,
       activity: [],
     });
@@ -3018,6 +3123,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   });
   elements.askGuidance.addEventListener("click", () => void submitTurn(true));
   elements.composer.addEventListener("input", () => {
+    const draft = elements.composer.value.trimStart();
+    if (!draft.startsWith("/") || draft.startsWith("//")) commandDraft = null;
     commandIndex = 0;
     commandsDismissed = false;
     renderChat();
@@ -3067,10 +3174,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         event.preventDefault();
         const command = matches[commandIndex];
         if (command && event.key === "Tab") {
-          elements.composer.value = `${command.name} `;
+          const value = elements.composer.value.trim();
+          elements.composer.value = /\s/.test(value)
+            ? value.replace(/^\S+/, command.name)
+            : `${command.name} `;
           commandsDismissed = true;
           renderChat();
-        } else if (command) void runCommand(command.name);
+        } else if (command)
+          void runCommand(elements.composer.value.trim().replace(/^\S+/, command.name));
         return;
       }
     }
@@ -3970,7 +4081,7 @@ function renderTimeline(
   items.push(
     ...activity.map((item) =>
       item.kind === "tool"
-        ? renderToolCard(root, item)
+        ? renderToolCard(root, item, copyText)
         : renderApprovalCard(
             root,
             item,
@@ -4007,7 +4118,11 @@ function renderTimeline(
   conversation.scrollTop = followLatest ? conversation.scrollHeight : scrollTop;
 }
 
-function renderToolCard(root: Document, item: ToolProgressV1): HTMLElement {
+function renderToolCard(
+  root: Document,
+  item: ToolProgressV1,
+  copyText: NativeApi["app"]["copyText"],
+): HTMLElement {
   const card = root.createElement("article");
   card.className = "activity-card tool-card";
   const heading = root.createElement("p");
@@ -4017,7 +4132,27 @@ function renderToolCard(root: Document, item: ToolProgressV1): HTMLElement {
   details.className = "activity-details";
   const timing = item.durationMs === null ? "" : ` · ${item.durationMs} ms`;
   details.textContent = `${item.callId} · ${item.state}${timing}`;
+  if (item.truncated) details.textContent += " · Output truncated";
   card.append(heading, details);
+  if (item.phase === "completed" && item.content) {
+    const copy = root.createElement("button");
+    copy.type = "button";
+    copy.className = "quiet-button";
+    copy.textContent = "Copy output";
+    copy.setAttribute("aria-label", `Copy output from ${item.toolName}`);
+    copy.setAttribute("aria-live", "polite");
+    copy.addEventListener("click", async () => {
+      copy.disabled = true;
+      try {
+        const result = await copyText(item.content!);
+        copy.textContent = result.ok ? "Copied" : "Copy failed";
+      } catch {
+        copy.textContent = "Copy failed";
+      }
+      copy.disabled = false;
+    });
+    card.append(copy);
+  }
   return card;
 }
 

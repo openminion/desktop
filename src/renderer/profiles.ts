@@ -101,6 +101,7 @@ export function mountProfiles(
     return { id, input, remove };
   });
   let settings: ProfileSettings | null = null;
+  let displayedAgent = "";
   let pending = false;
   let identitySettings: IdentitySettings | null = null;
   let identityPending = false;
@@ -209,6 +210,7 @@ export function mountProfiles(
   const populateAgent = () => {
     const agent = settings?.agents.find((item) => item.id === select.value);
     if (!agent || !settings) return;
+    displayedAgent = agent.id;
     model.value = agent.model;
     endpoint.value = agent.baseUrl;
     key.value = "";
@@ -352,7 +354,25 @@ export function mountProfiles(
     for (const field of credentials) field.input.value = "";
     returnFocus.focus();
   });
-  select.addEventListener("change", populateAgent);
+  select.addEventListener("change", () => {
+    const agent = settings?.agents.find((item) => item.id === displayedAgent);
+    const edited =
+      agent &&
+      (model.value !== agent.model ||
+        endpoint.value !== agent.baseUrl ||
+        key.value !== "" ||
+        removeKey.checked ||
+        makeDefault.checked !== (settings?.defaultAgent === agent.id));
+    if (
+      select.value !== displayedAgent &&
+      edited &&
+      !root.defaultView!.confirm("Discard unsaved changes for this agent and switch agents?")
+    ) {
+      select.value = displayedAgent;
+      return;
+    }
+    populateAgent();
+  });
   identityAgent.addEventListener("change", populateIdentity);
   identityYaml.addEventListener("input", () => {
     const profile = identitySettings?.profiles.find(

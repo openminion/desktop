@@ -96,7 +96,9 @@ function toolProgressEvent(
     Number(detail.duration_ms) < 0 ||
     (detail.exit_code !== undefined &&
       detail.exit_code !== null &&
-      !Number.isSafeInteger(detail.exit_code))
+      !Number.isSafeInteger(detail.exit_code)) ||
+    (detail.content !== undefined && typeof detail.content !== "string") ||
+    (detail.truncated !== undefined && typeof detail.truncated !== "boolean")
   ) {
     throw protocolError("invalid_daemon_response", "OpenMinion returned invalid tool progress.");
   }
@@ -105,6 +107,8 @@ function toolProgressEvent(
     ok: detail.ok,
     durationMs: Number(detail.duration_ms),
     exitCode: detail.exit_code == null ? null : Number(detail.exit_code),
+    ...(typeof detail.content === "string" ? { content: detail.content } : {}),
+    ...(typeof detail.truncated === "boolean" ? { truncated: detail.truncated } : {}),
   };
 }
 
@@ -308,12 +312,25 @@ export class CliClient {
       if (
         Object.keys(value).some(
           (key) =>
-            !["kind", "sessionId", "agentFilter", "agentId", "skillId", "proposalId"].includes(key),
+            ![
+              "kind",
+              "sessionId",
+              "agentFilter",
+              "agentId",
+              "skillId",
+              "proposalId",
+              "toolView",
+            ].includes(key),
         )
       )
         throw protocolError("invalid_request", "Choose a supported report.");
       if (this.#configuring)
         throw protocolError("settings_busy", "Wait for Settings to finish applying.");
+      if (
+        value.toolView !== undefined &&
+        (value.kind !== "tools" || (value.toolView !== "status" && value.toolView !== "list"))
+      )
+        throw protocolError("invalid_request", "Choose tool status or list.");
       if (
         value.agentFilter !== undefined &&
         (value.kind !== "agents" ||
@@ -368,6 +385,65 @@ export class CliClient {
         };
       }
       if (value.kind === "tools") {
+        if (value.toolView === "status") {
+          const sessionId =
+            value.sessionId === undefined
+              ? null
+              : validateLoadInput({
+                  sessionId: value.sessionId,
+                } as SessionLoadInput).sessionId;
+          const payload = await this.#request(
+            `/v1/tools/exposure${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`,
+          );
+          if (payload.ok !== true)
+            throw protocolError("report_unavailable", "Tool status is unavailable.");
+          const exposure = requireRecord(payload.exposure);
+          const lines = ["Tool exposure profiles:"];
+          for (const item of requireArray(exposure.profiles)) {
+            const profile = requireRecord(item);
+            if (typeof profile.active !== "boolean")
+              throw protocolError(
+                "invalid_daemon_response",
+                "OpenMinion did not report tool profile availability.",
+              );
+            lines.push(
+              `  ${profile.active ? "active" : "hidden"}  ${requireString(profile.profile_id)} (${requireString(profile.tier)})  ${requireString(profile.dependency_readiness)}`,
+            );
+            for (const item of requireArray(profile.dependency_statuses)) {
+              const dependency = requireRecord(item);
+              const hints = requireArray(dependency.setup_hints ?? []);
+              const detail =
+                dependency.state === "ready"
+                  ? optionalString(dependency.version ?? dependency.resolved_path ?? null)
+                  : hints.length
+                    ? optionalString(requireRecord(hints[0]).label ?? null)
+                    : null;
+              lines.push(
+                `    ${requireString(dependency.dependency_id)}: ${requireString(dependency.state)}${detail ? ` · ${detail}` : ""}`,
+              );
+            }
+          }
+          if (lines.length === 1) lines.push("  (none)");
+          const otherTools = requireArray(exposure.unprofiled_dependency_tools);
+          if (otherTools.length) lines.push("Other tool dependencies:");
+          for (const item of otherTools) {
+            const tool = requireRecord(item);
+            const dependencies = requireArray(tool.dependency_statuses).map((item) =>
+              requireString(requireRecord(item).dependency_id),
+            );
+            lines.push(
+              `  ${requireString(tool.tool_name)}: ${requireString(tool.dependency_readiness)}${dependencies.length ? ` (${dependencies.join(", ")})` : ""}`,
+            );
+          }
+          if (exposure.security_lab !== undefined) {
+            const lab = requireRecord(exposure.security_lab);
+            if (lab.state !== "not_configured")
+              lines.push(
+                `Security lab: ${requireString(lab.state)}${lab.reason ? ` · ${requireString(lab.reason)}` : ""}`,
+              );
+          }
+          return { kind: "tools", text: lines.join("\n") };
+        }
         const payload = await this.#request("/v1/tools");
         if (payload.ok !== true)
           throw protocolError("report_unavailable", "Tool inventory is unavailable.");
