@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, clipboard } from "electron";
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "openminion-electron-check-"));
 app.setPath("userData", temporaryRoot);
@@ -371,6 +371,93 @@ async function check() {
     );
     assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
     assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
+
+    // Commands remain usable locally without turning help or completion into a chat send.
+    await click("composer");
+    await key("k", [process.platform === "darwin" ? "meta" : "control"]);
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "/");
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
+    await key("k", [process.platform === "darwin" ? "meta" : "control"]);
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("Replacement draft");
+    await settled();
+    assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), true);
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "Replacement draft");
+    const timelineBeforeHelp = await evaluate("document.querySelector('#timeline').textContent");
+    for (const [command, usage] of [
+      ["/tasks --help", "/tasks [task-id]"],
+      ["/skills ?", "/skills [skill-id]"],
+      ["/task --help", "/tasks [task-id]"],
+    ]) {
+      await click("composer");
+      await evaluate("document.querySelector('#composer').select()");
+      await window.webContents.insertText(command);
+      await settled();
+      assert.equal(await evaluate("document.querySelector('#composer').value"), command);
+      assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), false);
+      const hint = await evaluate(
+        "document.querySelector('#command-menu .command-usage').textContent",
+      );
+      assert.ok(hint.includes(usage), `${command} exposes argument syntax: ${hint}`);
+      await key("Return");
+      await waitFor("document.querySelector('#command-title').textContent === 'Command help'");
+      assert.ok(
+        (await evaluate("document.querySelector('#command-result p').textContent")).includes(usage),
+      );
+      assert.equal(
+        await evaluate("document.querySelector('#timeline').textContent"),
+        timelineBeforeHelp,
+      );
+      assert.equal(await evaluate("document.querySelector('#profile-dialog').open"), false);
+      await click("close-command");
+      assert.equal(await evaluate("document.activeElement.id"), "composer");
+    }
+    await window.webContents.insertText("/tasks pause task-id");
+    await settled();
+    await key("Tab");
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "/tasks pause task-id",
+      "Tab completion preserves arguments already entered",
+    );
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("/cls");
+    await settled();
+    await key("Tab");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "/clear ");
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("/status");
+    await settled();
+    await key("Return");
+    await waitFor("document.querySelector('#command-title').textContent === 'Conversation status'");
+    const commandReport = await evaluate("document.querySelector('#command-result p').textContent");
+    const copyPoint = await evaluate(`(() => {
+      const button = document.querySelector('[aria-label="Copy command result"]');
+      button.scrollIntoView({block:'nearest'});
+      const bounds = button.getBoundingClientRect();
+      return {x:Math.round(bounds.x + bounds.width / 2), y:Math.round(bounds.y + bounds.height / 2)};
+    })()`);
+    for (const type of ["mouseDown", "mouseUp"])
+      window.webContents.sendInputEvent({ type, button: "left", clickCount: 1, ...copyPoint });
+    await waitFor(
+      "document.querySelector('[aria-label=\"Copy command result\"]').textContent === 'Copied'",
+    );
+    assert.equal(
+      await clipboard.readText(),
+      commandReport,
+      "Copy includes the report, not its controls",
+    );
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    assert.equal(await evaluate("document.activeElement.id"), "composer");
+    await window.webContents.insertText("Keep drafting");
+    await settled();
+    console.log(
+      "PASS: native command shortcut/draft replacement, contextual help, alias and argument completion, report Copy and Dismiss focus without a runtime.",
+    );
 
     // Real unavailable-runtime Settings must retain diagnostics and local preferences.
     await click("show-settings");

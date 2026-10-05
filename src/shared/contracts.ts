@@ -172,6 +172,8 @@ export type ToolProgressV1 = {
   ok: boolean | null;
   durationMs: number | null;
   exitCode: number | null;
+  content?: string;
+  truncated?: boolean;
 };
 
 export type ApprovalDecision = "allow_once" | "deny";

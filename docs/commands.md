@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-10-03
+Last updated: 2026-10-05
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -20,9 +20,13 @@ Type `/` in the composer, click its `/` button, or press Command+K (Ctrl+K
 elsewhere). Use the arrow keys to select a command. Enter runs it; Tab completes
 its name. Escape dismisses the menu. Opening the menu with the button or shortcut
 preserves an existing draft and restores it when you dismiss or run a command.
+Replacing the command with ordinary text replaces that saved draft. Usage hints
+remain visible while entering arguments; choosing a match keeps those arguments.
+Use `/help <command>`, `/<command> --help`, or `/<command> ?` for local help
+without running the command.
 
 Command results appear after the messages inside the conversation scroll area.
-You can keep drafting while reading a result. Close it with its × button or press
+You can copy a text result or error and keep drafting while reading it. Close it with its × button or press
 Escape from the composer or result. Long results scroll with the chat, without a separate panel or fixed overlay. Picking
 a different conversation dismisses the previous result.
 
@@ -40,7 +44,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration.                                                                                                                                           |
 | `/tasks`, `/task`       | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID, use the returned Pause, Resume, and Cancel controls, or create scheduled work in the inline form.                                 |
 | `/agents`, `/agent`     | Read the daemon's agent discovery list. An exact ID or display name filters the list; this does not change the session's agent.                                                                                           |
-| `/tools`, `/tool`       | Show the daemon's tool inventory and reported availability. Exposure changes are not connected.                                                                                                                           |
+| `/tools`, `/tool`       | Show the daemon's tool inventory and reported availability. `list` shows the same inventory; `status` reports exposure profiles and readiness for the selected session. Exposure changes are not connected.                                                                                                                           |
 | `/mcp`                  | Show configured and exposed MCP servers plus registered/exposed MCP tool counts from the daemon's capability report.                                                                                                      |
 | `/skills`               | List the OpenMinion skill catalog or inspect one exact skill ID through the public daemon API. Skill admission and mutation are not connected.                                                                            |
 | `/learning`             | Show the skill-learning suggestion summary or inspect one exact proposal ID through the public daemon API. Review and apply remain operator CLI actions.                                                                  |
@@ -49,7 +53,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/export`               | Save the selected conversation as Markdown through a native file chooser and the CLI transcript exporter.                                                                                                                 |
 | `/status`               | Show connection, selected task, active agent, reported model, and turn status.                                                                                                                                            |
 | `/model`                | Show the model facts reported by the daemon; changing models is not supported here yet.                                                                                                                                   |
-| `/copy`                 | Copy the latest visible assistant reply, including a currently streaming reply. Never fall back to user input or cleared replies. Focus tool-output copying still needs integration. Clipboard writes are capped at 1 MB. |
+| `/copy`                 | Copy the newest available assistant reply or runtime-supplied completed tool output. Never fall back to user input or cleared replies. Unavailable raw output is not reconstructed; clipboard writes are capped at 1 MB. |
 | `/clear`, `/cls`        | Clear the visible chat while idle. Saved history remains in OpenMinion; selecting the task restores it.                                                                                                                   |
 | `/quiet`                | Hide tool activity cards while keeping approvals visible; saved as a Desktop display preference.                                                                                                                          |
 | `/normal`               | Restore tool activity cards; saved as a Desktop display preference.                                                                                                                                                       |
@@ -89,7 +93,7 @@ link explicitly opens the system browser. Other URL schemes are unavailable.
 Unchanged message elements stay mounted during status updates so text selection
 and reading position can be retained.
 
-Except for task commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help, and export remain available during a turn. Agent filtering waits for the turn to finish, matching Focus admission. Export includes only messages already saved by OpenMinion. Model/provider
+Except for task commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
 The composer remains editable during a turn so you can write a draft or run a
@@ -106,8 +110,10 @@ provides the narrow clipboard-write bridge; neither surface reads the clipboard.
 Progress displays the daemon's label and detail text without inferring brain phases.
 After 15 seconds without a new event, it shows the time since the last update
 while preserving the conversation and stop control. Completion clears the live
-status. Tool activity and request-bound approval cards use the same live turn
-stream; richer tool-output presentation remains a separate gap.
+status. Completed tool cards offer Copy output when the runtime supplies content
+and identify reported truncation. Missing output is not recovered from assistant
+text or invented after restart. Tool activity and request-bound approval cards
+use the same live turn stream; richer expansion remains a separate gap.
 
 ## Remaining Focus Parity
 

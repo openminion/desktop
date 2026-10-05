@@ -123,6 +123,48 @@ describe("PyPI CLI client", () => {
     expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
   });
 
+  it("reads scoped tool exposure and rejects invalid selectors", async () => {
+    const fixture = await executableFixture();
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    for (const sessionId of [undefined, "session/one"])
+      expect(
+        await client.readReport({
+          kind: "tools",
+          toolView: "status",
+          ...(sessionId ? { sessionId } : {}),
+        }),
+      ).toEqual({
+        ok: true,
+        value: {
+          kind: "tools",
+          text: "Tool exposure profiles:\n  active  web (standard)  degraded\n    browser: missing · Install browser\nOther tool dependencies:\n  exec: ready (shell)",
+        },
+      });
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      "/v1/tools/exposure",
+      "/v1/tools/exposure?session_id=session%2Fone",
+    ]);
+    expect(await client.readReport({ kind: "tools", toolView: "list" })).toMatchObject({
+      ok: true,
+      value: { tools: expect.any(Array) },
+    });
+    for (const input of [
+      { kind: "agents", toolView: "status" },
+      { kind: "tools", toolView: "activate" },
+      { kind: "tools", toolView: ["status"] },
+      { kind: "tools", toolView: { value: "status" } },
+      { kind: "tools", toolView: "status", sessionId: "" },
+    ])
+      expect(await client.readReport(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(fixture.requests).toHaveLength(3);
+  });
+
   it("uses canonical token formatting and transcript export without renderer paths", async () => {
     const run = vi.fn().mockResolvedValue({
       exitCode: 0,
@@ -1081,8 +1123,58 @@ describe("PyPI CLI client", () => {
       ),
     );
     expect(events).toContainEqual(
-      expect.objectContaining({ kind: "tool", phase: "completed", ok, exitCode: null }),
+      expect.objectContaining({
+        kind: "tool",
+        phase: "completed",
+        ok,
+        exitCode: null,
+      }),
     );
+  });
+
+  it.each([
+    [{}, true],
+    [{ content: "" }, true],
+    [{ content: "  full tool output\nsecond line\n", truncated: false }, true],
+    [{ content: "partial output", truncated: true }, true],
+    [{ content: { unexpected: "payload" } }, false],
+    [{ content: "output", truncated: "false" }, false],
+  ] as const)("preserves only runtime-supplied tool content %j", async (toolOutput, valid) => {
+    const fixture = await executableFixture("approval", toolOutput);
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit(
+      { sessionId: created.value.sessionId, message: "run tests" },
+      (event) => events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() => expect(events.some((event) => event.kind === "approval")).toBe(true));
+    expect(events.find((event) => event.kind === "tool")).not.toHaveProperty("content");
+    await client.decide({
+      sessionId: submitted.value.sessionId,
+      traceId: submitted.value.traceId,
+      approvalId: "approval-1",
+      decision: "allow_once",
+    });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: valid ? "complete" : "error" }),
+    );
+    const completed = events.find((event) => event.kind === "tool" && event.phase === "completed");
+    if (valid) {
+      expect(completed).toMatchObject(toolOutput);
+      expect(completed && "content" in completed).toBe("content" in toolOutput);
+      expect(completed && "truncated" in completed).toBe("truncated" in toolOutput);
+    } else {
+      expect(completed).toBeUndefined();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "error",
+          error: expect.objectContaining({ code: "daemon_stream_failed" }),
+        }),
+      );
+    }
   });
 
   it("preserves typed retryable approval errors", async () => {
@@ -1260,12 +1352,13 @@ function session(id: string) {
   };
 }
 
-async function executableFixture(mode = "normal") {
+async function executableFixture(mode = "normal", toolOutput: Record<string, unknown> = {}) {
   const root = await mkdtemp(join(tmpdir(), "desktop-cli-test-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const requests: Array<{
     body: Record<string, unknown>;
     token: string | string[] | undefined;
+    path?: string;
   }> = [];
   let complete: ((cancelled: boolean) => void) | null = null;
   let emitSse: ((event: string, value: unknown) => void) | null = null;
@@ -1273,8 +1366,46 @@ async function executableFixture(mode = "normal") {
   let traceId = "";
   const server = createServer((req, res) => {
     if (req.method === "GET") {
-      requests.push({ body: {}, token: req.headers["x-ipc-token"] });
+      requests.push({
+        body: {},
+        token: req.headers["x-ipc-token"],
+        path: req.url,
+      });
       res.setHeader("Content-Type", "application/json");
+      if (req.url?.startsWith("/v1/tools/exposure")) {
+        res.end(
+          JSON.stringify({
+            ok: true,
+            exposure: {
+              profiles: [
+                {
+                  profile_id: "web",
+                  tier: "standard",
+                  active: true,
+                  dependency_readiness: "degraded",
+                  private: "not exposed",
+                  dependency_statuses: [
+                    {
+                      dependency_id: "browser",
+                      state: "missing",
+                      setup_hints: [{ label: "Install browser" }],
+                    },
+                  ],
+                },
+              ],
+              unprofiled_dependency_tools: [
+                {
+                  tool_name: "exec",
+                  dependency_readiness: "ready",
+                  dependency_statuses: [{ dependency_id: "shell" }],
+                },
+              ],
+              ...(req.url.includes("?") ? { security_lab: { state: "not_configured" } } : {}),
+            },
+          }),
+        );
+        return;
+      }
       res.end(
         JSON.stringify(
           req.url === "/v1/agents"
@@ -1437,6 +1568,7 @@ async function executableFixture(mode = "normal") {
             state: outcome === "applied" ? "ok" : "denied",
             ok: outcome === "applied",
             duration_ms: 12,
+            ...toolOutput,
           },
           ts: now,
         });
