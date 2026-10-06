@@ -1402,6 +1402,29 @@ details[open] > summary .summary-chevron {
   font-weight: 760;
 }
 
+.tool-output {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.tool-output summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.tool-output pre {
+  max-height: 20rem;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
 .activity-details,
 .approval-preview {
   margin-top: 6px;

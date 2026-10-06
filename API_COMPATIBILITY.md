@@ -188,3 +188,12 @@ Compatibility expectations for the documented boundary are:
 4. validate later transport work against the existing public interface it uses,
    and
 5. do not describe lifecycle proof as chat or provider-backed proof.
+
+## Received tool output
+
+Completed tool events may include typed `content` and `truncated` fields. The
+preload admits these optional fields and rejects malformed values. Desktop
+shows received text in a native disclosure and copies that exact text. Partial
+output is labeled; metadata-only history does not imply recoverable full output.
+Expansion is a presentation control, not a full implementation of Focus display
+modes or `/expand` block selection. No extra fetch or output store is introduced.

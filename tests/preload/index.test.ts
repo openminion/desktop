@@ -87,6 +87,50 @@ describe("preload surface", () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
+  it("delivers supplied tool output and truncation while rejecting malformed or unexpected fields", async () => {
+    await import("../../src/preload/index.js");
+    const api = exposeInMainWorld.mock.calls[0][1];
+    const listener = vi.fn();
+    api.turns.subscribe(listener);
+    const receive = on.mock.calls[0][1];
+    const event = {
+      schemaVersion: 1,
+      kind: "tool",
+      phase: "completed",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      toolName: "exec.run",
+      callId: "call-1",
+      state: "ok",
+      createdAt: "2026-10-06T00:00:00Z",
+      ok: true,
+      durationMs: 10,
+      exitCode: 0,
+    };
+    for (const optional of [
+      {},
+      { content: "" },
+      { truncated: false },
+      { content: "  <script>literal</script>\noutput\n", truncated: true },
+    ]) {
+      const supplied = { ...event, ...optional };
+      receive({}, supplied);
+      expect(listener).toHaveBeenLastCalledWith(supplied);
+    }
+    expect(listener).toHaveBeenCalledTimes(4);
+    for (const invalid of [
+      { content: null },
+      { content: [] },
+      { content: 1 },
+      { truncated: "true" },
+      { truncated: null },
+      { content: "output", token: "must-not-cross" },
+      { phase: "started", ok: null, durationMs: null, exitCode: null, content: "premature" },
+    ])
+      receive({}, { ...event, ...invalid });
+    expect(listener).toHaveBeenCalledTimes(4);
+  });
+
   it("exposes only the exact typed desktop methods", async () => {
     await import("../../src/preload/index.js");
     expect(exposeInMainWorld).toHaveBeenCalledOnce();

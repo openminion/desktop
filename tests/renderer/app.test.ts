@@ -2332,15 +2332,6 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("input");
       page.element("composer-form").dispatch("submit");
       await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
-      receive({
-        schemaVersion: 1,
-        kind: "progress",
-        progressKind: "text",
-        sessionId: session.sessionId,
-        traceId: "trace-1",
-        text: "First reply",
-        createdAt: "2026-10-05T00:00:01Z",
-      });
       const tool = {
         schemaVersion: 1 as const,
         kind: "tool" as const,
@@ -2359,6 +2350,22 @@ describe("renderer status view", () => {
       };
       receive(tool);
       expect(page.findText()).toContain("call-1 · ok · 10 ms · Output truncated");
+      const output = page
+        .element("timeline")
+        .descendants()
+        .find((item) => item.className === "tool-output")!;
+      expect(output.tagName).toBe("details");
+      expect(output.open).toBe(false);
+      expect(output.children[0]!.tagName).toBe("summary");
+      expect(output.children[0]!.textContent).toBe("Show available output");
+      expect(output.children[1]!.tagName).toBe("pre");
+      expect(output.children[1]!.textContent).toBe(tool.content);
+      expect(page.findText()).toContain(
+        "OpenMinion reported truncated output. Only the supplied text is available.",
+      );
+      output.open = true;
+      output.children[0]!.focus();
+      output.children[1]!.scrollTop = 37;
       const copy = page.findButtons().find((button) => button.textContent === "Copy output")!;
       copy.click();
       await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith(tool.content));
@@ -2382,15 +2389,20 @@ describe("renderer status view", () => {
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]!.textContent).toBe("Copy failed"),
       );
+      output.children[0]!.focus();
       receive({
         schemaVersion: 1,
         kind: "progress",
         progressKind: "text",
         sessionId: session.sessionId,
         traceId: "trace-1",
-        text: " continued",
+        text: "First reply continued",
         createdAt: "2026-10-05T00:00:03Z",
       });
+      expect(page.element("timeline").descendants()).toContain(output);
+      expect(output.open).toBe(true);
+      expect(output.children[1]!.scrollTop).toBe(37);
+      expect(page.activeElement).toBe(output.children[0]);
       copyLatest();
       await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith("First reply continued"));
       receive({
@@ -2400,6 +2412,9 @@ describe("renderer status view", () => {
         truncated: undefined,
         createdAt: "2026-10-05T00:00:04Z",
       });
+      expect(page.findText()).toContain("Output is unavailable for this event.");
+      receive({ ...tool, callId: "call-empty", content: "", truncated: false });
+      expect(page.findText()).toContain("No output.");
       copyLatest();
       await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith("First reply continued"));
       history.push({ ...message("new", "Saved final reply"), createdAt: "2026-10-05T00:00:05Z" });
@@ -4930,14 +4945,22 @@ class FixtureElement {
 
   constructor(readonly tagName: string) {}
 
+  contains(element: FixtureElement | null): boolean {
+    return element !== null && this.descendants().includes(element);
+  }
   append(...children: FixtureElement[]): void {
     this.children.push(...children);
   }
   get lastElementChild(): FixtureElement | null {
     return this.children.at(-1) ?? null;
   }
-  replaceChild(next: FixtureElement, previous: FixtureElement): void {
-    this.children.splice(this.children.indexOf(previous), 1, next);
+  insertBefore(next: FixtureElement, previous: FixtureElement | null): void {
+    this.children = this.children.filter((child) => child !== next);
+    const index = previous === null ? this.children.length : this.children.indexOf(previous);
+    this.children.splice(index, 0, next);
+  }
+  moveBefore(next: FixtureElement, previous: FixtureElement | null): void {
+    this.insertBefore(next, previous);
   }
   removeChild(child: FixtureElement): void {
     this.children.splice(this.children.indexOf(child), 1);

@@ -4058,7 +4058,13 @@ type TimelineMessage = {
   usage: HTMLElement | null;
   timestamp: HTMLTimeElement;
 };
-const timelineMessages = new WeakMap<HTMLElement, TimelineMessage[]>();
+const timelineMessages = new WeakMap<
+  HTMLElement,
+  {
+    messages: TimelineMessage[];
+    tools: Map<ToolProgressV1, HTMLElement>;
+  }
+>();
 
 export function messageTime(createdAt?: string): string {
   if (!createdAt) return "";
@@ -4094,7 +4100,9 @@ function renderTimeline(
 ): void {
   const scrollTop = conversation.scrollTop;
   const followLatest = conversation.scrollHeight - conversation.clientHeight - scrollTop <= 1;
-  const previous = timelineMessages.get(timeline) ?? [];
+  const cachedTimeline = timelineMessages.get(timeline);
+  const previous = cachedTimeline?.messages ?? [];
+  const toolCards = new Map<ToolProgressV1, HTMLElement>();
   const next: TimelineMessage[] = [];
   const items: HTMLElement[] = messages.map((message, index) => {
     const bodyText =
@@ -4215,21 +4223,24 @@ function renderTimeline(
   }
   const approvalFocusTargets = new Map<string, HTMLElement>();
   items.push(
-    ...activity.map((item) =>
-      item.kind === "tool"
-        ? renderToolCard(root, item, copyText)
-        : renderApprovalCard(
-            root,
-            item,
-            deciding.has(item.approvalId),
-            approvalErrors.get(item.approvalId) ?? null,
-            approvalBlocked,
-            approvalFocus.has(item.approvalId),
-            announcedApprovals,
-            approvalFocusTargets,
-            decide,
-          ),
-    ),
+    ...activity.map((item) => {
+      if (item.kind === "tool") {
+        const card = cachedTimeline?.tools.get(item) ?? renderToolCard(root, item, copyText);
+        toolCards.set(item, card);
+        return card;
+      }
+      return renderApprovalCard(
+        root,
+        item,
+        deciding.has(item.approvalId),
+        approvalErrors.get(item.approvalId) ?? null,
+        approvalBlocked,
+        approvalFocus.has(item.approvalId),
+        announcedApprovals,
+        approvalFocusTargets,
+        decide,
+      );
+    }),
   );
   if (!items.length && !loading) {
     const empty = root.createElement("p");
@@ -4240,12 +4251,12 @@ function renderTimeline(
   const requestIndex = messages.findLastIndex((message) => message.role === "user");
   if (requestIndex >= 0) items.splice(requestIndex + 1, 0, progress);
   else items.push(progress);
-  timelineMessages.set(timeline, next);
+  timelineMessages.set(timeline, { messages: next, tools: toolCards });
   for (const [index, item] of items.entries()) {
     const current = timeline.children[index];
     if (current === item) continue;
-    if (current) timeline.replaceChild(item, current);
-    else timeline.append(item);
+    if (timeline.contains(item)) timeline.moveBefore(item, current ?? null);
+    else timeline.insertBefore(item, current ?? null);
   }
   while (timeline.children.length > items.length) timeline.removeChild(timeline.lastElementChild!);
   for (const [approvalId, button] of approvalFocusTargets) {
@@ -4271,6 +4282,21 @@ function renderToolCard(
   if (item.truncated) details.textContent += " · Output truncated";
   card.append(heading, details);
   if (item.phase === "completed" && item.content) {
+    const output = root.createElement("details");
+    output.className = "tool-output";
+    const summary = root.createElement("summary");
+    summary.textContent = item.truncated ? "Show available output" : "Show output";
+    const body = root.createElement("pre");
+    body.textContent = item.content;
+    output.append(summary, body);
+    if (item.truncated) {
+      const notice = root.createElement("p");
+      notice.className = "activity-details";
+      notice.textContent =
+        "OpenMinion reported truncated output. Only the supplied text is available.";
+      output.append(notice);
+    }
+    card.append(output);
     const copy = root.createElement("button");
     copy.type = "button";
     copy.className = "quiet-button";
@@ -4288,6 +4314,12 @@ function renderToolCard(
       copy.disabled = false;
     });
     card.append(copy);
+  } else if (item.phase === "completed") {
+    const unavailable = root.createElement("p");
+    unavailable.className = "activity-details";
+    unavailable.textContent =
+      item.content === "" ? "No output." : "Output is unavailable for this event.";
+    card.append(unavailable);
   }
   return card;
 }
