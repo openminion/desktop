@@ -18,6 +18,10 @@ const api: NativeApi = {
     stage: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeStage),
     control: (input) => ipcRenderer.invoke(IPC_CHANNELS.runtimeControl, input),
   },
+  drafts: {
+    load: () => ipcRenderer.invoke(IPC_CHANNELS.draftsLoad),
+    save: (input) => ipcRenderer.invoke(IPC_CHANNELS.draftsSave, input),
+  },
   chatNames: {
     load: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesLoad, input),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesSave, input),
@@ -88,6 +92,9 @@ const api: NativeApi = {
     },
     cancel(input) {
       return ipcRenderer.invoke(IPC_CHANNELS.turnsCancel, input);
+    },
+    reconnect(input) {
+      return ipcRenderer.invoke(IPC_CHANNELS.turnsReconnect, input);
     },
     subscribe(listener) {
       if (activeTurnListener) {
@@ -686,10 +693,28 @@ function isTurnEvent(value: unknown): value is TurnEventV1 {
   if (record.schemaVersion !== 1) {
     return false;
   }
+  if (record.kind === "connection") {
+    return (
+      exactKeys(record, ["schemaVersion", "kind", "sessionId", "traceId", "state", "error"]) &&
+      strings(record, ["sessionId", "traceId"]) &&
+      (record.state === "disconnected" ||
+        record.state === "reconnected" ||
+        record.state === "unavailable") &&
+      (record.state === "reconnected" ? record.error === null : isError(record.error))
+    );
+  }
   if (record.kind === "started") {
     return (
-      exactKeys(record, ["schemaVersion", "kind", "requestId", "traceId", "sessionId"]) &&
-      strings(record, ["requestId", "traceId", "sessionId"])
+      exactKeys(record, [
+        "schemaVersion",
+        "kind",
+        "requestId",
+        "traceId",
+        "sessionId",
+        ...("draftError" in record ? ["draftError"] : []),
+      ]) &&
+      strings(record, ["requestId", "traceId", "sessionId"]) &&
+      (!("draftError" in record) || typeof record.draftError === "string")
     );
   }
   if (record.kind === "progress" && record.progressKind === "status") {

@@ -69,11 +69,27 @@ function profilePage() {
     credentials: [],
   };
   const save = vi.fn(async () => ({ ok: false, error: { message: "Save rejected" } }));
+  const setup = vi.fn(async (_input: unknown) => ({
+    ok: false,
+    error: { message: "Agent ID already exists" },
+  }));
+  const presets = vi.fn(async () => ({
+    ok: true,
+    value: [
+      {
+        id: "openai",
+        label: "OpenAI",
+        model: "model",
+        baseUrl: "https://example.com/v1",
+        requiresKey: true,
+      },
+    ],
+  }));
   const api = {
-    profiles: { read: async () => ({ ok: true, value: settings }), save },
+    profiles: { read: async () => ({ ok: true, value: settings }), save, setup, presets },
   } as unknown as NativeApi;
   mountProfiles(api, root, vi.fn());
-  return { get, confirm, save };
+  return { get, confirm, save, setup, presets };
 }
 
 describe("profile agent switching", () => {
@@ -149,5 +165,47 @@ describe("profile agent switching", () => {
     page.get("profile-agent").dispatch("change");
     expect(page.confirm).toHaveBeenCalledTimes(2);
     expect(page.get("profile-agent").value).toBe("first");
+  });
+});
+
+describe("additional profile creation", () => {
+  it("preserves existing edits on cancellation and keeps failed creation editable", async () => {
+    const page = profilePage();
+    await page.get("show-settings").dispatch("click");
+    await vi.waitFor(() => expect(page.get("profile-agent").value).toBe("first"));
+    page.get("profile-model").value = "unsaved-model";
+    page.get("credential-TAVILY_API_KEY").value = "shared-edit";
+    await page.get("profile-add").dispatch("click");
+    expect(page.get("setup-fields").hidden).toBe(false);
+    expect(page.get("profile-fields").hidden).toBe(true);
+    expect(page.get("setup-agent").disabled).toBe(false);
+    page.get("setup-key").value = "new-secret";
+    page.get("profile-add-cancel").dispatch("click");
+    expect(page.get("setup-key").value).toBe("");
+    expect(page.get("profile-model").value).toBe("unsaved-model");
+    expect(page.get("credential-TAVILY_API_KEY").value).toBe("shared-edit");
+    expect(page.get("setup-agent").disabled).toBe(true);
+    expect(page.get("profile-save").textContent).toBe("Save and apply");
+    await page.get("profile-add").dispatch("click");
+    page.get("setup-agent").value = "second";
+    page.get("setup-provider").value = "openai";
+    page.get("setup-model").value = "new-model";
+    page.get("setup-endpoint").value = "https://example.com/v1";
+    page.get("setup-key").value = "new-secret";
+    page.get("setup-check-provider").checked = false;
+    await page.get("profile-form").dispatch("submit");
+    expect(page.setup).not.toHaveBeenCalled();
+    expect(page.get("profile-model").value).toBe("unsaved-model");
+    page.confirm.mockReturnValue(true);
+    await page.get("profile-form").dispatch("submit");
+    expect(page.setup).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "second", apiKey: "new-secret", checkProvider: false }),
+    );
+    expect(page.get("profile-status").textContent).toBe("Agent ID already exists");
+    expect(page.get("profile-save").disabled).toBe(false);
+    expect(page.get("setup-agent").value).toBe("second");
+    page.get("close-settings").dispatch("click");
+    expect(page.get("setup-key").value).toBe("");
+    expect(page.get("credential-TAVILY_API_KEY").value).toBe("");
   });
 });

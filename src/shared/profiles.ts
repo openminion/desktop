@@ -35,6 +35,8 @@ export type SetupPreset = {
 
 export type ProfileSetupInput = {
   revision: string;
+  // Present only when creating an additional profile; existing IDs are rejected.
+  agentId?: string;
   presetId: string;
   model: string;
   baseUrl: string;

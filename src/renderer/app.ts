@@ -53,6 +53,7 @@ export type ChatState = {
   traceId: string | null;
   terminalTraceId: string | null;
   active: boolean;
+  disconnected: boolean;
   startedAt: number | null;
   stopRequested: boolean;
   label: string;
@@ -341,6 +342,7 @@ export function initialChatState(): ChatState {
     traceId: null,
     terminalTraceId: null,
     active: false,
+    disconnected: false,
     startedAt: null,
     stopRequested: false,
     label: "Choose or create a conversation to begin.",
@@ -374,6 +376,18 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
   }
   if (event.sessionId !== state.sessionId || event.traceId !== state.traceId) {
     return state;
+  }
+  if (event.kind === "connection") {
+    return {
+      ...state,
+      active: event.state !== "unavailable",
+      disconnected: event.state === "disconnected",
+      traceId: event.state === "unavailable" ? null : state.traceId,
+      label: event.error?.message ?? "Working…",
+      error: event.error,
+      detail: "",
+      lastUpdateAt: Date.now(),
+    };
   }
   if (event.kind === "progress") {
     if (state.stopRequested) return state;
@@ -733,10 +747,48 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let connecting = true;
   let richContextReady = false;
   let creatingTask = false;
+  let savingSubmission = false;
+  let pendingDraftTransfer: string | null = null;
+  const reconnectingTurns = new Set<string>();
   let conversationLoading = false;
   let waitTimer: ReturnType<typeof setInterval> | null = null;
   let messages: MessageV1[] = [];
-  const drafts = new Map<string, string>();
+  const savedDrafts = await api.drafts.load();
+  const drafts = new Map<string, string>(
+    (savedDrafts.ok ? savedDrafts.value : []).map((draft) => [draft.sessionId, draft.text]),
+  );
+  const draftStatus = required(root, "draft-status");
+  const draftErrors = new Map<string, string>();
+  const draftSaves = new Map<string, number>();
+  const showDraftStatus = () => {
+    draftStatus.textContent =
+      draftErrors.get(selected?.sessionId ?? "") ??
+      (savedDrafts.ok ? "" : savedDrafts.error.message);
+    draftStatus.hidden = !draftStatus.textContent;
+  };
+  const saveDraft = async (sessionId: string, text: string) => {
+    drafts.set(sessionId, text);
+    const generation = (draftSaves.get(sessionId) ?? 0) + 1;
+    draftSaves.set(sessionId, generation);
+    const clearUnbound = pendingDraftTransfer === sessionId;
+    const result = await api.drafts.save({
+      sessionId,
+      text,
+      ...(clearUnbound ? { clearUnbound: true as const } : {}),
+    });
+    if (result.ok && clearUnbound) {
+      drafts.delete("");
+      pendingDraftTransfer = null;
+    }
+    if (draftSaves.get(sessionId) === generation) {
+      if (result.ok) draftErrors.delete(sessionId);
+      else draftErrors.set(sessionId, result.error.message);
+      showDraftStatus();
+    }
+    return result;
+  };
+  elements.composer.value = drafts.get("") ?? "";
+  showDraftStatus();
   let submittedText: string | null = null;
   let responseText = "";
   let latestCopyText: string | null = null;
@@ -1444,6 +1496,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (commandDraft !== null) {
       elements.composer.value = commandDraft;
       commandDraft = null;
+      void saveDraft(selected?.sessionId ?? "", elements.composer.value);
     }
   };
 
@@ -1464,6 +1517,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         button.type = "button";
         button.className = `command-option${index === commandIndex ? " active" : ""}`;
         button.setAttribute("role", "option");
+        button.setAttribute("tabindex", "-1");
         button.setAttribute("aria-selected", String(index === commandIndex));
         const name = root.createElement("span");
         name.className = "command-name";
@@ -1710,6 +1764,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.composer.value = commandDraft ?? "";
     commandDraft = null;
     hideCommandMenu();
+    void saveDraft(selected?.sessionId ?? "", elements.composer.value);
     elements.composer.focus();
     switch (command) {
       case "/agents":
@@ -2072,6 +2127,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         : conversationLoading && !chat.active && !chat.label
           ? "Finishing…"
           : chat.label;
+    elements.reconnectTurn.hidden = !chat.active || !chat.disconnected;
+    elements.reconnectTurn.disabled = reconnectingTurns.has(chat.sessionId ?? "");
+    elements.reconnectTurn.textContent = reconnectingTurns.has(chat.sessionId ?? "")
+      ? "Checking response…"
+      : chat.error?.retryable
+        ? "Reconnect response"
+        : "Check response status";
     elements.chatDetail.textContent = chat.detail;
     elements.chatDetail.hidden = !chat.detail;
     elements.chatProgress.hidden = !elements.chatStatus.textContent && !chat.detail;
@@ -2089,6 +2151,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       !elements.composer.value.trimStart().startsWith("//");
     elements.send.disabled =
       creatingTask ||
+      savingSubmission ||
       (isCommand
         ? connecting && !isTaskCommand(elements.composer.value)
         : connecting ||
@@ -2353,10 +2416,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     session: SessionSummaryV1,
     terminalTraceId: string | null = null,
     preserveGuidance = false,
+    preserveStatus = false,
   ) => {
     const refreshing = selected?.sessionId === session.sessionId;
     const terminalState =
-      refreshing && terminalTraceId !== null && chat.terminalTraceId === terminalTraceId
+      refreshing &&
+      (preserveStatus || (terminalTraceId !== null && chat.terminalTraceId === terminalTraceId))
         ? chat
         : null;
     if (!refreshing) hideCommandResult();
@@ -2389,7 +2454,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     const generation = ++selectionGeneration;
     submissionGeneration += 1;
+    if (!selected) elements.composer.value = drafts.get(session.sessionId) ?? "";
     selected = session;
+    showDraftStatus();
     conversationLoading = true;
     if (!refreshing) {
       const live = liveTurns.get(session.sessionId);
@@ -2494,7 +2561,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     sessions = result;
     renderSessionList();
-    if (!selected && sessions[0]) {
+    if (!selected && sessions[0] && !elements.composer.value) {
       await selectSession(sessions[0]);
     } else if (!sessions.length) {
       renderChat();
@@ -2700,6 +2767,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const unsubscribe = api.turns.subscribe((event) => {
     const matchesSelectedTurn =
       selected?.sessionId === event.sessionId && chat.traceId === event.traceId;
+    if (event.kind === "started" && event.draftError) {
+      draftErrors.set(event.sessionId, event.draftError);
+      showDraftStatus();
+    }
     const live = liveTurns.get(event.sessionId);
     if (live) {
       const matchesTurn = live.state.traceId === event.traceId;
@@ -2729,7 +2800,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         latestCopyText = live.latestCopyText;
         responseUsage = live.responseUsage;
       }
-      if (event.kind === "done" && matchesTurn) liveTurns.delete(event.sessionId);
+      if (
+        matchesTurn &&
+        (event.kind === "done" || (event.kind === "connection" && event.state === "unavailable"))
+      )
+        liveTurns.delete(event.sessionId);
       updateSessionActivity();
     }
     acceptGuidanceTurnEvent(event);
@@ -2766,6 +2841,38 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (event.kind === "done" && matchesSelectedTurn && selected) {
       void selectSession(selected, event.traceId, true);
     }
+    if (
+      event.kind === "connection" &&
+      event.state === "unavailable" &&
+      matchesSelectedTurn &&
+      selected
+    ) {
+      void selectSession(selected, null, false, true);
+    }
+  });
+  elements.reconnectTurn.addEventListener("click", async () => {
+    if (
+      !chat.active ||
+      !chat.disconnected ||
+      !chat.sessionId ||
+      !chat.traceId ||
+      reconnectingTurns.has(chat.sessionId)
+    )
+      return;
+    const sessionId = chat.sessionId;
+    const traceId = chat.traceId;
+    reconnectingTurns.add(sessionId);
+    renderChat();
+    const result = await api.turns.reconnect({ sessionId, traceId });
+    reconnectingTurns.delete(sessionId);
+    if (!result.ok) {
+      const live = liveTurns.get(sessionId);
+      if (live?.state.traceId === traceId) {
+        live.state = { ...live.state, label: result.error.message, error: result.error };
+        if (selected?.sessionId === sessionId) chat = live.state;
+      }
+    }
+    renderChat();
   });
   const unsubscribeCapture =
     captureApi?.subscribe((event: CaptureEventV1) => {
@@ -2854,13 +2961,22 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       showError(result.error);
       return false;
     }
+    const unboundDraft = selected ? null : elements.composer.value;
+    if (unboundDraft !== null) drafts.set(result.value.sessionId, unboundDraft);
     sessionsGeneration += 1;
     sessions = [result.value, ...sessions];
-    await selectSession(result.value);
+    const loading = selectSession(result.value);
+    let transferred = true;
+    if (unboundDraft !== null) {
+      pendingDraftTransfer = result.value.sessionId;
+      const saved = await saveDraft(result.value.sessionId, unboundDraft);
+      transferred = saved.ok;
+    }
+    await loading;
     creatingTask = false;
     renderChat();
     elements.composer.focus();
-    return true;
+    return transferred;
   };
   const openRename = (session: SessionSummaryV1, fromSidebar = false) => {
     renameGeneration += 1;
@@ -2978,6 +3094,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       item.sessionId === result.value.sessionId ? result.value : item,
     );
     selected = result.value;
+    drafts.delete(result.value.sessionId);
+    elements.composer.value = "";
     artifacts = [];
     artifactView = null;
     artifactLabel = "This session is closed.";
@@ -2998,6 +3116,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (
       !daemonReady ||
       creatingTask ||
+      savingSubmission ||
       conversationLoading ||
       chat.active ||
       selected?.status === "closed"
@@ -3011,6 +3130,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     if (!selected && (asGuidance || !(await createTask()))) return;
     if (!selected) return;
+    const sessionId = selected.sessionId;
     const pending = asGuidance
       ? guidanceSnapshot(selected.sessionId, captureState, captureFrame)
       : null;
@@ -3022,6 +3142,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       renderGuidance();
       return;
     }
+    savingSubmission = true;
+    renderChat();
+    const consumesDraft = elements.composer.value === draft;
+    const saved = await saveDraft(sessionId, elements.composer.value);
+    savingSubmission = false;
+    renderChat();
+    if (!saved.ok || selected?.sessionId !== sessionId || chat.active) return;
     if (pending) {
       clearGuidanceTimer();
       guidancePending = pending;
@@ -3042,9 +3169,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     responseText = "";
     latestCopyText = null;
     responseUsage = undefined;
-    const sessionId = selected.sessionId;
     if (elements.composer.value === draft) elements.composer.value = "";
-    drafts.delete(sessionId);
+    drafts.set(sessionId, elements.composer.value);
     elements.composer.focus();
     liveTurns.set(sessionId, {
       state: chat,
@@ -3066,6 +3192,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const result = await api.turns.submit({
       sessionId: selected.sessionId,
       message,
+      ...(consumesDraft ? { draftRevision: saved.value } : {}),
       ...(attachments.length
         ? { attachmentIds: attachments.map((attachment) => attachment.mediaId) }
         : {}),
@@ -3127,6 +3254,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (!draft.startsWith("/") || draft.startsWith("//")) commandDraft = null;
     commandIndex = 0;
     commandsDismissed = false;
+    void saveDraft(selected?.sessionId ?? "", elements.composer.value);
     renderChat();
   });
   const openCommands = () => {
@@ -3157,6 +3285,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       return;
     }
     if (!elements.commandMenu.hidden) {
+      if (event.key === "Tab" && event.shiftKey) {
+        commandDraft = null;
+        hideCommandMenu();
+        renderChat();
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         hideCommandMenu();
@@ -3179,6 +3313,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             ? value.replace(/^\S+/, command.name)
             : `${command.name} `;
           commandsDismissed = true;
+          void saveDraft(selected?.sessionId ?? "", elements.composer.value);
           renderChat();
         } else if (command)
           void runCommand(elements.composer.value.trim().replace(/^\S+/, command.name));
@@ -3472,6 +3607,7 @@ function rendererElements(root: Document) {
     jumpLatest: required(root, "jump-latest"),
     chatProgress: required(root, "chat-progress"),
     chatStatus: required(root, "chat-status"),
+    reconnectTurn: required(root, "reconnect-turn") as HTMLButtonElement,
     chatDetail: required(root, "chat-detail"),
     chatUpdate: required(root, "chat-update"),
     chatElapsed: required(root, "chat-elapsed"),

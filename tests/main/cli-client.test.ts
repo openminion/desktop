@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CliClient } from "../../src/main/cli-client.js";
+import { DesktopStore } from "../../src/main/desktop-store.js";
 import { runCommand } from "../../src/main/installation.js";
 import type { TurnEventV1 } from "../../src/shared/contracts.js";
 
@@ -1005,6 +1006,89 @@ describe("PyPI CLI client", () => {
     ).toBe(true);
   });
 
+  it("restores transient session identity and draft text, then removes an unsent closed conversation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "desktop-cli-drafts-"));
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const run = vi.fn().mockResolvedValue({ exitCode: 0, stdout: "[]", stderr: "" });
+    const context = () => ({ executable: "openminion", args: [] });
+    let store = new DesktopStore(root);
+    try {
+      const client = new CliClient(context, run, store);
+      const created = await client.create({ agentId: "writer", title: "Unsent idea" });
+      if (!created.ok) throw new Error("Draft not created");
+      const sessionId = created.value.sessionId;
+      expect(store.saveDraft({ sessionId, text: "Keep my exact draft\nsecond line" }).ok).toBe(
+        true,
+      );
+      store.close();
+      store = new DesktopStore(root);
+      const restarted = new CliClient(context, run, store);
+      expect(await restarted.load({ sessionId })).toMatchObject({
+        ok: true,
+        value: { session: created.value, messages: [] },
+      });
+      expect(run).not.toHaveBeenCalled();
+      expect(await restarted.list({})).toMatchObject({
+        ok: true,
+        value: { sessions: [created.value] },
+      });
+      expect(store.loadDrafts()).toEqual({
+        ok: true,
+        value: [{ sessionId, text: "Keep my exact draft\nsecond line" }],
+      });
+      const callsBeforeClose = run.mock.calls.length;
+      expect(await restarted.close({ sessionId })).toMatchObject({
+        ok: true,
+        value: { sessionId, status: "closed" },
+      });
+      expect(run).toHaveBeenCalledTimes(callsBeforeClose);
+      expect(store.draftSessions()).toEqual([]);
+      expect(store.loadDrafts()).toEqual({ ok: true, value: [] });
+      expect(await new CliClient(context, run, store).list({})).toMatchObject({
+        ok: true,
+        value: { sessions: [] },
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("promotes a discovered runtime session without duplicating its identity or losing a newer draft", async () => {
+    const root = await mkdtemp(join(tmpdir(), "desktop-cli-promote-"));
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const store = new DesktopStore(root);
+    const run = vi.fn();
+    const context = () => ({ executable: "openminion", args: [] });
+    try {
+      const client = new CliClient(context, run, store);
+      const created = await client.create({ agentId: "writer" });
+      if (!created.ok) throw new Error("Draft not created");
+      const sessionId = created.value.sessionId;
+      expect(store.saveDraft({ sessionId, text: "Next unsent message" }).ok).toBe(true);
+      run.mockResolvedValue({
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify([
+          { id: sessionId, name: "Runtime conversation", status: "idle", agent: "writer" },
+        ]),
+      });
+      const listed = await client.list({});
+      expect(listed).toMatchObject({
+        ok: true,
+        value: { sessions: [{ sessionId, title: "Runtime conversation" }] },
+      });
+      if (listed.ok) expect(listed.value.sessions).toHaveLength(1);
+      expect(store.draftSessions()).toEqual([]);
+      expect(store.loadDrafts()).toEqual({
+        ok: true,
+        value: [{ sessionId, text: "Next unsent message" }],
+      });
+      expect(await new CliClient(context, run, store).list({})).toEqual(listed);
+    } finally {
+      store.close();
+    }
+  });
+
   it("streams through the authenticated API and acknowledges displayed replies", async () => {
     const fixture = await executableFixture();
     const events: TurnEventV1[] = [];
@@ -1305,6 +1389,260 @@ describe("PyPI CLI client", () => {
     });
   });
 
+  it("reattaches a known trace without resending, deduplicates replay, and preserves cancellation scope", async () => {
+    const fixture = await executableFixture("reconnect");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    const identity = { sessionId: "saved", traceId: submitted.value.traceId };
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({
+        kind: "connection",
+        state: "disconnected",
+        error: { retryable: true },
+      }),
+    );
+    expect(events.some((event) => event.kind === "done" || event.kind === "error")).toBe(false);
+    expect(
+      await client.submit({ sessionId: "saved", message: "duplicate" }, vi.fn()),
+    ).toMatchObject({ ok: false, error: { code: "session_turn_active" } });
+    expect(await client.reconnect({ ...identity, traceId: "other" })).toMatchObject({
+      ok: false,
+      error: { code: "trace_not_found" },
+    });
+    expect(await client.reconnect({ ...identity, afterSequence: 900 } as never)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    const reconnect = client.reconnect(identity);
+    expect(await client.reconnect(identity)).toMatchObject({
+      ok: false,
+      error: { code: "stream_connected" },
+    });
+    expect(await reconnect).toMatchObject({ ok: true, value: identity });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+    );
+    expect(events.filter((event) => event.kind === "started")).toHaveLength(1);
+    expect(
+      events.filter((event) => event.kind === "connection").map((event) => event.state),
+    ).toEqual(["disconnected", "reconnected"]);
+    expect(
+      events
+        .filter((event) => event.kind === "progress" && event.progressKind === "text")
+        .map((event) => event.text),
+    ).toEqual(["Before ", "after"]);
+    expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+    expect(fixture.requests.filter((request) => request.path?.includes("/stream?"))).toMatchObject([
+      { path: `/v1/turn/${identity.traceId}/stream?after_sequence=1`, token: "test-private-token" },
+    ]);
+    expect(await client.cancel(identity)).toMatchObject({
+      ok: false,
+      error: { code: "trace_not_found" },
+    });
+  });
+
+  it("keeps cancellation available while disconnected without claiming completion", async () => {
+    const fixture = await executableFixture("reconnect-missing");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+    );
+    const identity = { sessionId: "saved", traceId: submitted.value.traceId };
+    expect(await client.cancel(identity)).toMatchObject({
+      ok: true,
+      value: { state: "requested", terminal: false },
+    });
+    expect(events.some((event) => event.kind === "done")).toBe(false);
+    expect(await client.reconnect(identity)).toMatchObject({
+      ok: false,
+      error: { code: "trace_not_found" },
+    });
+    expect(events.at(-1)).toMatchObject({ kind: "connection", state: "unavailable" });
+  });
+
+  it("replays a pending approval and routes its decision through the original turn", async () => {
+    const fixture = await executableFixture("reconnect-approval");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+    );
+    const identity = { sessionId: "saved", traceId: submitted.value.traceId };
+    expect(await client.reconnect(identity)).toMatchObject({ ok: true });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "approval", phase: "requested" }),
+    );
+    expect(
+      await client.decide({ ...identity, approvalId: "approval-1", decision: "allow_once" }),
+    ).toMatchObject({ ok: true });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+    );
+    expect(events.filter((event) => event.kind === "approval").map((event) => event.phase)).toEqual(
+      ["requested", "resolved"],
+    );
+    expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+  });
+
+  it.each([
+    ["reconnect-missing", "trace_not_found", "unavailable"],
+    ["reconnect-attach-missing", "trace_not_found", "unavailable"],
+    ["reconnect-gap", "stream_replay_gap", "disconnected"],
+    ["reconnect-gap-race", "stream_replay_gap", "disconnected"],
+    ["reconnect-wrong-session", "stream_identity_mismatch", "disconnected"],
+  ])("keeps unknown outcomes truthful for %s", async (mode, code, state) => {
+    const fixture = await executableFixture(mode);
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+    );
+    expect(
+      await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+    ).toMatchObject({ ok: false, error: { code } });
+    expect(events.at(-1)).toMatchObject({ kind: "connection", state, error: { code } });
+    expect(events.some((event) => event.kind === "done" || event.kind === "error")).toBe(false);
+    expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+    if (state === "unavailable")
+      expect(await client.load({ sessionId: "saved" })).toMatchObject({
+        ok: true,
+        value: { messages: [expect.objectContaining({ body: "Reply" })] },
+      });
+  });
+
+  it("retains an accepted response when reconnecting only the terminal tail", async () => {
+    const fixture = await executableFixture("reconnect-response-tail");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+    );
+    expect(events.filter((event) => event.kind === "response")).toHaveLength(1);
+    expect(
+      await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+    ).toMatchObject({ ok: true });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+    );
+    expect(events.filter((event) => event.kind === "response")).toHaveLength(1);
+    expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+  });
+
+  it.each(["reconnect-cursor-missing", "reconnect-cursor-wrong"])(
+    "rejects corrupt replay cursors for %s",
+    async (mode) => {
+      const fixture = await executableFixture(mode);
+      const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+      const events: TurnEventV1[] = [];
+      const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+        events.push(event),
+      );
+      if (!submitted.ok) throw new Error("Turn not accepted");
+      await vi.waitFor(() =>
+        expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+      );
+      await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId });
+      await vi.waitFor(() =>
+        expect(events.at(-1)).toMatchObject({
+          kind: "connection",
+          state: "disconnected",
+          error: { code: "invalid_daemon_response", retryable: false },
+        }),
+      );
+      expect(
+        events
+          .filter((event) => event.kind === "progress" && event.progressKind === "text")
+          .map((event) => event.text),
+      ).toEqual(["Before "]);
+      expect(events.some((event) => event.kind === "done")).toBe(false);
+    },
+  );
+
+  it.each(["reconnect-no-cursor", "reconnect-no-capability"])(
+    "does not guess replay support for %s",
+    async (mode) => {
+      const fixture = await executableFixture(mode);
+      const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+      const events: TurnEventV1[] = [];
+      const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+        events.push(event),
+      );
+      if (!submitted.ok) throw new Error("Turn not accepted");
+      await vi.waitFor(() =>
+        expect(events.at(-1)).toMatchObject({
+          kind: "connection",
+          state: "disconnected",
+          error: { retryable: false },
+        }),
+      );
+      expect(
+        await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+      ).toMatchObject({ ok: false, error: { code: "stream_replay_unavailable" } });
+      expect(fixture.requests).toHaveLength(2);
+      expect(fixture.requests.at(-1)?.path).toBe(`/v1/turn/${submitted.value.traceId}/status`);
+    },
+  );
+
+  it.each(["reconnect-no-cursor", "reconnect-no-capability", "reconnect-gap"])(
+    "can explicitly check status after replay is unavailable for %s",
+    async (mode) => {
+      const fixture = await executableFixture(mode);
+      const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+      const events: TurnEventV1[] = [];
+      const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+        events.push(event),
+      );
+      if (!submitted.ok) throw new Error("Turn not accepted");
+      await vi.waitFor(() =>
+        expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+      );
+      expect(
+        await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+      ).toMatchObject({ ok: false });
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" });
+      fixture.expireTrace();
+      expect(
+        await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+      ).toMatchObject({
+        ok: false,
+        error: { code: "trace_not_found" },
+      });
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "unavailable" });
+      expect(events.some((event) => event.kind === "done" || event.kind === "error")).toBe(false);
+      expect(client.beginConfiguration()).toBe(true);
+      client.endConfiguration();
+      expect(await client.load({ sessionId: "saved" })).toMatchObject({
+        ok: true,
+        value: { messages: [expect.objectContaining({ body: "Reply" })] },
+      });
+      expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+      expect(fixture.requests.filter((request) => request.path?.includes("/stream?"))).toHaveLength(
+        0,
+      );
+    },
+  );
+
   it("cancels through the ordinary authenticated daemon endpoint and fences duplicate sends", async () => {
     const fixture = await executableFixture("wait");
     const client = new CliClient(() => ({
@@ -1364,6 +1702,7 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
   let emitSse: ((event: string, value: unknown) => void) | null = null;
   let activeSessionId = "";
   let traceId = "";
+  let traceExpired = false;
   const server = createServer((req, res) => {
     if (req.method === "GET") {
       requests.push({
@@ -1372,6 +1711,107 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
         path: req.url,
       });
       res.setHeader("Content-Type", "application/json");
+      if (
+        req.url === `/v1/turn/${traceId}/status` ||
+        req.url?.startsWith(`/v1/turn/${traceId}/stream?`)
+      ) {
+        const attaching = req.url.includes("/stream?");
+        if (
+          traceExpired ||
+          mode === "reconnect-missing" ||
+          (attaching && mode === "reconnect-attach-missing")
+        ) {
+          res.statusCode = 404;
+          res.end(
+            JSON.stringify({
+              ok: false,
+              error: {
+                code: "trace_not_found",
+                message: "Active trace not found",
+                retryable: false,
+              },
+            }),
+          );
+        } else if (!attaching) {
+          res.end(
+            JSON.stringify({
+              ok: true,
+              trace_id: traceId,
+              session_id: mode === "reconnect-wrong-session" ? "other" : activeSessionId,
+              agent_id: "writer",
+              status: null,
+              stream: {
+                schema_version: "openminion.turn-stream.v1",
+                replay_floor_sequence: mode === "reconnect-gap" ? 4 : 1,
+              },
+            }),
+          );
+        } else {
+          res.setHeader("Content-Type", "text/event-stream");
+          const output = (event: string, data: Record<string, unknown>) =>
+            res.write(
+              `${data.event_id ? `id: ${data.event_id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+            );
+          output("meta", {
+            session_id: activeSessionId,
+            trace_id: traceId,
+            request_id: "attach-1",
+            stream_schema_version: "openminion.turn-stream.v1",
+            capabilities: ["active_turn_replay"],
+            replay_floor_sequence: mode === "reconnect-gap-race" ? 4 : 1,
+          });
+          if (mode === "reconnect-response-tail") {
+            output("done", { trace_id: traceId, status: "complete" });
+            res.end();
+            return;
+          }
+          for (const [sequence, text] of [
+            [1, "Before "],
+            [2, "after"],
+          ] as const)
+            output("chunk", {
+              trace_id: traceId,
+              ...(mode === "reconnect-cursor-missing" && sequence === 2
+                ? {}
+                : {
+                    sequence,
+                    event_id:
+                      mode === "reconnect-cursor-wrong" && sequence === 2
+                        ? "other:2"
+                        : `${traceId}:${sequence}`,
+                  }),
+              kind: "final_text",
+              data: { text },
+              ts: now,
+            });
+          complete = () => {
+            output("response", { trace_id: traceId, final_text: "Before after", errors: [] });
+            output("done", { trace_id: traceId, status: "complete" });
+            res.end();
+          };
+          if (mode === "reconnect-approval") {
+            emitSse = (event, value) => output(event, value as Record<string, unknown>);
+            output("chunk", {
+              trace_id: traceId,
+              sequence: 3,
+              event_id: `${traceId}:3`,
+              kind: "approval",
+              data: {
+                phase: "requested",
+                session_id: activeSessionId,
+                trace_id: traceId,
+                approval_id: "approval-1",
+                tool_name: "exec.run",
+                consent_preview: "Run a command",
+                outcome: "pending",
+                requested_at: now,
+                expires_at: "2027-01-01T00:00:00Z",
+              },
+            });
+          } else complete(false);
+        }
+        return;
+      }
       if (req.url?.startsWith("/v1/tools/exposure")) {
         res.end(
           JSON.stringify({
@@ -1543,6 +1983,7 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
         const outcome = body.decision === "allow_once" ? "applied" : "denied";
         emitSse?.("chunk", {
           trace_id: traceId,
+          ...(mode === "reconnect-approval" ? { sequence: 4, event_id: `${traceId}:4` } : {}),
           kind: "approval",
           data: {
             phase: "resolved",
@@ -1561,6 +2002,7 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
         });
         emitSse?.("chunk", {
           trace_id: traceId,
+          ...(mode === "reconnect-approval" ? { sequence: 5, event_id: `${traceId}:5` } : {}),
           kind: "tool_completed",
           data: {
             tool_name: "exec.run",
@@ -1601,8 +2043,26 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
         capabilities:
           mode === "missing-approval-capability"
             ? ["active_turn_replay"]
-            : ["active_turn_replay", "approval_interaction_v1"],
+            : mode === "reconnect-no-capability"
+              ? []
+              : ["active_turn_replay", "approval_interaction_v1"],
       });
+      if (mode.startsWith("reconnect")) {
+        const cursor =
+          mode === "reconnect-no-cursor" ? {} : { sequence: 1, event_id: `${traceId}:1` };
+        if (mode !== "reconnect-no-cursor") res.write(`id: ${traceId}:1\n`);
+        output("chunk", {
+          trace_id: traceId,
+          ...cursor,
+          kind: "final_text",
+          data: { text: "Before " },
+          ts: now,
+        });
+        if (mode === "reconnect-response-tail")
+          output("response", { trace_id: traceId, final_text: "Before ", errors: [] });
+        res.end();
+        return;
+      }
       for (const data of [
         {
           status_key: "executing",
@@ -1746,5 +2206,13 @@ else if (args[0] === 'export') output({type:'message',id:'reply',role:'outbound'
 else process.exit(1);
 `,
   );
-  return { root, executable: process.execPath, args: [executable], requests };
+  return {
+    root,
+    executable: process.execPath,
+    args: [executable],
+    requests,
+    expireTrace: () => {
+      traceExpired = true;
+    },
+  };
 }

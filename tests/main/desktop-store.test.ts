@@ -37,7 +37,7 @@ describe("Desktop SQLite storage", () => {
     expect(store.loadPresentation()).toEqual({ ok: true, value: { quietTools: true } });
     const db = new DatabaseSync(join(path, "desktop.sqlite"), { readOnly: true });
     try {
-      expect(db.prepare("PRAGMA user_version").get()!.user_version).toBe(4);
+      expect(db.prepare("PRAGMA user_version").get()!.user_version).toBe(5);
       expect(
         db.prepare("SELECT quiet_tools FROM presentation WHERE id = 1").get()!.quiet_tools,
       ).toBe(1);
@@ -45,6 +45,7 @@ describe("Desktop SQLite storage", () => {
         { name: "installation" },
         { name: "chat_names" },
         { name: "presentation" },
+        { name: "chat_drafts" },
       ]);
     } finally {
       db.close();
@@ -144,11 +145,233 @@ describe("Desktop SQLite storage", () => {
     }
   });
 
+  it("restores unbound and session drafts exactly and persists explicit clearing", () => {
+    const path = root();
+    let store = open(path);
+    const unbound = { sessionId: "", text: "  First line\nSecond line  " };
+    const bound = { sessionId: "session'; DROP TABLE chat_drafts; --", text: "Session draft" };
+    expect(store.saveDraft(unbound).ok).toBe(true);
+    expect(store.saveDraft(bound).ok).toBe(true);
+    stores.pop()!.close();
+    store = open(path);
+    expect(store.loadDrafts()).toEqual({ ok: true, value: [unbound, bound] });
+    expect(store.saveDraft({ sessionId: "", text: "" }).ok).toBe(true);
+    stores.pop()!.close();
+    store = open(path);
+    expect(store.loadDrafts()).toEqual({ ok: true, value: [bound] });
+  });
+
+  it("retains local session identity until promotion or explicit removal", () => {
+    const path = root();
+    let store = open(path);
+    const session = {
+      schemaVersion: 1 as const,
+      sessionId: "local-session",
+      title: "Planning",
+      status: "idle" as const,
+      createdAt: "2026-10-06T00:00:00Z",
+      updatedAt: "2026-10-06T00:00:00Z",
+      activeAgentId: null,
+      model: { provider: null, modelId: null },
+      projectId: null,
+      eventCursor: "0",
+    };
+    store.rememberDraftSession(session);
+    store.rememberDraftSession({ ...session, sessionId: "empty-local" });
+    expect(store.saveDraft({ sessionId: session.sessionId, text: "Unsent" }).ok).toBe(true);
+    stores.pop()!.close();
+    store = open(path);
+    expect(store.draftSessions()).toEqual([session, { ...session, sessionId: "empty-local" }]);
+    store.removeDraft("empty-local");
+    store.promoteDraftSession(session.sessionId);
+    expect(store.draftSessions()).toEqual([]);
+    expect(store.loadDrafts()).toEqual({
+      ok: true,
+      value: [{ sessionId: session.sessionId, text: "Unsent" }],
+    });
+    store.removeDraft(session.sessionId);
+    store.rememberDraftSession({ ...session, sessionId: "closed-local" });
+    store.removeDraft("closed-local");
+    stores.pop()!.close();
+    store = open(path);
+    expect(store.draftSessions()).toEqual([]);
+    expect(store.loadDrafts()).toEqual({ ok: true, value: [] });
+  });
+
+  it("atomically transfers an unbound draft and never restores accepted text after restart", () => {
+    const path = root();
+    let store = open(path);
+    const session = {
+      schemaVersion: 1 as const,
+      sessionId: "local-transfer",
+      title: "Planning",
+      status: "idle" as const,
+      createdAt: "2026-10-06T00:00:00Z",
+      updatedAt: "2026-10-06T00:00:00Z",
+      activeAgentId: null,
+      model: { provider: null, modelId: null },
+      projectId: null,
+      eventCursor: "0",
+    };
+    expect(store.saveDraft({ sessionId: "", text: "A" }).ok).toBe(true);
+    store.rememberDraftSession(session);
+    const db = new DatabaseSync(join(path, "desktop.sqlite"));
+    try {
+      db.exec(
+        "CREATE TRIGGER prevent_unbound_delete BEFORE DELETE ON chat_drafts WHEN OLD.session_id = '' BEGIN SELECT RAISE(ABORT, 'transfer rejected'); END",
+      );
+      expect(
+        store.saveDraft({ sessionId: session.sessionId, text: "A", clearUnbound: true }),
+      ).toMatchObject({ ok: false, error: { code: "storage_unavailable" } });
+      expect(
+        db.prepare("SELECT text FROM chat_drafts WHERE session_id = ?").get(session.sessionId),
+      ).toEqual({ text: "" });
+      stores.pop()!.close();
+      store = open(path);
+      expect(store.loadDrafts()).toEqual({ ok: true, value: [{ sessionId: "", text: "A" }] });
+      expect(store.draftSessions()).toEqual([session]);
+      db.exec("DROP TRIGGER prevent_unbound_delete");
+      const saved = store.saveDraft({
+        sessionId: session.sessionId,
+        text: "A",
+        clearUnbound: true,
+      });
+      if (!saved.ok) throw new Error(saved.error.message);
+      expect(store.loadDrafts()).toEqual({
+        ok: true,
+        value: [{ sessionId: session.sessionId, text: "A" }],
+      });
+      expect(store.consumeDraft({ sessionId: session.sessionId, revision: saved.value })).toEqual({
+        ok: true,
+        value: null,
+      });
+      stores.pop()!.close();
+      store = open(path);
+      expect(store.loadDrafts()).toEqual({ ok: true, value: [] });
+      expect(store.draftSessions()).toEqual([session]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("consumes only the accepted revision even when newer text changes back to the same value", () => {
+    const path = root();
+    let store = open(path);
+    const first = store.saveDraft({ sessionId: "one", text: "A" });
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error(first.error.message);
+    expect(store.saveDraft({ sessionId: "one", text: "B" }).ok).toBe(true);
+    const latest = store.saveDraft({ sessionId: "one", text: "A" });
+    expect(latest.ok).toBe(true);
+    if (!latest.ok) throw new Error(latest.error.message);
+    expect(latest.value).not.toBe(first.value);
+    expect(store.consumeDraft({ sessionId: "one", revision: first.value }).ok).toBe(true);
+    expect(store.consumeDraft({ sessionId: "other", revision: latest.value }).ok).toBe(true);
+    expect(store.loadDrafts()).toEqual({ ok: true, value: [{ sessionId: "one", text: "A" }] });
+    expect(store.consumeDraft({ sessionId: "one", revision: latest.value }).ok).toBe(true);
+    stores.pop()!.close();
+    store = open(path);
+    expect(store.loadDrafts()).toEqual({ ok: true, value: [] });
+    expect(store.saveDraft({ sessionId: "one", text: "A" }).ok).toBe(true);
+    expect(store.consumeDraft({ sessionId: "one", revision: latest.value }).ok).toBe(true);
+    expect(store.loadDrafts()).toEqual({ ok: true, value: [{ sessionId: "one", text: "A" }] });
+  });
+
+  it("rejects malformed draft writes and consumption without changing saved text", () => {
+    const store = open(root());
+    expect(store.saveDraft({ sessionId: "", text: "Keep" }).ok).toBe(true);
+    for (const input of [
+      null,
+      [],
+      {},
+      { sessionId: 1, text: "Draft" },
+      { sessionId: "one", text: null },
+      { sessionId: "x".repeat(257), text: "Draft" },
+      { sessionId: "one", text: "x".repeat(250_001) },
+      { sessionId: "one", text: "Draft", path: "elsewhere" },
+      { sessionId: "one", text: "Draft", clearUnbound: false },
+      { sessionId: "", text: "Draft", clearUnbound: true },
+      { sessionId: "one", text: "Draft", clearUnbound: true, unknown: true },
+    ]) {
+      expect(store.saveDraft(input)).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    }
+    for (const input of [
+      null,
+      [],
+      {},
+      { sessionId: 1, revision: "x".repeat(36) },
+      { sessionId: "x".repeat(257), revision: "x".repeat(36) },
+      { sessionId: "", revision: null },
+      { sessionId: "", revision: "short" },
+      { sessionId: "", revision: "x".repeat(37) },
+      { sessionId: "", revision: "x".repeat(36), text: "Keep" },
+    ]) {
+      expect(store.consumeDraft(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_input" },
+      });
+    }
+    expect(store.loadDrafts()).toEqual({ ok: true, value: [{ sessionId: "", text: "Keep" }] });
+    expect(store.saveDraft({ sessionId: "x".repeat(256), text: "x".repeat(250_000) }).ok).toBe(
+      true,
+    );
+  });
+
+  it("reports draft read, save, and accepted-message cleanup failures without losing saved text", () => {
+    const path = root();
+    const store = open(path);
+    const saved = store.saveDraft({ sessionId: "one", text: "Keep" });
+    if (!saved.ok) throw new Error(saved.error.message);
+    const db = new DatabaseSync(join(path, "desktop.sqlite"));
+    try {
+      db.exec("BEGIN EXCLUSIVE");
+      expect(store.loadDrafts()).toMatchObject({
+        ok: false,
+        error: { code: "storage_unavailable" },
+      });
+      expect(store.saveDraft({ sessionId: "one", text: "New" })).toMatchObject({
+        ok: false,
+        error: { code: "storage_unavailable", message: expect.stringContaining("Draft not saved") },
+      });
+      expect(store.consumeDraft({ sessionId: "one", revision: saved.value })).toMatchObject({
+        ok: false,
+        error: { code: "storage_unavailable", message: expect.stringContaining("Do not resend") },
+      });
+      db.exec("ROLLBACK");
+      expect(store.loadDrafts()).toEqual({ ok: true, value: [{ sessionId: "one", text: "Keep" }] });
+      expect(store.consumeDraft({ sessionId: "one", revision: saved.value })).toEqual({
+        ok: true,
+        value: null,
+      });
+      expect(store.loadDrafts()).toEqual({ ok: true, value: [] });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("migrates schema four without changing names, presentation, or runtime state", () => {
+    const path = root();
+    let store = open(path);
+    expect(store.save({ sessionId: "keep", title: "Existing" }).ok).toBe(true);
+    expect(store.savePresentation({ quietTools: true }).ok).toBe(true);
+    const before = store.runtimeState();
+    stores.pop()!.close();
+    const db = new DatabaseSync(join(path, "desktop.sqlite"));
+    db.exec("DROP TABLE chat_drafts; PRAGMA user_version = 4");
+    db.close();
+    store = open(path);
+    expect(store.runtimeState()).toEqual(before);
+    expect(store.load([])).toEqual({ ok: true, value: [{ sessionId: "keep", title: "Existing" }] });
+    expect(store.loadPresentation()).toEqual({ ok: true, value: { quietTools: true } });
+    expect(store.loadDrafts()).toEqual({ ok: true, value: [] });
+    expect(store.draftSessions()).toEqual([]);
+  });
+
   it("preserves future schemas and corrupt files instead of replacing data", () => {
     const future = root();
     const db = new DatabaseSync(join(future, "desktop.sqlite"));
     db.exec(
-      "PRAGMA user_version = 5; CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('keep');",
+      "PRAGMA user_version = 6; CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('keep');",
     );
     db.close();
     const before = readFileSync(join(future, "desktop.sqlite"));
@@ -246,7 +469,7 @@ describe("Desktop SQLite storage", () => {
     const before = store.runtimeState();
     stores.pop()!.close();
     const db = new DatabaseSync(join(path, "desktop.sqlite"));
-    db.exec("DROP TABLE presentation; PRAGMA user_version = 2");
+    db.exec("DROP TABLE chat_drafts; DROP TABLE presentation; PRAGMA user_version = 2");
     const { paused, pin, ...legacy } = before;
     expect(paused).toBe(false);
     expect(pin).toBeNull();
@@ -273,7 +496,7 @@ describe("Desktop SQLite storage", () => {
     const before = store.runtimeState();
     stores.pop()!.close();
     const db = new DatabaseSync(join(path, "desktop.sqlite"));
-    db.exec("DROP TABLE presentation; PRAGMA user_version = 3");
+    db.exec("DROP TABLE chat_drafts; DROP TABLE presentation; PRAGMA user_version = 3");
     db.close();
     store = open(path);
     expect(store.runtimeState()).toEqual(before);

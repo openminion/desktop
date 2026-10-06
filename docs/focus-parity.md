@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -102,8 +102,10 @@ config. Core owns provider defaults and profile construction. Desktop validates
 and applies that config through its existing Settings lifecycle. A checked
 setup adds the CLI's `--check-provider` flag and reports the typed verification
 outcome; unchecked setup does not make a provider request. Existing
-configured agents use Settings or profile import; onboarding does not implement
-the full CLI multi-model setup surface.
+configured agents use Settings or profile import. Settings also reuses that setup
+flow to add an agent with a distinct ID and model credential, preserving existing
+agents and shared tool keys. This does not implement the full CLI multi-model
+setup surface.
 
 Saved-session sends read `sessions show --json` and retain its agent, channel,
 and target. Desktop continues CLI-created conversations without rebinding them
@@ -192,8 +194,10 @@ changes cannot stand in for those session operations.
 The pinned 0.0.29 package contains public session turn-input queue,
 approval-resume, trace stream attachment, and runtime capability routes. Desktop
 now qualifies and consumes the request-bound approval semantics in source-runtime
-proof. Other workflows
-still require their own proof before being called connected. An approval grant alone does not
+proof. Known-trace response recovery uses status and replay attachment in the
+current Desktop process, with explicit user action and no prompt resubmission.
+A missing retained trace triggers canonical history readback, not an invented
+terminal outcome. App-restart discovery and other workflows still require their own proof before being called connected. An approval grant alone does not
 prove the original pending action resumed. Missing public semantics require an
 explicit generic-owner dependency; Desktop must not import private Python runtime
 code, start another interactive session, or duplicate those owners.

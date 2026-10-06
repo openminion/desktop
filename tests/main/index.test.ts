@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DesktopStore } from "../../src/main/desktop-store.js";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { type CapturePlatform, CaptureService } from "../../src/main/capture.js";
 import { mount } from "../../src/renderer/app.js";
@@ -223,6 +227,10 @@ describe("desktop main boundary", () => {
             },
       ),
       submit: vi.fn(),
+      reconnect: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { sessionId: "session-1", traceId: "trace-1", requestId: "reconnect-1" },
+      }),
     };
     const supervisor = {
       inspect: vi.fn().mockResolvedValue({ ok: true, value: { text: "daemon status" } }),
@@ -290,6 +298,8 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.runtimeCheck,
       IPC_CHANNELS.runtimeStage,
       IPC_CHANNELS.runtimeControl,
+      IPC_CHANNELS.draftsLoad,
+      IPC_CHANNELS.draftsSave,
       IPC_CHANNELS.chatNamesLoad,
       IPC_CHANNELS.chatNamesSave,
       IPC_CHANNELS.presentationLoad,
@@ -317,6 +327,7 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.sessionsClose,
       IPC_CHANNELS.sessionsEvents,
       IPC_CHANNELS.turnsCancel,
+      IPC_CHANNELS.turnsReconnect,
       IPC_CHANNELS.approvalsDecide,
       IPC_CHANNELS.artifactsList,
       IPC_CHANNELS.artifactsRead,
@@ -360,7 +371,16 @@ describe("desktop main boundary", () => {
       action: "list",
     });
     expect(client.controlTasks).toHaveBeenCalledWith({ sessionId: "session-1", action: "list" });
+    const turnIdentity = { sessionId: "session-1", traceId: "trace-1" };
+    expect(
+      await mocks.ipcHandlers.get(IPC_CHANNELS.turnsReconnect)!(event, turnIdentity),
+    ).toMatchObject({ ok: true, value: turnIdentity });
+    expect(client.reconnect).toHaveBeenCalledExactlyOnceWith(turnIdentity);
+    expect(client.submit).not.toHaveBeenCalled();
     for (const channel of [
+      IPC_CHANNELS.turnsReconnect,
+      IPC_CHANNELS.draftsLoad,
+      IPC_CHANNELS.draftsSave,
       IPC_CHANNELS.runtimeControl,
       IPC_CHANNELS.daemonInspect,
       IPC_CHANNELS.chatNamesLoad,
@@ -805,6 +825,102 @@ describe("desktop main boundary", () => {
     expect(JSON.stringify(mainFrame.send.mock.calls)).not.toMatch(
       /secret|credential|endpoint|v1\//i,
     );
+  });
+
+  it("clears only the accepted draft revision before delivery and preserves newer text", async () => {
+    const root = mkdtempSync(join(tmpdir(), "desktop-draft-ipc-"));
+    const store = new DesktopStore(root);
+    let emit!: (event: TurnEventV1) => void;
+    const client = {
+      validateTurnSubmission: (input: unknown) => ({
+        ok: true,
+        value: { sessionId: "session-1", input },
+      }),
+      submit: vi.fn(async (_input, listener) => {
+        emit = listener;
+        return {
+          ok: true,
+          value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+        };
+      }),
+    };
+    const observation = {
+      connectTurnOwner: vi.fn(),
+      preemptAutomaticForManual: async () => true,
+      beginManualTurn: () => ({ admitted: true, token: Symbol("turn") }),
+      endManualTurn: vi.fn(),
+    };
+    desktop.registerIpcHandlers(
+      { client } as never,
+      {} as never,
+      { fenceSession: vi.fn() } as never,
+      {} as never,
+      observation as never,
+      store,
+    );
+    const frame = { url: "openminion://app/", detached: false, send: vi.fn() };
+    const invocation = { senderFrame: frame, sender: { mainFrame: frame } };
+    const started: TurnEventV1 = {
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      requestId: "request-1",
+    };
+    const submit = async () => {
+      const saved = store.saveDraft({ sessionId: "session-1", text: "Same text" });
+      if (!saved.ok) throw new Error(saved.error.message);
+      await mocks.ipcHandlers.get(IPC_CHANNELS.turnsSubmit)!(invocation, {
+        sessionId: "session-1",
+        message: "Same text",
+        draftRevision: saved.value,
+      });
+    };
+    try {
+      await submit();
+      expect(store.loadDrafts()).toEqual({
+        ok: true,
+        value: [{ sessionId: "session-1", text: "Same text" }],
+      });
+      emit(started);
+      expect(store.loadDrafts()).toEqual({ ok: true, value: [] });
+      expect(frame.send).toHaveBeenLastCalledWith(IPC_CHANNELS.turnEvent, started);
+      await submit();
+      store.saveDraft({ sessionId: "session-1", text: "Same text" });
+      emit(started);
+      expect(store.loadDrafts()).toEqual({
+        ok: true,
+        value: [{ sessionId: "session-1", text: "Same text" }],
+      });
+      const consume = vi.spyOn(store, "consumeDraft");
+      emit({
+        schemaVersion: 1,
+        kind: "connection",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        state: "reconnected",
+        error: null,
+      });
+      expect(consume).not.toHaveBeenCalled();
+      consume.mockReturnValueOnce({
+        ok: false,
+        error: {
+          code: "storage_unavailable",
+          message: "Accepted, but saved draft could not be cleared.",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      emit(started);
+      expect(frame.send).toHaveBeenLastCalledWith(IPC_CHANNELS.turnEvent, {
+        ...started,
+        draftError: "Accepted, but saved draft could not be cleared.",
+      });
+      consume.mockRestore();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("closes local resources before stopping the daemon on application quit", async () => {
@@ -1600,6 +1716,8 @@ class CaptureFixtureDocument {
     "chat-elapsed",
     "composer-hint",
     "composer-form",
+    "draft-status",
+    "reconnect-turn",
     "composer",
     "show-commands",
     "command-menu",
