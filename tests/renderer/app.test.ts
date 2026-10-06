@@ -41,6 +41,10 @@ import type {
 
 function mount(api: NativeApi, root: Document): Promise<void> {
   api.chatNames ??= namesApi();
+  api.drafts ??= {
+    load: async () => ({ ok: true, value: [] }),
+    save: async () => ({ ok: true, value: "00000000-0000-4000-8000-000000000001" }),
+  };
   api.presentation ??= {
     load: async () => ({ ok: true, value: { quietTools: false } }),
     save: async () => ({ ok: true, value: null }),
@@ -3332,6 +3336,7 @@ describe("renderer status view", () => {
         expect(submit).toHaveBeenCalledWith({
           sessionId: "session-1",
           message: "Describe this image",
+          draftRevision: "00000000-0000-4000-8000-000000000001",
           attachmentIds: [image.mediaId],
         }),
       );
@@ -4011,6 +4016,7 @@ describe("renderer status view", () => {
         expect(submit).toHaveBeenCalledWith({
           sessionId: session.sessionId,
           message: "What is visible?",
+          draftRevision: "00000000-0000-4000-8000-000000000001",
           observation: { includeCurrentView: true },
         }),
       );
@@ -4034,6 +4040,7 @@ describe("renderer status view", () => {
         expect(submit).toHaveBeenLastCalledWith({
           sessionId: session.sessionId,
           message: "Show me the safest next step",
+          draftRevision: "00000000-0000-4000-8000-000000000001",
           observation: { includeCurrentView: true },
         }),
       );
@@ -5044,6 +5051,8 @@ class FixtureDocument {
     "timeline",
     "conversation",
     "chat-progress",
+    "reconnect-turn",
+    "draft-status",
     "jump-latest",
     "chat-status",
     "chat-detail",
@@ -5508,5 +5517,324 @@ describe("command discovery", () => {
     expect(commandMatches("/cls").map((item) => item.name)).toEqual(["/clear"]);
     expect(commandMatches("/skills ").map((item) => item.name)).toEqual(["/skills"]);
     expect(commandMatches("//literal")).toEqual([]);
+  });
+});
+
+describe("command picker keyboard access", () => {
+  it("lets Shift+Tab leave suggestions without completion or restoring an older draft", async () => {
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: { status: async () => status({ state: "degraded" }) },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const composer = page.element("composer");
+      composer.value = "Original draft";
+      composer.dispatch("input");
+      page.element("show-commands").click();
+      composer.value = "/task pause task-1";
+      composer.dispatch("input");
+      expect(page.element("command-menu").hidden).toBe(false);
+      expect(page.element("command-menu").children.length).toBe(1);
+      expect(page.element("command-menu").children[0]!.getAttribute("tabindex")).toBe("-1");
+      const preventDefault = vi.fn();
+      composer.dispatch("keydown", { key: "Tab", shiftKey: true, preventDefault });
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(page.element("command-menu").hidden).toBe(true);
+      expect(composer.value).toBe("/task pause task-1");
+      expect(composer.removeAttribute).toHaveBeenCalledWith("aria-activedescendant");
+      expect(page.element("show-commands").getAttribute("aria-expanded")).toBe("false");
+      composer.dispatch("keydown", { key: "Escape" });
+      expect(composer.value).toBe("/task pause task-1");
+
+      composer.dispatch("input");
+      composer.dispatch("keydown", { key: "Tab", preventDefault });
+      expect(preventDefault).toHaveBeenCalledOnce();
+      expect(composer.value).toBe("/tasks pause task-1");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("describes composer shortcuts without relying on the hidden visual hint", () => {
+    const html = readFileSync(new URL("../../src/renderer/index.html", import.meta.url), "utf8");
+    expect(html).toContain('aria-describedby="composer-keyboard-help"');
+    expect(html).toContain('id="composer-keyboard-help" class="sr-only"');
+    expect(html).toContain("Shift+Tab to leave suggestions.");
+  });
+});
+
+describe("saved drafts and disconnected responses", () => {
+  function apiForDrafts(sessions = [sessionSummary()]): NativeApi {
+    const api = approvalRendererApi(vi.fn(), sessions);
+    vi.mocked(api.sessions.events).mockResolvedValue({
+      ok: true,
+      value: { events: [], nextCursor: "event-zero", hasMore: false },
+    });
+    return api;
+  }
+
+  it("blocks sending until a failed unbound-draft transfer cleanup succeeds", async () => {
+    const api = apiForDrafts();
+    vi.mocked(api.sessions.list).mockResolvedValue({
+      ok: true,
+      value: { sessions: [], nextCursor: null, hasMore: false },
+    });
+    vi.mocked(api.sessions.create).mockResolvedValue({ ok: true, value: sessionSummary() });
+    api.drafts = {
+      load: async () => ({ ok: true, value: [{ sessionId: "", text: "Original draft" }] }),
+      save: vi.fn(async ({ clearUnbound }) =>
+        clearUnbound
+          ? {
+              ok: false as const,
+              error: {
+                code: "storage_unavailable",
+                message: "Draft cleanup failed. Keep this window open.",
+                retryable: false,
+                retryAfterMs: null,
+              },
+            }
+          : { ok: true as const, value: "00000000-0000-4000-8000-000000000001" },
+      ),
+    };
+    vi.mocked(api.turns.submit).mockResolvedValue({
+      ok: false,
+      error: { code: "rejected", message: "Not accepted.", retryable: false, retryAfterMs: null },
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(page.element("draft-status").textContent).toBe(
+          "Draft cleanup failed. Keep this window open.",
+        ),
+      );
+      expect(page.element("draft-status").hidden).toBe(false);
+      expect(page.element("composer").value).toBe("Original draft");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.drafts.save).toHaveBeenCalledTimes(2));
+      expect(api.turns.submit).not.toHaveBeenCalled();
+      vi.mocked(api.drafts.save).mockResolvedValue({
+        ok: true,
+        value: "00000000-0000-4000-8000-000000000001",
+      });
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+      expect(page.element("draft-status").hidden).toBe(true);
+      expect(page.element("composer").value).toBe("Original draft");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("restores independent session drafts and keeps unbound startup text out of existing chats", async () => {
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Second" },
+    ];
+    const api = apiForDrafts(sessions);
+    const saved = new Map([
+      ["", "Unbound draft"],
+      ["session-1", "First draft"],
+      ["session-2", "Second draft"],
+    ]);
+    api.drafts = {
+      load: async () => ({
+        ok: true,
+        value: [...saved].map(([sessionId, text]) => ({ sessionId, text })),
+      }),
+      save: vi.fn(async ({ sessionId, text }) => {
+        saved.set(sessionId, text);
+        return { ok: true as const, value: "00000000-0000-4000-8000-000000000001" };
+      }),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      expect(page.element("current-title").textContent).toBe("New conversation");
+      expect(page.element("composer").value).toBe("Unbound draft");
+      page.sessionButtons()[0]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("current-title").textContent).toBe("Recovered chat"),
+      );
+      expect(page.element("composer").value).toBe("First draft");
+      page.element("composer").value = "Edited first";
+      page.element("composer").dispatch("input");
+      page.sessionButtons()[1]!.click();
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Second"));
+      expect(page.element("composer").value).toBe("Second draft");
+      const reloaded = new FixtureDocument();
+      await mount(api, reloaded.asDocument());
+      expect(reloaded.element("composer").value).toBe("Unbound draft");
+      reloaded.sessionButtons()[0]!.click();
+      await vi.waitFor(() => expect(reloaded.element("composer").value).toBe("Edited first"));
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows save failure without losing text or submitting, and fences repeated sends during a save", async () => {
+    const api = apiForDrafts();
+    const failure = {
+      ok: false as const,
+      error: {
+        code: "storage_unavailable",
+        message: "Draft not saved. Keep this window open.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    };
+    let finishSave!: (result: ClientResult<string>) => void;
+    api.drafts = {
+      load: async () => ({ ok: true, value: [] }),
+      save: vi
+        .fn()
+        .mockResolvedValueOnce(failure)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishSave = resolve;
+            }),
+        ),
+    };
+    vi.mocked(api.turns.submit).mockResolvedValue({
+      ok: false,
+      error: {
+        code: "request_rejected",
+        message: "Not accepted.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "Keep this";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(page.element("draft-status").hidden).toBe(false));
+      expect(page.element("composer").value).toBe("Keep this");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.drafts.save).toHaveBeenCalledTimes(2));
+      page.element("composer-form").dispatch("submit");
+      await Promise.resolve();
+      expect(api.drafts.save).toHaveBeenCalledTimes(2);
+      expect(page.element("send").disabled).toBe(true);
+      finishSave({ ok: true, value: "00000000-0000-4000-8000-000000000001" });
+      await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+      expect(page.element("composer").value).toBe("Keep this");
+      expect(page.element("draft-status").hidden).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reconnects explicitly without clearing new drafts or text, and reads history when a turn is no longer retained", async () => {
+    const api = apiForDrafts();
+    let listener!: (event: TurnEventV1) => void;
+    vi.mocked(api.turns.subscribe).mockImplementation((next) => {
+      listener = next;
+      return () => {};
+    });
+    vi.mocked(api.turns.submit).mockResolvedValue({
+      ok: true,
+      value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+    });
+    const error = {
+      code: "stream_disconnected",
+      message: "Response disconnected. Reconnect to continue.",
+      retryable: true,
+      retryAfterMs: null,
+    };
+    api.turns.reconnect = vi.fn(async () => {
+      listener({
+        schemaVersion: 1,
+        kind: "connection",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        state: "reconnected",
+        error: null,
+      });
+      return {
+        ok: true as const,
+        value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+      };
+    });
+    let onHide = () => {};
+    vi.stubGlobal("window", {
+      addEventListener: (_name: string, callback: () => void) => {
+        onHide = callback;
+      },
+    });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "First request";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+      listener({
+        schemaVersion: 1,
+        kind: "progress",
+        progressKind: "text",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        text: "Partial response",
+        createdAt: "2026-10-06T00:00:00Z",
+      });
+      page.element("composer").value = "Next draft";
+      page.element("composer").dispatch("input");
+      listener({
+        schemaVersion: 1,
+        kind: "connection",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        state: "disconnected",
+        error,
+      });
+      expect(page.element("reconnect-turn").hidden).toBe(false);
+      expect(page.element("reconnect-turn").disabled).toBe(false);
+      expect(api.turns.reconnect).not.toHaveBeenCalled();
+      page.element("reconnect-turn").click();
+      await vi.waitFor(() => expect(page.element("reconnect-turn").hidden).toBe(true));
+      expect(api.turns.reconnect).toHaveBeenCalledWith({
+        sessionId: "session-1",
+        traceId: "trace-1",
+      });
+      expect(page.findText()).toContain("Partial response");
+      expect(page.element("composer").value).toBe("Next draft");
+      expect(api.turns.submit).toHaveBeenCalledOnce();
+      listener({
+        schemaVersion: 1,
+        kind: "connection",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        state: "unavailable",
+        error: {
+          ...error,
+          code: "trace_not_found",
+          message: "Turn is no longer retained. Check conversation history.",
+          retryable: false,
+        },
+      });
+      await vi.waitFor(() => expect(api.sessions.load).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(page.element("cancel").hidden).toBe(true));
+      expect(page.element("chat-status").textContent).toBe(
+        "Turn is no longer retained. Check conversation history.",
+      );
+      expect(page.element("composer").value).toBe("Next draft");
+      expect(api.turns.submit).toHaveBeenCalledOnce();
+      onHide();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

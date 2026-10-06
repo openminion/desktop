@@ -176,11 +176,17 @@ function validateEventsInput(input: SessionEventsInput): SessionEventsInput {
 }
 
 function validateSubmitInput(input: TurnSubmitInput): TurnSubmitInput {
-  exactRecord(input, ["sessionId", "message"], ["attachmentIds", "observation"], "invalid_request");
+  exactRecord(
+    input,
+    ["sessionId", "message"],
+    ["attachmentIds", "observation", "draftRevision"],
+    "invalid_request",
+  );
   const value: TurnSubmitInput = {
     sessionId: inputString(input.sessionId, 256),
     message: messageInput(input.message),
   };
+  if (input.draftRevision !== undefined) value.draftRevision = inputString(input.draftRevision, 36);
   const attachmentIds = optionalMediaIds(input.attachmentIds);
   const observation = optionalObservationIntent(input.observation);
   if (attachmentIds) value.attachmentIds = attachmentIds;

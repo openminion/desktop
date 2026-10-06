@@ -55,7 +55,12 @@
           <p id="profile-intro" class="settings-note">Finish running chats before saving. Applying changes restarts OpenMinion.</p>
           <form id="profile-form">
             <fieldset id="setup-fields" hidden>
-              <legend>Set up your first agent</legend>
+              <legend id="setup-legend">Set up your first agent</legend>
+              <div id="setup-agent-fields" hidden>
+                <label for="setup-agent">New agent ID</label>
+                <input id="setup-agent" maxlength="512" required disabled spellcheck="false" />
+                <p class="settings-note">The new profile becomes the default for new conversations. Existing conversations keep their agent.</p>
+              </div>
               <label for="setup-provider">Provider</label>
               <select id="setup-provider"></select>
               <div class="settings-grid">
@@ -93,6 +98,8 @@
             <div class="settings-actions">
               <button id="setup-demo" class="quiet-button" type="button" hidden>Try echo demo</button>
               <button id="profile-import" class="quiet-button" type="button" disabled>Import profiles…</button>
+              <button id="profile-add" class="quiet-button" type="button" hidden>Add profile</button>
+              <button id="profile-add-cancel" class="quiet-button" type="button" hidden>Cancel new profile</button>
               <button id="profile-save" type="submit" disabled>Save and apply</button>
             </div>
           </form>
@@ -286,6 +293,7 @@
                 </div>
                 <p id="chat-detail" class="chat-detail" role="status" hidden></p>
                 <p id="chat-update" class="chat-detail" hidden></p>
+                <button id="reconnect-turn" class="quiet-button" type="button" hidden>Reconnect response</button>
               </div>
             </div>
             <section id="command-panel" class="command-panel" hidden aria-live="polite" aria-labelledby="command-title">
@@ -313,6 +321,7 @@
               Write a message to start. You can also preview a screen or window locally.
             </p>
           </div>
+          <p id="draft-status" class="composer-hint" role="status" hidden></p>
           <form id="composer-form" class="composer">
             <button id="jump-latest" class="jump-latest quiet-button" type="button" hidden>↓ Jump to latest</button>
             <div id="command-menu" class="command-menu" role="listbox" aria-label="Commands" hidden></div>
@@ -338,8 +347,10 @@
               placeholder="Message OpenMinion…"
               aria-controls="command-menu"
               aria-autocomplete="list"
+              aria-describedby="composer-keyboard-help"
               disabled
             ></textarea>
+            <p id="composer-keyboard-help" class="sr-only">Enter to send. Shift+Enter for a new line. With command suggestions open, use arrow keys to choose, Tab to complete, Enter to run, Escape to cancel, or Shift+Tab to leave suggestions.</p>
             <div class="composer-actions">
               <div class="composer-tools">
                 <button id="show-commands" class="icon-only-button" type="button" aria-controls="command-menu" aria-expanded="false" aria-haspopup="listbox" aria-label="Show commands" title="Commands (/) or ⌘ / Ctrl + K">

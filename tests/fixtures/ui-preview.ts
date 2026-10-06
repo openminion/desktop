@@ -236,6 +236,10 @@ const api: NativeApi = {
       },
     }),
   },
+  drafts: {
+    load: async () => ({ ok: true, value: [] }),
+    save: async () => ({ ok: true, value: "preview-draft" }),
+  },
   chatNames: {
     load: async () => ({
       ok: true,
@@ -405,6 +409,8 @@ const api: NativeApi = {
     events: async () => ok({ events: [], nextCursor: "0", hasMore: false }),
   },
   turns: {
+    reconnect: async ({ sessionId, traceId }) =>
+      ok({ sessionId, traceId, requestId: "preview-request" }),
     subscribe: (listener) => {
       turnListener = listener;
       return () => {

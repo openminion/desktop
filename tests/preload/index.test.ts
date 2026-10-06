@@ -21,6 +21,72 @@ describe("preload surface", () => {
     removeListener.mockReset();
   });
 
+  it("bridges explicit reconnect and only admits typed connection events", async () => {
+    await import("../../src/preload/index.js");
+    const api = exposeInMainWorld.mock.calls[0][1];
+    await api.turns.reconnect({ sessionId: "session-1", traceId: "trace-1" });
+    expect(invoke).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.turnsReconnect, {
+      sessionId: "session-1",
+      traceId: "trace-1",
+    });
+    const listener = vi.fn();
+    api.turns.subscribe(listener);
+    const receive = on.mock.calls[0][1];
+    const event = {
+      schemaVersion: 1,
+      kind: "connection",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      state: "disconnected",
+      error: {
+        code: "stream_interrupted",
+        message: "Connection interrupted",
+        retryable: true,
+        retryAfterMs: null,
+      },
+    };
+    receive({}, event);
+    receive({}, { ...event, state: "reconnected", error: null });
+    receive({}, { ...event, state: "unavailable" });
+    expect(listener).toHaveBeenCalledTimes(3);
+    for (const invalid of [
+      { ...event, state: ["disconnected"] },
+      { ...event, state: "done" },
+      { ...event, error: null },
+      { ...event, state: "reconnected" },
+      { ...event, traceId: null },
+      { ...event, token: "secret" },
+    ])
+      receive({}, invalid);
+    expect(listener).toHaveBeenCalledTimes(3);
+  });
+
+  it("delivers accepted turns with a typed draft cleanup warning without admitting extra fields", async () => {
+    await import("../../src/preload/index.js");
+    const api = exposeInMainWorld.mock.calls[0][1];
+    const listener = vi.fn();
+    api.turns.subscribe(listener);
+    const receive = on.mock.calls[0][1];
+    const event = {
+      schemaVersion: 1,
+      kind: "started",
+      requestId: "request-1",
+      traceId: "trace-1",
+      sessionId: "session-1",
+    };
+    receive({}, event);
+    const warning = {
+      ...event,
+      draftError: "Message accepted, but its saved draft could not be cleared. Do not resend it.",
+    };
+    receive({}, warning);
+    expect(listener).toHaveBeenNthCalledWith(1, event);
+    expect(listener).toHaveBeenNthCalledWith(2, warning);
+    for (const draftError of [undefined, null, 1, [], {}]) receive({}, { ...event, draftError });
+    receive({}, { ...warning, token: "must-not-cross" });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
   it("exposes only the exact typed desktop methods", async () => {
     await import("../../src/preload/index.js");
     expect(exposeInMainWorld).toHaveBeenCalledOnce();
@@ -28,6 +94,7 @@ describe("preload surface", () => {
     expect(name).toBe("openminion");
     expect(Object.keys(api)).toEqual([
       "runtime",
+      "drafts",
       "chatNames",
       "presentation",
       "reports",
@@ -55,6 +122,14 @@ describe("preload surface", () => {
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStage);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeControl, {
       action: "pause",
+    });
+    expect(Object.keys(api.drafts)).toEqual(["load", "save"]);
+    await api.drafts.load();
+    await api.drafts.save({ sessionId: "session-1", text: "Draft" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.draftsLoad);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.draftsSave, {
+      sessionId: "session-1",
+      text: "Draft",
     });
     expect(Object.keys(api.chatNames)).toEqual(["load", "save"]);
     await api.chatNames.load([]);
@@ -100,7 +175,7 @@ describe("preload surface", () => {
       "close",
       "events",
     ]);
-    expect(Object.keys(api.turns)).toEqual(["submit", "cancel", "subscribe"]);
+    expect(Object.keys(api.turns)).toEqual(["submit", "cancel", "reconnect", "subscribe"]);
     expect(Object.keys(api.approvals)).toEqual(["decide"]);
     expect(Object.keys(api.artifacts)).toEqual(["list", "read", "detach", "restore"]);
     expect(Object.keys(api.files)).toEqual(["pick", "list", "import", "release"]);

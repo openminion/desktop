@@ -93,7 +93,7 @@ export class DaemonSupervisor {
   constructor(options: DaemonSupervisorOptions) {
     this.#options = options;
     this.#runCommand = options.runCommand ?? runCommand;
-    this.client = new CliClient(() => this.getCommandContext(), this.#runCommand);
+    this.client = new CliClient(() => this.getCommandContext(), this.#runCommand, options.store);
     this.#installation = new OpenMinionInstallation(options);
     this.profiles =
       options.configPath && options.homeRoot && options.dataRoot

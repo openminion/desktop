@@ -414,6 +414,28 @@ async function check() {
       await click("close-command");
       assert.equal(await evaluate("document.activeElement.id"), "composer");
     }
+    await window.webContents.insertText("Original draft before commands");
+    await settled();
+    await key("k", [process.platform === "darwin" ? "meta" : "control"]);
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("/ta");
+    await settled();
+    assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), false);
+    await key("Tab", ["shift"]);
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "/ta");
+    assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), true);
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    assert.equal(
+      await evaluate(
+        "document.activeElement.id !== 'composer' && !document.activeElement.closest('#command-menu') && document.activeElement.getClientRects().length > 0",
+      ),
+      true,
+      "Shift+Tab leaves suggestions for a visible control without completing or restoring a draft",
+    );
+    await key("Tab");
+    assert.equal(await evaluate("document.activeElement.id"), "composer");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "/ta");
+    await evaluate("document.querySelector('#composer').select()");
     await window.webContents.insertText("/tasks pause task-id");
     await settled();
     await key("Tab");
@@ -456,7 +478,7 @@ async function check() {
     await window.webContents.insertText("Keep drafting");
     await settled();
     console.log(
-      "PASS: native command shortcut/draft replacement, contextual help, alias and argument completion, report Copy and Dismiss focus without a runtime.",
+      "PASS: native command shortcut/draft replacement, contextual help, alias and argument completion, Shift+Tab focus exit, report Copy and Dismiss focus without a runtime.",
     );
 
     // Real unavailable-runtime Settings must retain diagnostics and local preferences.

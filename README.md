@@ -143,7 +143,7 @@ command and restarts the daemon with the saved profile. By default, setup sends
 one provider request and reports whether the connection was verified. Clear
 **Test connection before continuing** to save without making that request.
 Later launches reuse the environment when its installed version matches the pin.
-Desktop chat names live in SQLite; existing installations retain their recorded
+Desktop chat names and unsent text drafts live in SQLite; existing installations retain their recorded
 runtime locations. See [Desktop data](docs/getting-started.md#desktop-data) for
 storage, migration, and backup behavior.
 
