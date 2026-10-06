@@ -788,14 +788,22 @@ function isTurnEvent(value: unknown): value is TurnEventV1 {
         "ok",
         "durationMs",
         "exitCode",
+        ...("content" in record ? ["content"] : []),
+        ...("truncated" in record ? ["truncated"] : []),
       ]) &&
       (record.phase === "started" || record.phase === "completed") &&
       strings(record, ["sessionId", "traceId", "toolName", "callId", "state", "createdAt"]) &&
       nullableBoolean(record.ok) &&
       nullableNumber(record.durationMs) &&
       nullableNumber(record.exitCode) &&
+      (!("content" in record) || typeof record.content === "string") &&
+      (!("truncated" in record) || typeof record.truncated === "boolean") &&
       (record.phase === "completed" ||
-        (record.ok === null && record.durationMs === null && record.exitCode === null))
+        (record.ok === null &&
+          record.durationMs === null &&
+          record.exitCode === null &&
+          !("content" in record) &&
+          !("truncated" in record)))
     );
   }
   if (record.kind === "approval") {

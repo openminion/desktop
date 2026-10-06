@@ -87,6 +87,7 @@ and DEB and ZIP on Linux. These are development artifacts, not public releases.
 
 - browse, reopen, and close local OpenMinion sessions; create them with a first message
 - chat with streaming progress and typed terminal outcomes
+- expand and copy tool output supplied by the runtime; partial or unavailable output is labeled
 - inspect OpenMinion work with `/tasks` and pause, resume, or cancel it through core controls
 - cancel active turns and recover completed history after renderer reload or daemon restart
 - review and allow once or deny policy-gated tool calls when paired with a compatible source runtime

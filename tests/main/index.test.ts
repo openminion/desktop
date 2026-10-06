@@ -1623,8 +1623,16 @@ class CaptureFixtureElement {
   get lastElementChild(): CaptureFixtureElement | null {
     return this.children.at(-1) ?? null;
   }
-  replaceChild(next: CaptureFixtureElement, previous: CaptureFixtureElement): void {
-    this.children.splice(this.children.indexOf(previous), 1, next);
+  contains(element: CaptureFixtureElement | null): boolean {
+    return element !== null && this.descendants().includes(element);
+  }
+  insertBefore(next: CaptureFixtureElement, previous: CaptureFixtureElement | null): void {
+    this.children = this.children.filter((child) => child !== next);
+    const index = previous === null ? this.children.length : this.children.indexOf(previous);
+    this.children.splice(index, 0, next);
+  }
+  moveBefore(next: CaptureFixtureElement, previous: CaptureFixtureElement | null): void {
+    this.insertBefore(next, previous);
   }
   removeChild(child: CaptureFixtureElement): void {
     this.children.splice(this.children.indexOf(child), 1);
