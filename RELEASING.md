@@ -1,7 +1,7 @@
 # OpenMinion Desktop Releasing
 
-Status: not yet enabled
-Last updated: 2026-09-30
+Status: runtime qualification enabled; public Desktop distribution not enabled
+Last updated: 2026-10-01
 
 Purpose: define the proof required before OpenMinion Desktop can enable public
 distribution.
@@ -14,6 +14,11 @@ The manual `CI` workflow can stage unsigned macOS, Windows, and Linux packages
 in a private draft release. This is a development handoff only, not public
 distribution or platform certification. Delete the draft after verification or
 transfer.
+
+The separate `Runtime qualification` workflow is not a Desktop distribution
+release. It builds a real-version packaged Desktop on all supported hosts to
+qualify exact immutable OpenMinion runtime bytes, then opens a reviewed evidence
+PR. It never publishes the Desktop packages or changes the runtime feed.
 
 ## Release floor
 
@@ -64,6 +69,23 @@ The qualification file enables a compatibility revision. It does not prove the
 later public-feed E2E by itself. See
 [`releases/runtime-certification/v1/README.md`](releases/runtime-certification/v1/README.md)
 for the exact evidence contract.
+
+For binary runtime qualification:
+
+1. require the final immutable `openminion/runtime` Release to exist without a
+   stable feed reference,
+2. dispatch **Runtime qualification** with the exact release tag/ID and reviewed
+   Desktop version,
+3. require all three packaged-host jobs and the generated evidence PR checks,
+4. merge the evidence PR to Desktop main,
+5. pass that full commit and evidence ID to OpenMinion's protected
+   **Runtime manifests** workflow, and
+6. after the binary metadata PR is public, rerun `packaged-runtime.mjs` in
+   public target mode on every claimed platform.
+
+The qualification harness imports the packaged main-process installer directly
+to stage the immutable Release. This is test-only main-process control: no feed
+override, renderer authority or product test mode is added.
 
 ## Current boundary
 

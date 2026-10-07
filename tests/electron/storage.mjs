@@ -11,7 +11,7 @@ if (!process.versions.electron) {
   const root = mkdtempSync(join(tmpdir(), "desktop-storage-e2e-"));
   try {
     const { default: executable } = await import("electron");
-    for (const phase of ["seed", "migrate", "restart"]) {
+    for (const phase of ["seed", "migrate", "restart", "cleared"]) {
       const result = await promisify(execFile)(
         executable,
         [fileURLToPath(import.meta.url), phase],
@@ -23,7 +23,7 @@ if (!process.versions.electron) {
       process.stdout.write(result.stdout);
     }
     console.log(
-      "PASS: native legacy-browser migration, saved names across app restarts, reset without resurrection, stable runtime paths and schema version.",
+      "PASS: native legacy-browser migration, saved names across app restarts, reset without resurrection, unsent composer drafts restored and cleared across process restarts, stable runtime paths and schema version.",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -88,6 +88,50 @@ async function checkStorage() {
           break;
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
+      const draftText = "Unsent before the runtime is ready\nKeep this exact draft.";
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (await evaluate("!document.querySelector('#composer').disabled")) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      assert.equal(await evaluate("document.querySelector('#composer').disabled"), false);
+      assert.equal(await evaluate("document.querySelector('#recovery').hidden"), false);
+      assert.equal(
+        await evaluate("document.querySelector('#composer').value"),
+        phase === "restart" ? draftText : "",
+      );
+      if (phase !== "cleared") {
+        window.show();
+        window.focus();
+        await evaluate("document.querySelector('#composer').focus()");
+        if (phase === "migrate") {
+          await window.webContents.insertText(draftText);
+        } else {
+          await evaluate("document.querySelector('#composer').select()");
+          window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Backspace" });
+          window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Backspace" });
+        }
+        const expected = phase === "migrate" ? [{ sessionId: "", text: draftText }] : [];
+        let saved;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          saved = await evaluate("window.openminion.drafts.load()");
+          if (saved.ok && JSON.stringify(saved.value) === JSON.stringify(expected)) break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        assert.deepEqual(
+          saved,
+          { ok: true, value: expected },
+          "Wait for the main-process draft save before exiting",
+        );
+        assert.equal(
+          await evaluate("document.querySelector('#composer').value"),
+          phase === "migrate" ? draftText : "",
+        );
+      } else {
+        assert.deepEqual(await evaluate("window.openminion.drafts.load()"), {
+          ok: true,
+          value: [],
+        });
+      }
       assert.equal(app.getPath("userData"), desktopRoot);
       assert.equal(app.getPath("sessionData"), legacy);
       assert.equal(await evaluate("localStorage.getItem('openminion.task-name:legacy-one')"), null);
@@ -134,7 +178,7 @@ async function checkStorage() {
         value: { quietTools: true },
       });
       const db = new DatabaseSync(join(desktopRoot, "desktop.sqlite"), { readOnly: true });
-      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 4);
+      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 5);
       assert.equal(db.prepare("SELECT runtime_home FROM installation").get().runtime_home, legacy);
       db.close();
       assert.equal(readFileSync(join(legacy, "runtime", "keep"), "utf8"), "existing environment");

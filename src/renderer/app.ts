@@ -53,6 +53,7 @@ export type ChatState = {
   traceId: string | null;
   terminalTraceId: string | null;
   active: boolean;
+  disconnected: boolean;
   startedAt: number | null;
   stopRequested: boolean;
   label: string;
@@ -75,15 +76,36 @@ export const DESKTOP_COMMANDS = [
     description: "Show commands currently connected in Desktop",
     usage: "/help [connected-command]",
   },
-  { name: "/new", description: "Start a new session" },
+  { name: "/new", description: "Start a new session", usage: "/new [session]" },
   { name: "/sessions", description: "Pick a session" },
   { name: "/close", description: "Close the current session" },
-  { name: "/tasks", description: "Inspect and control tasks" },
-  { name: "/agents", description: "List agents or find one by ID or name" },
-  { name: "/tools", description: "Show available tools" },
+  {
+    name: "/tasks",
+    description: "Inspect and control tasks",
+    usage: "/tasks [task-id] · /tasks pause|resume|cancel <task-id>",
+  },
+  {
+    name: "/agents",
+    description: "List agents or find one by ID or name",
+    usage: "/agents [agent-id-or-label]",
+  },
+  {
+    name: "/tools",
+    description: "Show tool exposure or list available tools",
+    usage: "/tools [status|list]",
+  },
   { name: "/mcp", description: "Show configured and exposed MCP servers" },
-  { name: "/skills", description: "List skills or inspect one by ID" },
-  { name: "/learning", description: "Show skill-learning proposals" },
+  { name: "/skills", description: "List skills or inspect one by ID", usage: "/skills [skill-id]" },
+  {
+    name: "/learning",
+    description: "Show skill-learning proposals",
+    usage: "/learning [proposal-id]",
+  },
+  {
+    name: "/identity",
+    description: "Show, verify, or reload the active identity",
+    usage: "/identity [verify|reload]",
+  },
   { name: "/tokens", description: "Show durable token usage details" },
   { name: "/export", description: "Export the saved conversation" },
   {
@@ -94,7 +116,7 @@ export const DESKTOP_COMMANDS = [
     name: "/model",
     description: "Show reported model (selection not connected yet)",
   },
-  { name: "/copy", description: "Copy the latest reply" },
+  { name: "/copy", description: "Copy the latest reply or tool output" },
   { name: "/clear", description: "Clear the visible chat; keep saved history" },
   { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
   { name: "/normal", description: "Show tool activity" },
@@ -112,7 +134,14 @@ export const DESKTOP_ALIASES: Record<string, string> = {
 };
 
 export function commandMatches(text: string) {
-  return DESKTOP_COMMANDS.filter((command) => command.name.startsWith(text.trim()));
+  const name = text.trim().split(/\s+/, 1)[0];
+  return DESKTOP_COMMANDS.filter(
+    (command) =>
+      command.name.startsWith(name) ||
+      Object.entries(DESKTOP_ALIASES).some(
+        ([alias, target]) => target === command.name && alias.startsWith(name),
+      ),
+  );
 }
 
 function isTaskCommand(text: string): boolean {
@@ -313,6 +342,7 @@ export function initialChatState(): ChatState {
     traceId: null,
     terminalTraceId: null,
     active: false,
+    disconnected: false,
     startedAt: null,
     stopRequested: false,
     label: "Choose or create a conversation to begin.",
@@ -346,6 +376,18 @@ export function applyTurnEvent(state: ChatState, event: TurnEventV1): ChatState 
   }
   if (event.sessionId !== state.sessionId || event.traceId !== state.traceId) {
     return state;
+  }
+  if (event.kind === "connection") {
+    return {
+      ...state,
+      active: event.state !== "unavailable",
+      disconnected: event.state === "disconnected",
+      traceId: event.state === "unavailable" ? null : state.traceId,
+      label: event.error?.message ?? "Working…",
+      error: event.error,
+      detail: "",
+      lastUpdateAt: Date.now(),
+    };
   }
   if (event.kind === "progress") {
     if (state.stopRequested) return state;
@@ -433,7 +475,7 @@ export function applyActivityEvent(activity: ActivityItem[], event: ActivityItem
     event.kind === "approval" && prior?.kind === "approval"
       ? {
           ...event,
-          argumentKeys: event.argumentKeys.length ? event.argumentKeys : prior.argumentKeys,
+          consentPreview: event.consentPreview || prior.consentPreview,
           requestedAt: event.requestedAt ?? prior.requestedAt,
           expiresAt: event.expiresAt ?? prior.expiresAt,
         }
@@ -705,12 +747,51 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let connecting = true;
   let richContextReady = false;
   let creatingTask = false;
+  let savingSubmission = false;
+  let pendingDraftTransfer: string | null = null;
+  const reconnectingTurns = new Set<string>();
   let conversationLoading = false;
   let waitTimer: ReturnType<typeof setInterval> | null = null;
   let messages: MessageV1[] = [];
-  const drafts = new Map<string, string>();
+  const savedDrafts = await api.drafts.load();
+  const drafts = new Map<string, string>(
+    (savedDrafts.ok ? savedDrafts.value : []).map((draft) => [draft.sessionId, draft.text]),
+  );
+  const draftStatus = required(root, "draft-status");
+  const draftErrors = new Map<string, string>();
+  const draftSaves = new Map<string, number>();
+  const showDraftStatus = () => {
+    draftStatus.textContent =
+      draftErrors.get(selected?.sessionId ?? "") ??
+      (savedDrafts.ok ? "" : savedDrafts.error.message);
+    draftStatus.hidden = !draftStatus.textContent;
+  };
+  const saveDraft = async (sessionId: string, text: string) => {
+    drafts.set(sessionId, text);
+    const generation = (draftSaves.get(sessionId) ?? 0) + 1;
+    draftSaves.set(sessionId, generation);
+    const clearUnbound = pendingDraftTransfer === sessionId;
+    const result = await api.drafts.save({
+      sessionId,
+      text,
+      ...(clearUnbound ? { clearUnbound: true as const } : {}),
+    });
+    if (result.ok && clearUnbound) {
+      drafts.delete("");
+      pendingDraftTransfer = null;
+    }
+    if (draftSaves.get(sessionId) === generation) {
+      if (result.ok) draftErrors.delete(sessionId);
+      else draftErrors.set(sessionId, result.error.message);
+      showDraftStatus();
+    }
+    return result;
+  };
+  elements.composer.value = drafts.get("") ?? "";
+  showDraftStatus();
   let submittedText: string | null = null;
   let responseText = "";
+  let latestCopyText: string | null = null;
   let responseUsage: InferenceUsageV1 | undefined;
   const liveTurns = new Map<
     string,
@@ -719,6 +800,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       messages: MessageV1[];
       submittedText: string;
       responseText: string;
+      latestCopyText: string | null;
       responseUsage?: InferenceUsageV1;
       activity: ActivityItem[];
     }
@@ -744,6 +826,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let commandDraft: string | null = null;
   let commandsDismissed = false;
   let activity: ActivityItem[] = [];
+  const activityBySession = new Map<string, ActivityItem[]>();
   let attachments: MediaAttachmentV1[] = [];
   let artifacts: ArtifactCatalogItemV1[] = [];
   let artifactView: ArtifactView | null = null;
@@ -753,6 +836,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let fileLabel = "Choose a session to import local files.";
   let attachmentPending = false;
   const deciding = new Set<string>();
+  const approvalErrors = new Map<string, ErrorV1>();
+  const approvalFocus = new Set<string>();
+  const announcedApprovals = new Set<string>();
   let chat = initialChatState();
   let selectionGeneration = 0;
   let submissionGeneration = 0;
@@ -1410,6 +1496,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (commandDraft !== null) {
       elements.composer.value = commandDraft;
       commandDraft = null;
+      void saveDraft(selected?.sessionId ?? "", elements.composer.value);
     }
   };
 
@@ -1430,6 +1517,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         button.type = "button";
         button.className = `command-option${index === commandIndex ? " active" : ""}`;
         button.setAttribute("role", "option");
+        button.setAttribute("tabindex", "-1");
         button.setAttribute("aria-selected", String(index === commandIndex));
         const name = root.createElement("span");
         name.className = "command-name";
@@ -1438,7 +1526,16 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         description.className = "command-description";
         description.textContent = command.description;
         button.append(name, description);
-        button.addEventListener("click", () => void runCommand(command.name));
+        if ("usage" in command) {
+          const usage = root.createElement("span");
+          usage.className = "command-usage";
+          usage.textContent = command.usage;
+          button.append(usage);
+        }
+        button.addEventListener(
+          "click",
+          () => void runCommand(value.replace(/^\S+/, command.name)),
+        );
         return button;
       }),
     );
@@ -1471,7 +1568,21 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.commandTitle.textContent = title;
     const paragraph = root.createElement("p");
     paragraph.textContent = text;
-    elements.commandResult.replaceChildren(paragraph);
+    const copy = root.createElement("button");
+    copy.type = "button";
+    copy.className = "quiet-button";
+    copy.textContent = "Copy";
+    copy.setAttribute("aria-label", "Copy command result");
+    copy.setAttribute("aria-live", "polite");
+    copy.addEventListener("click", async () => {
+      try {
+        const result = await api.app.copyText(text);
+        copy.textContent = result.ok ? "Copied" : "Copy failed";
+      } catch {
+        copy.textContent = "Copy failed";
+      }
+    });
+    elements.commandResult.replaceChildren(paragraph, copy);
     elements.commandPanel.hidden = false;
     elements.commandPanel.scrollIntoView({ block: "start" });
   };
@@ -1621,6 +1732,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (!value.startsWith("/") || value.startsWith("//")) return false;
     const [name, ...args] = value.split(/\s+/);
     const command = DESKTOP_ALIASES[name] ?? name;
+    if (args.length === 1 && ["--help", "?"].includes(args[0])) {
+      return runCommand(`/help ${command}`);
+    }
     if (!DESKTOP_COMMANDS.some((item) => item.name === command)) {
       hideCommandMenu();
       showCommandResult(
@@ -1631,10 +1745,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     if (
       args.length &&
+      command !== "/tools" &&
       command !== "/tasks" &&
       command !== "/agents" &&
       command !== "/skills" &&
       command !== "/learning" &&
+      command !== "/identity" &&
       command !== "/help" &&
       !(command === "/new" && args.join(" ") === "session")
     ) {
@@ -1648,6 +1764,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.composer.value = commandDraft ?? "";
     commandDraft = null;
     hideCommandMenu();
+    void saveDraft(selected?.sessionId ?? "", elements.composer.value);
     elements.composer.focus();
     switch (command) {
       case "/agents":
@@ -1657,8 +1774,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       case "/learning":
       case "/mcp":
       case "/graph": {
-        if (command === "/agents" && args.length && chat.active) {
-          showCommandResult("Agents", "Finish or stop this turn before inspecting an agent.");
+        if (["/agents", "/tools"].includes(command) && args.length && chat.active) {
+          showCommandResult(
+            "Turn in progress",
+            "Finish or stop this turn before using these command arguments.",
+          );
           break;
         }
         const kind = command.slice(1) as
@@ -1682,6 +1802,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           showCommandResult(titles[kind], "No active session.");
           break;
         }
+        if (
+          kind === "tools" &&
+          args.length &&
+          (args.length !== 1 || !["status", "list"].includes(args[0]))
+        ) {
+          showCommandResult(
+            "Command arguments",
+            "Use /tools, /tools status, or /tools list. Tool activation is not connected yet.",
+          );
+          break;
+        }
         const sessionId = selected?.sessionId;
         showCommandResult(titles[kind], "Loading from OpenMinion…");
         const request = commandResultGeneration;
@@ -1691,6 +1822,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             ? { sessionId }
             : {}),
           ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
+          ...(kind === "tools" && args.length ? { toolView: args[0] as "status" | "list" } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
           ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
           ...(kind === "learning" && args.length ? { proposalId: args.join(" ") } : {}),
@@ -1709,7 +1841,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
                     `${agent.id === selected?.activeAgentId ? "● " : ""}${agent.id}${agent.label !== agent.id ? ` — ${agent.label}` : ""}`,
                 )
                 .join("\n") || "No matching agents.";
-          else if (report.kind === "tools")
+          else if (report.kind === "tools" && "tools" in report)
             text =
               report.tools
                 .map((tool) => `${tool.name}${tool.enabled ? "" : " · disabled"}`)
@@ -1755,9 +1887,63 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           );
         break;
       }
+      case "/identity": {
+        const action = args[0]?.toLowerCase() ?? "show";
+        if (args.length > 1 || !["show", "verify", "reload"].includes(action)) {
+          showCommandResult(
+            "Identity command",
+            "Use /identity, /identity verify, or /identity reload.",
+          );
+          break;
+        }
+        if (!selected?.activeAgentId) {
+          showCommandResult("Identity", "Choose a saved conversation with an active agent first.");
+          break;
+        }
+        const sessionId = selected.sessionId;
+        const agentId = selected.activeAgentId;
+        showCommandResult(
+          "Identity",
+          action === "reload" ? "Reloading identity…" : "Reading identity…",
+        );
+        const request = commandResultGeneration;
+        const result =
+          action === "reload" ? await api.identity.reload() : await api.identity.read();
+        if (request !== commandResultGeneration || selected?.sessionId !== sessionId) break;
+        if (elements.commandPanel.hidden) break;
+        if (!result.ok) {
+          showCommandResult("Identity", result.error.message);
+          break;
+        }
+        const profile = result.value.profiles.find((item) => item.agentId === agentId);
+        if (!profile) {
+          showCommandResult("Identity", `No identity profile is configured for ${agentId}.`);
+          break;
+        }
+        showCommandResult(
+          action === "reload"
+            ? "Identity reloaded"
+            : action === "verify"
+              ? "Identity verification"
+              : "Identity",
+          [
+            `${profile.displayName} (${profile.agentId})`,
+            `Source: ${profile.source}`,
+            `Profile version: ${profile.profileVersion}`,
+            `Verification: ${profile.validationOk ? "valid" : "needs attention"}`,
+            `Source status: ${profile.sourceStatus}`,
+            `Generated files: ${profile.generatedStatus}`,
+            ...profile.verificationIssues.map((issue) => `Issue: ${issue}`),
+            "",
+            profile.render.text,
+          ].join("\n"),
+        );
+        break;
+      }
       case "/help": {
         if (args.length) {
-          const requested = args[0].startsWith("/") ? args[0] : `/${args[0]}`;
+          const target = args.join(" ");
+          const requested = target.startsWith("/") ? target : `/${target}`;
           const canonical = DESKTOP_ALIASES[requested] ?? requested;
           const item = DESKTOP_COMMANDS.find((candidate) => candidate.name === canonical);
           showCommandResult(
@@ -1845,17 +2031,29 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         );
         break;
       case "/copy": {
-        const reply = responseText
-          ? { body: responseText, profileName: selected?.activeAgentId }
-          : messages.slice(hiddenMessageCount).findLast((item) => item.role === "assistant");
-        const text = reply && assistantBody(reply.body, reply.profileName);
-        if (!text) showCommandResult("Copy reply", "There is no reply to copy yet.");
+        const reply = messages
+          .slice(hiddenMessageCount)
+          .findLast((item) => item.role === "assistant");
+        let text = latestCopyText ?? (reply ? assistantBody(reply.body, reply.profileName) : null);
+        if (latestCopyText === null) {
+          let latestAt = reply ? Date.parse(reply.createdAt) : -Infinity;
+          for (const item of activity) {
+            if (item.kind !== "tool" || item.phase !== "completed" || !item.content) continue;
+            const createdAt = Date.parse(item.createdAt);
+            if (createdAt > latestAt) {
+              text = item.content;
+              latestAt = createdAt;
+            }
+          }
+        }
+        if (!text) showCommandResult("Copy", "There is no reply or tool output to copy yet.");
         else {
-          const result = await api.app.copyText(text);
-          showCommandResult(
-            "Copy reply",
-            result.ok ? "Copied to clipboard." : result.error.message,
-          );
+          try {
+            const result = await api.app.copyText(text);
+            showCommandResult("Copy", result.ok ? "Copied to clipboard." : result.error.message);
+          } catch {
+            showCommandResult("Copy", "Copy failed");
+          }
         }
         break;
       }
@@ -1867,6 +2065,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           );
         else {
           hiddenMessageCount = messages.length;
+          latestCopyText = null;
           activity = [];
           showCommandResult(
             "Chat cleared",
@@ -1928,6 +2127,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         : conversationLoading && !chat.active && !chat.label
           ? "Finishing…"
           : chat.label;
+    elements.reconnectTurn.hidden = !chat.active || !chat.disconnected;
+    elements.reconnectTurn.disabled = reconnectingTurns.has(chat.sessionId ?? "");
+    elements.reconnectTurn.textContent = reconnectingTurns.has(chat.sessionId ?? "")
+      ? "Checking response…"
+      : chat.error?.retryable
+        ? "Reconnect response"
+        : "Check response status";
     elements.chatDetail.textContent = chat.detail;
     elements.chatDetail.hidden = !chat.detail;
     elements.chatProgress.hidden = !elements.chatStatus.textContent && !chat.detail;
@@ -1945,6 +2151,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       !elements.composer.value.trimStart().startsWith("//");
     elements.send.disabled =
       creatingTask ||
+      savingSubmission ||
       (isCommand
         ? connecting && !isTaskCommand(elements.composer.value)
         : connecting ||
@@ -1955,6 +2162,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           attachmentPending ||
           !elements.composer.value.trim() ||
           !attachmentsValid);
+    const restoreFocusAfterStop = !chat.active && root.activeElement === elements.cancel;
     elements.cancel.hidden = !chat.active;
     elements.cancel.disabled = !chat.active || !chat.traceId || chat.stopRequested;
     elements.cancel.title = chat.stopRequested ? "Waiting for OpenMinion to stop" : "Stop response";
@@ -1964,6 +2172,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       : chat.active
         ? "You can keep drafting while OpenMinion works"
         : "Enter to send · Shift+Enter for new line";
+    if (restoreFocusAfterStop) elements.composer.focus();
     elements.send.title = isCommand
       ? "Run command"
       : !daemonReady
@@ -2028,38 +2237,81 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       automaticObservation,
       quietTools ? activity.filter((item) => item.kind === "approval") : activity,
       deciding,
+      approvalErrors,
+      chat.stopRequested,
+      approvalFocus,
+      announcedApprovals,
       (approval, decision) => {
-        if (deciding.has(approval.approvalId)) {
+        if (deciding.has(approval.approvalId) || chat.stopRequested) {
           return;
         }
         deciding.add(approval.approvalId);
-        const generation = selectionGeneration;
+        approvalErrors.delete(approval.approvalId);
+        approvalFocus.add(approval.approvalId);
         renderChat();
-        void api.approvals
-          .decide({
-            sessionId: approval.sessionId,
-            traceId: approval.traceId,
-            approvalId: approval.approvalId,
-            decision,
-          })
-          .then((result) => {
+        void (async () => {
+          let result: ClientResult<ApprovalDecisionV1>;
+          try {
+            result = await api.approvals.decide({
+              sessionId: approval.sessionId,
+              traceId: approval.traceId,
+              approvalId: approval.approvalId,
+              decision,
+            });
+          } catch {
+            result = {
+              ok: false,
+              error: {
+                code: "approval_transport_failed",
+                message: "Could not send the decision. Try again.",
+                retryable: true,
+                retryAfterMs: null,
+              },
+            };
+          } finally {
             deciding.delete(approval.approvalId);
-            const live = liveTurns.get(approval.sessionId);
-            if (result.ok && live)
-              live.activity = applyActivityEvent(
-                live.activity,
-                resolvedApproval(approval, result.value),
-              );
-            if (generation !== selectionGeneration || selected?.sessionId !== approval.sessionId) {
-              return;
+          }
+          const live = liveTurns.get(approval.sessionId);
+          const currentActivity = live?.activity ?? activityBySession.get(approval.sessionId) ?? [];
+          const currentApproval = currentActivity.find(
+            (item): item is ApprovalEventV1 =>
+              item.kind === "approval" && item.approvalId === approval.approvalId,
+          );
+          if (currentApproval?.outcome !== "pending") {
+            approvalErrors.delete(approval.approvalId);
+            renderSessionList();
+            if (selected?.sessionId === approval.sessionId) {
+              approvalFocus.add(approval.approvalId);
+              renderChat();
             }
-            if (!result.ok) {
-              showError(result.error);
-              return;
-            }
-            activity = applyActivityEvent(activity, resolvedApproval(approval, result.value));
+            return;
+          }
+          if (result.ok) {
+            approvalErrors.delete(approval.approvalId);
+            const resolved = resolvedApproval(approval, result.value);
+            const sessionActivity = applyActivityEvent(
+              live?.activity ?? activityBySession.get(approval.sessionId) ?? [approval],
+              resolved,
+            );
+            activityBySession.set(approval.sessionId, sessionActivity);
+            if (live) live.activity = sessionActivity;
+          } else {
+            approvalErrors.set(approval.approvalId, result.error);
+          }
+          approvalFocus.add(approval.approvalId);
+          renderSessionList();
+          if (selected?.sessionId !== approval.sessionId) {
+            return;
+          }
+          if (!result.ok) {
             renderChat();
-          });
+            return;
+          }
+          activity = applyActivityEvent(activity, resolvedApproval(approval, result.value));
+          activityBySession.set(approval.sessionId, activity);
+          renderSessionList();
+          renderChat();
+        })();
       },
     );
     renderObservation();
@@ -2099,6 +2351,25 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       ? `${visible.length} of ${sessions.length} conversations`
       : "";
     sessionSpinners.clear();
+    const needsApproval = new Set<string>();
+    for (const session of visible) {
+      const sessionActivity =
+        session.sessionId === selected?.sessionId
+          ? activity
+          : (liveTurns.get(session.sessionId)?.activity ??
+            activityBySession.get(session.sessionId) ??
+            []);
+      if (
+        sessionActivity.some(
+          (item) =>
+            item.kind === "approval" &&
+            item.outcome === "pending" &&
+            approvalErrors.get(item.approvalId)?.retryable !== false,
+        )
+      ) {
+        needsApproval.add(session.sessionId);
+      }
+    }
     renderSessions(
       root,
       elements.sessionList,
@@ -2106,6 +2377,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       selected?.sessionId ?? null,
       taskName,
       sessionSpinners,
+      needsApproval,
       (id) => {
         const next = sessions.find((item) => item.sessionId === id);
         if (next) void selectSession(next);
@@ -2144,10 +2416,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     session: SessionSummaryV1,
     terminalTraceId: string | null = null,
     preserveGuidance = false,
+    preserveStatus = false,
   ) => {
     const refreshing = selected?.sessionId === session.sessionId;
     const terminalState =
-      refreshing && terminalTraceId !== null && chat.terminalTraceId === terminalTraceId
+      refreshing &&
+      (preserveStatus || (terminalTraceId !== null && chat.terminalTraceId === terminalTraceId))
         ? chat
         : null;
     if (!refreshing) hideCommandResult();
@@ -2180,13 +2454,16 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     const generation = ++selectionGeneration;
     submissionGeneration += 1;
+    if (!selected) elements.composer.value = drafts.get(session.sessionId) ?? "";
     selected = session;
+    showDraftStatus();
     conversationLoading = true;
     if (!refreshing) {
       const live = liveTurns.get(session.sessionId);
       messages = live?.messages ?? [];
       submittedText = live?.submittedText ?? null;
       responseText = live?.responseText ?? "";
+      latestCopyText = live?.latestCopyText ?? null;
       responseUsage = live?.responseUsage;
       hiddenMessageCount = 0;
       capturePending = Boolean(captureApi);
@@ -2194,8 +2471,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       artifactView = null;
       artifactLabel = "Loading artifacts…";
       fileLabel = "Choose a local file to import.";
-      activity = live?.activity ?? [];
-      deciding.clear();
+      activity = live?.activity ?? activityBySession.get(session.sessionId) ?? [];
       chat = live?.state ?? {
         ...initialChatState(),
         sessionId: session.sessionId,
@@ -2230,17 +2506,32 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     messages = recovered.messages;
     submittedText = null;
     responseText = "";
+    latestCopyText = null;
     responseUsage = undefined;
     hiddenMessageCount = 0;
     automaticObservation = null;
-    activity = recoverActivity(recovered.session.sessionId, recovered.events);
+    activity = (activityBySession.get(recovered.session.sessionId) ?? []).reduce(
+      (items, item) => applyActivityEvent(items, item),
+      recoverActivity(recovered.session.sessionId, recovered.events),
+    );
+    activityBySession.set(recovered.session.sessionId, activity);
+    const pendingApproval = terminalState
+      ? undefined
+      : activity.find(
+          (item): item is ApprovalEventV1 => item.kind === "approval" && item.outcome === "pending",
+        );
     chat = {
       ...initialChatState(),
       sessionId: recovered.session.sessionId,
+      traceId: pendingApproval?.traceId ?? null,
       terminalTraceId,
+      active: Boolean(pendingApproval),
+      startedAt: pendingApproval?.requestedAt ? Date.parse(pendingApproval.requestedAt) : null,
       label: recovered.session.isDraft
         ? "Send a message to start this conversation."
-        : terminalLabel(recovered.events),
+        : pendingApproval
+          ? "Needs approval."
+          : terminalLabel(recovered.events),
       ...(terminalState ? { label: terminalState.label, error: terminalState.error } : {}),
     };
     const live = liveTurns.get(session.sessionId);
@@ -2250,21 +2541,27 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       messages = live.messages;
       submittedText = live.submittedText;
       responseText = live.responseText;
+      latestCopyText = live.latestCopyText;
       responseUsage = live.responseUsage;
       for (const item of live.activity) activity = applyActivityEvent(activity, item);
+      activityBySession.set(session.sessionId, activity);
     }
+    renderSessionList();
     renderChat();
   };
 
+  let sessionsGeneration = 0;
   const loadSessions = async () => {
+    const generation = ++sessionsGeneration;
     const result = await listSessions(api);
+    if (generation !== sessionsGeneration) return;
     if ("code" in result) {
       showError(result);
       return;
     }
     sessions = result;
     renderSessionList();
-    if (!selected && sessions[0]) {
+    if (!selected && sessions[0] && !elements.composer.value) {
       await selectSession(sessions[0]);
     } else if (!sessions.length) {
       renderChat();
@@ -2470,37 +2767,112 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const unsubscribe = api.turns.subscribe((event) => {
     const matchesSelectedTurn =
       selected?.sessionId === event.sessionId && chat.traceId === event.traceId;
+    if (event.kind === "started" && event.draftError) {
+      draftErrors.set(event.sessionId, event.draftError);
+      showDraftStatus();
+    }
     const live = liveTurns.get(event.sessionId);
     if (live) {
       const matchesTurn = live.state.traceId === event.traceId;
       if (matchesTurn && (event.kind === "tool" || event.kind === "approval"))
         live.activity = applyActivityEvent(live.activity, event);
-      if (matchesTurn && event.kind === "progress" && event.progressKind === "text")
+      if (matchesTurn && event.kind === "progress" && event.progressKind === "text") {
         live.responseText += event.text;
+        live.latestCopyText = assistantBody(
+          live.responseText,
+          sessions.find((session) => session.sessionId === event.sessionId)?.activeAgentId,
+        );
+      }
+      if (matchesTurn && event.kind === "tool" && event.phase === "completed" && event.content)
+        live.latestCopyText = event.content;
       if (matchesTurn && event.kind === "response") {
         live.responseText = event.finalText;
+        if (event.finalText)
+          live.latestCopyText = assistantBody(
+            event.finalText,
+            sessions.find((session) => session.sessionId === event.sessionId)?.activeAgentId,
+          );
         live.responseUsage = event.usage;
       }
       live.state = applyTurnEvent(live.state, event);
       if (selected?.sessionId === event.sessionId) {
         responseText = live.responseText;
+        latestCopyText = live.latestCopyText;
         responseUsage = live.responseUsage;
       }
-      if (event.kind === "done" && matchesTurn) liveTurns.delete(event.sessionId);
+      if (
+        matchesTurn &&
+        (event.kind === "done" || (event.kind === "connection" && event.state === "unavailable"))
+      )
+        liveTurns.delete(event.sessionId);
       updateSessionActivity();
     }
     acceptGuidanceTurnEvent(event);
-    if (
-      (event.kind === "tool" || event.kind === "approval") &&
-      selected?.sessionId === event.sessionId
-    ) {
-      activity = applyActivityEvent(activity, event);
+    if (event.kind === "tool" || event.kind === "approval") {
+      const sessionActivity = applyActivityEvent(
+        selected?.sessionId === event.sessionId
+          ? activity
+          : (activityBySession.get(event.sessionId) ?? []),
+        event,
+      );
+      activityBySession.set(event.sessionId, sessionActivity);
+      if (selected?.sessionId === event.sessionId) activity = sessionActivity;
+    }
+    if (event.kind === "approval") {
+      if (event.outcome !== "pending") {
+        approvalErrors.delete(event.approvalId);
+        announcedApprovals.delete(event.approvalId);
+        const focusedApprovalId = (root.activeElement as HTMLElement | null)?.dataset.approvalId;
+        if (
+          selected?.sessionId === event.sessionId &&
+          (deciding.has(event.approvalId) || focusedApprovalId === event.approvalId)
+        ) {
+          approvalFocus.add(event.approvalId);
+        }
+      } else if (selected?.sessionId !== event.sessionId) {
+        const session = sessions.find((item) => item.sessionId === event.sessionId);
+        elements.approvalNotice.textContent = `${session ? taskName(session) : "Another conversation"} needs approval for ${event.toolName}.`;
+      }
+      renderSessionList();
     }
     chat = applyTurnEvent(chat, event);
     renderChat();
+    if (event.kind === "done" && live?.state.terminalTraceId === event.traceId) void loadSessions();
     if (event.kind === "done" && matchesSelectedTurn && selected) {
       void selectSession(selected, event.traceId, true);
     }
+    if (
+      event.kind === "connection" &&
+      event.state === "unavailable" &&
+      matchesSelectedTurn &&
+      selected
+    ) {
+      void selectSession(selected, null, false, true);
+    }
+  });
+  elements.reconnectTurn.addEventListener("click", async () => {
+    if (
+      !chat.active ||
+      !chat.disconnected ||
+      !chat.sessionId ||
+      !chat.traceId ||
+      reconnectingTurns.has(chat.sessionId)
+    )
+      return;
+    const sessionId = chat.sessionId;
+    const traceId = chat.traceId;
+    reconnectingTurns.add(sessionId);
+    renderChat();
+    const result = await api.turns.reconnect({ sessionId, traceId });
+    reconnectingTurns.delete(sessionId);
+    if (!result.ok) {
+      const live = liveTurns.get(sessionId);
+      if (live?.state.traceId === traceId) {
+        live.state = { ...live.state, label: result.error.message, error: result.error };
+        if (selected?.sessionId === sessionId) chat = live.state;
+      }
+    }
+    renderChat();
   });
   const unsubscribeCapture =
     captureApi?.subscribe((event: CaptureEventV1) => {
@@ -2589,12 +2961,22 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       showError(result.error);
       return false;
     }
+    const unboundDraft = selected ? null : elements.composer.value;
+    if (unboundDraft !== null) drafts.set(result.value.sessionId, unboundDraft);
+    sessionsGeneration += 1;
     sessions = [result.value, ...sessions];
-    await selectSession(result.value);
+    const loading = selectSession(result.value);
+    let transferred = true;
+    if (unboundDraft !== null) {
+      pendingDraftTransfer = result.value.sessionId;
+      const saved = await saveDraft(result.value.sessionId, unboundDraft);
+      transferred = saved.ok;
+    }
+    await loading;
     creatingTask = false;
     renderChat();
     elements.composer.focus();
-    return true;
+    return transferred;
   };
   const openRename = (session: SessionSummaryV1, fromSidebar = false) => {
     renameGeneration += 1;
@@ -2689,6 +3071,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       showError(result.error);
       return;
     }
+    sessionsGeneration += 1;
     selectionGeneration += 1;
     captureGeneration += 1;
     observationGeneration += 1;
@@ -2711,6 +3094,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       item.sessionId === result.value.sessionId ? result.value : item,
     );
     selected = result.value;
+    drafts.delete(result.value.sessionId);
+    elements.composer.value = "";
     artifacts = [];
     artifactView = null;
     artifactLabel = "This session is closed.";
@@ -2731,6 +3116,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (
       !daemonReady ||
       creatingTask ||
+      savingSubmission ||
       conversationLoading ||
       chat.active ||
       selected?.status === "closed"
@@ -2744,6 +3130,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     if (!selected && (asGuidance || !(await createTask()))) return;
     if (!selected) return;
+    const sessionId = selected.sessionId;
     const pending = asGuidance
       ? guidanceSnapshot(selected.sessionId, captureState, captureFrame)
       : null;
@@ -2755,6 +3142,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       renderGuidance();
       return;
     }
+    savingSubmission = true;
+    renderChat();
+    const consumesDraft = elements.composer.value === draft;
+    const saved = await saveDraft(sessionId, elements.composer.value);
+    savingSubmission = false;
+    renderChat();
+    if (!saved.ok || selected?.sessionId !== sessionId || chat.active) return;
     if (pending) {
       clearGuidanceTimer();
       guidancePending = pending;
@@ -2773,16 +3167,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     };
     submittedText = message;
     responseText = "";
+    latestCopyText = null;
     responseUsage = undefined;
-    const sessionId = selected.sessionId;
     if (elements.composer.value === draft) elements.composer.value = "";
-    drafts.delete(sessionId);
+    drafts.set(sessionId, elements.composer.value);
     elements.composer.focus();
     liveTurns.set(sessionId, {
       state: chat,
       messages,
       submittedText: message,
       responseText: "",
+      latestCopyText: null,
       responseUsage: undefined,
       activity: [],
     });
@@ -2797,6 +3192,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const result = await api.turns.submit({
       sessionId: selected.sessionId,
       message,
+      ...(consumesDraft ? { draftRevision: saved.value } : {}),
       ...(attachments.length
         ? { attachmentIds: attachments.map((attachment) => attachment.mediaId) }
         : {}),
@@ -2854,8 +3250,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   });
   elements.askGuidance.addEventListener("click", () => void submitTurn(true));
   elements.composer.addEventListener("input", () => {
+    const draft = elements.composer.value.trimStart();
+    if (!draft.startsWith("/") || draft.startsWith("//")) commandDraft = null;
     commandIndex = 0;
     commandsDismissed = false;
+    void saveDraft(selected?.sessionId ?? "", elements.composer.value);
     renderChat();
   });
   const openCommands = () => {
@@ -2886,6 +3285,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       return;
     }
     if (!elements.commandMenu.hidden) {
+      if (event.key === "Tab" && event.shiftKey) {
+        commandDraft = null;
+        hideCommandMenu();
+        renderChat();
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         hideCommandMenu();
@@ -2903,10 +3308,15 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         event.preventDefault();
         const command = matches[commandIndex];
         if (command && event.key === "Tab") {
-          elements.composer.value = `${command.name} `;
+          const value = elements.composer.value.trim();
+          elements.composer.value = /\s/.test(value)
+            ? value.replace(/^\S+/, command.name)
+            : `${command.name} `;
           commandsDismissed = true;
+          void saveDraft(selected?.sessionId ?? "", elements.composer.value);
           renderChat();
-        } else if (command) void runCommand(command.name);
+        } else if (command)
+          void runCommand(elements.composer.value.trim().replace(/^\S+/, command.name));
         return;
       }
     }
@@ -3175,6 +3585,7 @@ function rendererElements(root: Document) {
     screenContextStatus: required(root, "screen-context-status"),
     screenContextPreview: required(root, "screen-context-preview") as HTMLImageElement,
     sessionList: required(root, "session-list"),
+    approvalNotice: required(root, "approval-notice"),
     sessionSearch: required(root, "session-search") as HTMLInputElement,
     clearSessionSearch: required(root, "clear-session-search"),
     sessionSearchCount: required(root, "session-search-count"),
@@ -3196,6 +3607,7 @@ function rendererElements(root: Document) {
     jumpLatest: required(root, "jump-latest"),
     chatProgress: required(root, "chat-progress"),
     chatStatus: required(root, "chat-status"),
+    reconnectTurn: required(root, "reconnect-turn") as HTMLButtonElement,
     chatDetail: required(root, "chat-detail"),
     chatUpdate: required(root, "chat-update"),
     chatElapsed: required(root, "chat-elapsed"),
@@ -3584,6 +3996,7 @@ function renderSessions(
   selectedId: string | null,
   taskName: (session: SessionSummaryV1) => string,
   spinners: Map<string, HTMLElement>,
+  needsApproval: ReadonlySet<string>,
   select: (sessionId: string) => void,
   showContext: (session: SessionSummaryV1, button: HTMLButtonElement) => void,
   emptyMessage: string,
@@ -3592,8 +4005,19 @@ function renderSessions(
     const button = root.createElement("button");
     button.type = "button";
     button.className = `session-item${session.sessionId === selectedId ? " selected" : ""}`;
-    button.textContent = `${taskName(session)}${session.status === "closed" ? " · Closed" : ""}`;
-    button.title = button.textContent;
+    const label = `${taskName(session)}${session.status === "closed" ? " · Closed" : ""}`;
+    const approvalNeeded = needsApproval.has(session.sessionId);
+    button.dataset.sessionId = session.sessionId;
+    button.textContent = label;
+    button.title = `${label}${approvalNeeded ? " · Needs approval" : ""}`;
+    button.setAttribute("aria-label", button.title);
+    if (approvalNeeded) {
+      const marker = root.createElement("span");
+      marker.className = "session-approval-marker";
+      marker.textContent = "Needs approval";
+      marker.setAttribute("aria-hidden", "true");
+      button.append(marker);
+    }
     const spinner = root.createElement("span");
     spinner.className = "session-spinner";
     spinner.hidden = true;
@@ -3620,7 +4044,11 @@ function renderSessions(
     empty.textContent = emptyMessage;
     items.push(empty);
   }
+  const focusedSessionId = (root.activeElement as HTMLElement | null)?.dataset.sessionId;
   list.replaceChildren(...items);
+  if (focusedSessionId) {
+    items.find((item) => item.dataset.sessionId === focusedSessionId)?.focus();
+  }
 }
 
 type TimelineMessage = {
@@ -3630,7 +4058,13 @@ type TimelineMessage = {
   usage: HTMLElement | null;
   timestamp: HTMLTimeElement;
 };
-const timelineMessages = new WeakMap<HTMLElement, TimelineMessage[]>();
+const timelineMessages = new WeakMap<
+  HTMLElement,
+  {
+    messages: TimelineMessage[];
+    tools: Map<ToolProgressV1, HTMLElement>;
+  }
+>();
 
 export function messageTime(createdAt?: string): string {
   if (!createdAt) return "";
@@ -3658,11 +4092,17 @@ function renderTimeline(
   automaticObservation: ObservationFrameFactV1 | null,
   activity: ActivityItem[],
   deciding: Set<string>,
+  approvalErrors: ReadonlyMap<string, ErrorV1>,
+  approvalBlocked: boolean,
+  approvalFocus: Set<string>,
+  announcedApprovals: Set<string>,
   decide: (approval: ApprovalEventV1, decision: ApprovalDecision) => void,
 ): void {
   const scrollTop = conversation.scrollTop;
   const followLatest = conversation.scrollHeight - conversation.clientHeight - scrollTop <= 1;
-  const previous = timelineMessages.get(timeline) ?? [];
+  const cachedTimeline = timelineMessages.get(timeline);
+  const previous = cachedTimeline?.messages ?? [];
+  const toolCards = new Map<ToolProgressV1, HTMLElement>();
   const next: TimelineMessage[] = [];
   const items: HTMLElement[] = messages.map((message, index) => {
     const bodyText =
@@ -3781,12 +4221,26 @@ function renderTimeline(
     article.append(bubble);
     items.push(article);
   }
+  const approvalFocusTargets = new Map<string, HTMLElement>();
   items.push(
-    ...activity.map((item) =>
-      item.kind === "tool"
-        ? renderToolCard(root, item)
-        : renderApprovalCard(root, item, deciding.has(item.approvalId), decide),
-    ),
+    ...activity.map((item) => {
+      if (item.kind === "tool") {
+        const card = cachedTimeline?.tools.get(item) ?? renderToolCard(root, item, copyText);
+        toolCards.set(item, card);
+        return card;
+      }
+      return renderApprovalCard(
+        root,
+        item,
+        deciding.has(item.approvalId),
+        approvalErrors.get(item.approvalId) ?? null,
+        approvalBlocked,
+        approvalFocus.has(item.approvalId),
+        announcedApprovals,
+        approvalFocusTargets,
+        decide,
+      );
+    }),
   );
   if (!items.length && !loading) {
     const empty = root.createElement("p");
@@ -3797,18 +4251,25 @@ function renderTimeline(
   const requestIndex = messages.findLastIndex((message) => message.role === "user");
   if (requestIndex >= 0) items.splice(requestIndex + 1, 0, progress);
   else items.push(progress);
-  timelineMessages.set(timeline, next);
+  timelineMessages.set(timeline, { messages: next, tools: toolCards });
   for (const [index, item] of items.entries()) {
     const current = timeline.children[index];
     if (current === item) continue;
-    if (current) timeline.replaceChild(item, current);
-    else timeline.append(item);
+    if (timeline.contains(item)) timeline.moveBefore(item, current ?? null);
+    else timeline.insertBefore(item, current ?? null);
   }
   while (timeline.children.length > items.length) timeline.removeChild(timeline.lastElementChild!);
+  for (const [approvalId, button] of approvalFocusTargets) {
+    if (!loading && approvalFocus.delete(approvalId)) button.focus();
+  }
   conversation.scrollTop = followLatest ? conversation.scrollHeight : scrollTop;
 }
 
-function renderToolCard(root: Document, item: ToolProgressV1): HTMLElement {
+function renderToolCard(
+  root: Document,
+  item: ToolProgressV1,
+  copyText: NativeApi["app"]["copyText"],
+): HTMLElement {
   const card = root.createElement("article");
   card.className = "activity-card tool-card";
   const heading = root.createElement("p");
@@ -3818,7 +4279,48 @@ function renderToolCard(root: Document, item: ToolProgressV1): HTMLElement {
   details.className = "activity-details";
   const timing = item.durationMs === null ? "" : ` · ${item.durationMs} ms`;
   details.textContent = `${item.callId} · ${item.state}${timing}`;
+  if (item.truncated) details.textContent += " · Output truncated";
   card.append(heading, details);
+  if (item.phase === "completed" && item.content) {
+    const output = root.createElement("details");
+    output.className = "tool-output";
+    const summary = root.createElement("summary");
+    summary.textContent = item.truncated ? "Show available output" : "Show output";
+    const body = root.createElement("pre");
+    body.textContent = item.content;
+    output.append(summary, body);
+    if (item.truncated) {
+      const notice = root.createElement("p");
+      notice.className = "activity-details";
+      notice.textContent =
+        "OpenMinion reported truncated output. Only the supplied text is available.";
+      output.append(notice);
+    }
+    card.append(output);
+    const copy = root.createElement("button");
+    copy.type = "button";
+    copy.className = "quiet-button";
+    copy.textContent = "Copy output";
+    copy.setAttribute("aria-label", `Copy output from ${item.toolName}`);
+    copy.setAttribute("aria-live", "polite");
+    copy.addEventListener("click", async () => {
+      copy.disabled = true;
+      try {
+        const result = await copyText(item.content!);
+        copy.textContent = result.ok ? "Copied" : "Copy failed";
+      } catch {
+        copy.textContent = "Copy failed";
+      }
+      copy.disabled = false;
+    });
+    card.append(copy);
+  } else if (item.phase === "completed") {
+    const unavailable = root.createElement("p");
+    unavailable.className = "activity-details";
+    unavailable.textContent =
+      item.content === "" ? "No output." : "Output is unavailable for this event.";
+    card.append(unavailable);
+  }
   return card;
 }
 
@@ -3826,39 +4328,71 @@ function renderApprovalCard(
   root: Document,
   item: ApprovalEventV1,
   deciding: boolean,
+  error: ErrorV1 | null,
+  blocked: boolean,
+  focusRequested: boolean,
+  announcedApprovals: Set<string>,
+  focusTargets: Map<string, HTMLElement>,
   decide: (approval: ApprovalEventV1, decision: ApprovalDecision) => void,
 ): HTMLElement {
   const card = root.createElement("article");
   card.className = "activity-card approval-card";
   card.dataset.approvalId = item.approvalId;
+  card.setAttribute("aria-label", `Approval for ${item.toolName}`);
+  const pending = item.outcome === "pending" && error?.retryable !== false;
   const heading = root.createElement("p");
   heading.className = "activity-heading";
-  heading.textContent = `Approval · ${item.toolName}`;
+  heading.textContent = `${pending ? "Needs approval" : error ? "Approval closed" : "Approval"} · ${item.toolName}`;
   const details = root.createElement("p");
   details.className = "activity-details";
-  details.textContent = `${item.callId} · ${item.outcome}`;
-  const keys = root.createElement("p");
-  keys.className = "argument-keys";
-  keys.textContent = item.argumentKeys.length
-    ? `Argument names: ${item.argumentKeys.join(", ")}`
-    : "No argument names provided.";
-  card.append(heading, details, keys);
-  if (item.outcome === "pending") {
+  details.textContent = error
+    ? error.retryable
+      ? `Decision not sent · ${error.message}`
+      : `Approval closed · ${error.message}`
+    : deciding
+      ? "Sending decision…"
+      : blocked
+        ? "Cancelling turn…"
+        : item.outcome === "pending"
+          ? "Waiting for your decision"
+          : `Resolved · ${item.outcome.replaceAll("_", " ")}`;
+  const preview = root.createElement("pre");
+  preview.className = "approval-preview";
+  preview.textContent = item.consentPreview || `${item.toolName}()`;
+  card.append(heading, details, preview);
+  if (pending && !announcedApprovals.has(item.approvalId)) {
+    card.setAttribute("role", "status");
+    card.setAttribute("aria-live", "polite");
+    announcedApprovals.add(item.approvalId);
+  }
+  if (focusRequested) {
+    details.setAttribute("role", "status");
+    details.setAttribute("aria-live", "polite");
+    details.setAttribute("aria-atomic", "true");
+    card.tabIndex = -1;
+    focusTargets.set(item.approvalId, card);
+  }
+  if (pending) {
     const actions = root.createElement("div");
     actions.className = "approval-actions";
     const deny = root.createElement("button");
     deny.type = "button";
     deny.className = "quiet-button";
     deny.textContent = "Deny";
-    deny.disabled = deciding;
+    deny.dataset.approvalId = item.approvalId;
+    deny.disabled = deciding || blocked;
+    deny.setAttribute("aria-label", `Deny ${item.toolName}`);
     deny.addEventListener("click", () => decide(item, "deny"));
     const allow = root.createElement("button");
     allow.type = "button";
     allow.textContent = "Allow once";
-    allow.disabled = deciding;
+    allow.dataset.approvalId = item.approvalId;
+    allow.disabled = deciding || blocked;
+    allow.setAttribute("aria-label", `Allow ${item.toolName} once`);
     allow.addEventListener("click", () => decide(item, "allow_once"));
     actions.append(deny, allow);
     card.append(actions);
+    if (focusRequested && !deciding && !blocked) focusTargets.set(item.approvalId, deny);
   }
   return card;
 }
@@ -3868,7 +4402,7 @@ function resolvedApproval(requested: ApprovalEventV1, result: ApprovalDecisionV1
     ...requested,
     phase: "resolved",
     decision: result.decision,
-    outcome: result.decision === "allow_once" ? "applied" : "denied",
+    outcome: result.outcome,
     resolvedAt: result.resolvedAt,
   };
 }
@@ -3883,10 +4417,11 @@ function activityFromSessionEvent(sessionId: string, event: SessionEventV1): Act
   const traceId = event.traceId;
   const toolName = stringFact(event, "tool_name");
   const callId = stringFact(event, "call_id") ?? stringFact(event, "command_id");
-  if (!traceId || !toolName || !callId) {
+  if (!traceId || !toolName) {
     return null;
   }
   if (event.eventType === "tool.request" || event.eventType === "tool.completed") {
+    if (!callId) return null;
     const completed = event.eventType === "tool.completed";
     return {
       schemaVersion: 1,
@@ -3904,10 +4439,7 @@ function activityFromSessionEvent(sessionId: string, event: SessionEventV1): Act
       exitCode: null,
     };
   }
-  if (
-    event.eventType !== "desktop.approval.requested" &&
-    event.eventType !== "desktop.approval.resolved"
-  ) {
+  if (event.eventType !== "approval.requested" && event.eventType !== "approval.resolved") {
     return null;
   }
   const approvalId = stringFact(event, "approval_id");
@@ -3915,8 +4447,7 @@ function activityFromSessionEvent(sessionId: string, event: SessionEventV1): Act
   if (!approvalId || !outcome || !approvalOutcomes.has(outcome)) {
     return null;
   }
-  const requested = event.eventType === "desktop.approval.requested";
-  const keys = event.facts.argument_keys;
+  const requested = event.eventType === "approval.requested";
   return {
     schemaVersion: 1,
     kind: "approval",
@@ -3925,8 +4456,7 @@ function activityFromSessionEvent(sessionId: string, event: SessionEventV1): Act
     traceId,
     approvalId,
     toolName,
-    callId,
-    argumentKeys: Array.isArray(keys) ? [...keys] : [],
+    consentPreview: stringFact(event, "consent_preview") ?? `${toolName}()`,
     requestedAt: requested ? stringFact(event, "requested_at") : null,
     expiresAt: requested ? stringFact(event, "expires_at") : null,
     decision: decisionFact(event),
@@ -3941,8 +4471,6 @@ const approvalOutcomes = new Set<ApprovalEventV1["outcome"]>([
   "denied",
   "expired",
   "cancelled",
-  "interrupted",
-  "event_failed",
 ]);
 
 function stringFact(event: SessionEventV1, key: string): string | null {

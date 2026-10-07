@@ -428,6 +428,65 @@ async function check() {
     console.log(
       "PASS: missing-key startup guidance and editing a core-created profile affect actual provider requests.",
     );
+    const beforeAdditional = JSON.parse(await readFile(join(root, "agents.json"), "utf8"));
+    await evaluate("document.querySelector('#show-settings').click()");
+    await waitFor("!document.querySelector('#profile-add').disabled");
+    await evaluate("document.querySelector('#profile-add').click()");
+    await waitFor("!document.querySelector('#profile-save').disabled");
+    await evaluate(`
+      document.querySelector('#setup-agent').value='second-agent';
+      document.querySelector('#setup-provider').value='custom-openai-compatible';
+      document.querySelector('#setup-provider').dispatchEvent(new Event('change'));
+      document.querySelector('#setup-model').value='second-model';
+      document.querySelector('#setup-endpoint').value=${JSON.stringify(endpoint)};
+      document.querySelector('#setup-key').value='second-private-key';
+      document.querySelector('#setup-check-provider').checked=false;
+      document.querySelector('#profile-save').click();
+    `);
+    await waitFor(
+      "document.querySelector('#setup-fields').hidden && !document.querySelector('#profile-save').disabled",
+    );
+    const additional = JSON.parse(await readFile(join(root, "agents.json"), "utf8"));
+    assert.equal(additional.default_agent, "second-agent");
+    assert.deepEqual(
+      additional.agents[current.defaultAgent],
+      beforeAdditional.agents[current.defaultAgent],
+    );
+    assert.deepEqual(additional.providers, beforeAdditional.providers);
+    assert.deepEqual(additional.runtime.env, beforeAdditional.runtime.env);
+    const exposed = (await evaluate("window.openminion.profiles.read()")).value;
+    assert.ok(!JSON.stringify(exposed).includes("second-private-key"));
+    const duplicate = await evaluate(
+      `window.openminion.profiles.setup(${JSON.stringify({ revision: exposed.revision, agentId: "second-agent", presetId: "custom-openai-compatible", model: "second-model", baseUrl: endpoint, apiKey: "second-private-key", checkProvider: false })})`,
+    );
+    assert.equal(duplicate.ok, false);
+    assert.equal(duplicate.error.code, "invalid_request");
+    await evaluate("document.querySelector('#close-settings').click()");
+    const previousReplyCount = await evaluate(
+      "document.querySelectorAll('.message.assistant').length",
+    );
+    await evaluate(
+      "document.querySelector('#composer').value='Verify original profile after adding another'; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#send').click()",
+    );
+    await waitFor(
+      `document.querySelector('#cancel').hidden && document.querySelectorAll('.message.assistant').length === ${previousReplyCount + 1}`,
+    );
+    assert.equal(requests.at(-1).authorization, "Bearer replacement-private-key");
+    await evaluate("document.querySelector('#new-session').click()");
+    await waitFor(
+      "!document.querySelector('#new-session').disabled && document.querySelectorAll('.message.assistant').length === 0",
+    );
+    await evaluate(
+      "document.querySelector('#composer').value='Verify second profile uses its own key'; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#send').click()",
+    );
+    await waitFor(
+      "document.querySelector('#cancel').hidden && document.querySelectorAll('.message.assistant').length === 1",
+    );
+    assert.equal(requests.at(-1).authorization, "Bearer second-private-key");
+    assert.equal(requests.at(-1).body.model, "second-model");
+    console.log(
+      "PASS: additional profile creation rejects duplicate IDs, preserves original credentials and history, and makes new chats use the new profile's own key.",
+    );
     await finish(0);
   } catch (error) {
     console.error(error);

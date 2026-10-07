@@ -166,7 +166,7 @@ async function check() {
       "[...document.querySelectorAll('#diagnostics-result button')].some(button => button.textContent === 'Copied')",
     );
     assert.equal(
-      clipboard.readText(),
+      await clipboard.readText(),
       await evaluate("document.querySelector('.diagnostic-output').textContent"),
     );
     for (const [width, height] of [
@@ -317,9 +317,9 @@ async function check() {
       await fill(text);
       await evaluate("document.querySelector('#send').click()");
       await waitFor(
-        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)} && !/Loading from OpenMinion|Preparing the saved conversation/.test(document.querySelector('#command-result').textContent)`,
+        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)} && !/Loading from OpenMinion|Preparing the saved conversation|Reading identity|Reloading identity/.test(document.querySelector('#command-result').textContent)`,
       );
-      return evaluate("document.querySelector('#command-result').textContent");
+      return evaluate("document.querySelector('#command-result p').textContent");
     };
     const agents = await evaluate("window.openminion.reports.read({kind:'agents'})");
     assert.equal(agents.ok, true, JSON.stringify(agents));
@@ -380,6 +380,74 @@ async function check() {
         .sort(),
     );
     assert.ok((await reportCommand("/tool", "Tools")).includes(tools.value.tools[0].name));
+    const exposureStatus = await runCommand(
+      executable,
+      [
+        ...args,
+        "tools",
+        "exposure",
+        "status",
+        "--session",
+        sessionId,
+        "--runtime-source",
+        "daemon",
+      ],
+      30_000,
+    );
+    assert.equal(exposureStatus.exitCode, 0, exposureStatus.stderr);
+    const exposure = JSON.parse(exposureStatus.stdout).exposure;
+    await fill("/tools status");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-title').textContent === 'Tools' && document.querySelector('#command-result p').textContent.startsWith('Tool exposure profiles:')",
+    );
+    const exposureText = await evaluate("document.querySelector('#command-result p').textContent");
+    for (const profile of exposure.profiles) {
+      const row = exposureText
+        .split("\n")
+        .find((line) => line.includes(` ${profile.profile_id} (`));
+      assert.ok(row, `Daemon profile ${profile.profile_id} appears in Desktop`);
+      assert.ok(row.includes(profile.active ? "active" : "hidden"));
+      assert.ok(row.includes(profile.tier));
+      assert.ok(
+        row.includes(profile.dependency_readiness),
+        `${profile.profile_id}: daemon readiness ${profile.dependency_readiness}; Desktop row ${row}`,
+      );
+      for (const dependency of profile.dependency_statuses)
+        assert.ok(exposureText.includes(`${dependency.dependency_id}: ${dependency.state}`));
+    }
+    for (const tool of exposure.unprofiled_dependency_tools)
+      assert.ok(exposureText.includes(`${tool.tool_name}: ${tool.dependency_readiness}`));
+    if (exposure.security_lab && exposure.security_lab.state !== "not_configured")
+      assert.ok(exposureText.includes(`Security lab: ${exposure.security_lab.state}`));
+    const daemonTools = await runCommand(
+      executable,
+      [...args, "tools", "list", "--runtime-source", "daemon"],
+      30_000,
+    );
+    assert.equal(daemonTools.exitCode, 0, daemonTools.stderr);
+    const expectedToolList = JSON.parse(daemonTools.stdout)
+      .tools.sort((a, b) => a.name.localeCompare(b.name))
+      .map((tool) => `${tool.name}${tool.enabled ? "" : " · disabled"}`)
+      .join("\n");
+    await fill("/tool list");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-title').textContent === 'Tools' && document.querySelector('#command-result p').textContent !== 'Loading from OpenMinion…'",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#command-result p').textContent"),
+      expectedToolList || "No tools.",
+    );
+    assert.equal(
+      (await evaluate(`window.openminion.sessions.load({sessionId:${JSON.stringify(sessionId)}})`))
+        .value.messages.length,
+      2,
+      "Native tool inspection does not submit another conversation message",
+    );
+    console.log(
+      "PASS: native /tools status and /tool list match the pinned daemon's public exposure and inventory without sending a turn.",
+    );
     const cliSkills = await runCommand(executable, [...args, "skill", "list", "--json"], 30_000);
     assert.equal(cliSkills.exitCode, 0);
     const skillIds = JSON.parse(cliSkills.stdout).skills.map((skill) => skill.skill_id);
@@ -434,11 +502,48 @@ async function check() {
       await fill("/export");
       await evaluate("document.querySelector('#send').click()");
       await waitFor(
-        "document.querySelector('#command-result').textContent === 'Export cancelled.'",
+        "document.querySelector('#command-result p').textContent === 'Export cancelled.'",
       );
     } finally {
       dialog.showSaveDialog = saveDialog;
     }
+    const identityPath = join(root, "desktop-identity.yaml");
+    await writeFile(
+      identityPath,
+      `agent_id: openminion
+display_name: OpenMinion
+profile_revision: 1
+role:
+  mission: Prove Desktop identity parity.
+  responsibilities: [Assist the operator.]
+personality:
+  tone: direct
+  verbosity: normal
+risk:
+  risk_level: low
+tool_posture:
+  tool_use: restricted
+`,
+    );
+    const identityUpsert = await runCommand(
+      executable,
+      [...args, "identity", "upsert", identityPath],
+      30_000,
+    );
+    assert.equal(identityUpsert.exitCode, 0, identityUpsert.stderr);
+    assert.match(await reportCommand("/identity", "Identity"), /Prove Desktop identity parity/);
+    assert.match(
+      await reportCommand("/identity verify", "Identity verification"),
+      /Verification: needs attention/,
+    );
+    assert.match(
+      await reportCommand("/identity reload", "Identity reloaded"),
+      /Prove Desktop identity parity/,
+    );
+    await waitFor("document.querySelector('#connection-label').textContent === 'Connected'");
+    console.log(
+      "PASS: canonical identity show, verification and app-owned daemon reload work through Desktop.",
+    );
     await evaluate("document.querySelector('#close-command').click()");
     console.log(
       "PASS: Desktop subset names/aliases exist in installed Focus; daemon tools, canonical tokens, and native transcript export checked.",
@@ -620,6 +725,8 @@ async function check() {
     const multiple = await evaluate("window.openminion.sessions.list({})");
     assert.equal(multiple.value.sessions.length, 2);
     const secondId = multiple.value.sessions.find((item) => item.sessionId !== sessionId).sessionId;
+    await fill("Superseded command draft");
+    await key("K", [process.platform === "darwin" ? "meta" : "control"]);
     await fill("Unsent draft for second task");
     await evaluate("document.querySelectorAll('#session-list button')[1].click()");
     await waitFor(
@@ -1230,14 +1337,14 @@ async function check() {
     await waitFor(
       "[...document.querySelectorAll('.message.user .message-copy')].at(-1).textContent === 'Copied'",
     );
-    assert.equal(clipboard.readText(), "Render the next fixture reply");
+    assert.equal(await clipboard.readText(), "Render the next fixture reply");
     await evaluate(
       "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).click()",
     );
     await waitFor(
       "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).textContent === 'Copied'",
     );
-    assert.equal(clipboard.readText(), providerText);
+    assert.equal(await clipboard.readText(), providerText);
     await waitFor(
       "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).textContent === 'Copy'",
     );

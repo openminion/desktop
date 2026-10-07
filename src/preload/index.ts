@@ -10,7 +10,6 @@ import {
 let activeTurnListener: ((_event: unknown, payload: unknown) => void) | null = null;
 let activeCaptureListener: ((_event: unknown, payload: unknown) => void) | null = null;
 let activeObservationListener: ((_event: unknown, payload: unknown) => void) | null = null;
-const textEncoder = new TextEncoder();
 
 const api: NativeApi = {
   runtime: {
@@ -18,6 +17,10 @@ const api: NativeApi = {
     check: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeCheck),
     stage: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeStage),
     control: (input) => ipcRenderer.invoke(IPC_CHANNELS.runtimeControl, input),
+  },
+  drafts: {
+    load: () => ipcRenderer.invoke(IPC_CHANNELS.draftsLoad),
+    save: (input) => ipcRenderer.invoke(IPC_CHANNELS.draftsSave, input),
   },
   chatNames: {
     load: (input) => ipcRenderer.invoke(IPC_CHANNELS.chatNamesLoad, input),
@@ -42,6 +45,7 @@ const api: NativeApi = {
     read: () => ipcRenderer.invoke(IPC_CHANNELS.identityRead),
     verify: (input) => ipcRenderer.invoke(IPC_CHANNELS.identityVerify, input),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.identitySave, input),
+    reload: () => ipcRenderer.invoke(IPC_CHANNELS.identityReload),
   },
   app: {
     openLink: (url) => ipcRenderer.invoke(IPC_CHANNELS.openLink, url),
@@ -88,6 +92,9 @@ const api: NativeApi = {
     },
     cancel(input) {
       return ipcRenderer.invoke(IPC_CHANNELS.turnsCancel, input);
+    },
+    reconnect(input) {
+      return ipcRenderer.invoke(IPC_CHANNELS.turnsReconnect, input);
     },
     subscribe(listener) {
       if (activeTurnListener) {
@@ -686,10 +693,28 @@ function isTurnEvent(value: unknown): value is TurnEventV1 {
   if (record.schemaVersion !== 1) {
     return false;
   }
+  if (record.kind === "connection") {
+    return (
+      exactKeys(record, ["schemaVersion", "kind", "sessionId", "traceId", "state", "error"]) &&
+      strings(record, ["sessionId", "traceId"]) &&
+      (record.state === "disconnected" ||
+        record.state === "reconnected" ||
+        record.state === "unavailable") &&
+      (record.state === "reconnected" ? record.error === null : isError(record.error))
+    );
+  }
   if (record.kind === "started") {
     return (
-      exactKeys(record, ["schemaVersion", "kind", "requestId", "traceId", "sessionId"]) &&
-      strings(record, ["requestId", "traceId", "sessionId"])
+      exactKeys(record, [
+        "schemaVersion",
+        "kind",
+        "requestId",
+        "traceId",
+        "sessionId",
+        ...("draftError" in record ? ["draftError"] : []),
+      ]) &&
+      strings(record, ["requestId", "traceId", "sessionId"]) &&
+      (!("draftError" in record) || typeof record.draftError === "string")
     );
   }
   if (record.kind === "progress" && record.progressKind === "status") {
@@ -763,14 +788,22 @@ function isTurnEvent(value: unknown): value is TurnEventV1 {
         "ok",
         "durationMs",
         "exitCode",
+        ...("content" in record ? ["content"] : []),
+        ...("truncated" in record ? ["truncated"] : []),
       ]) &&
       (record.phase === "started" || record.phase === "completed") &&
       strings(record, ["sessionId", "traceId", "toolName", "callId", "state", "createdAt"]) &&
       nullableBoolean(record.ok) &&
       nullableNumber(record.durationMs) &&
       nullableNumber(record.exitCode) &&
+      (!("content" in record) || typeof record.content === "string") &&
+      (!("truncated" in record) || typeof record.truncated === "boolean") &&
       (record.phase === "completed" ||
-        (record.ok === null && record.durationMs === null && record.exitCode === null))
+        (record.ok === null &&
+          record.durationMs === null &&
+          record.exitCode === null &&
+          !("content" in record) &&
+          !("truncated" in record)))
     );
   }
   if (record.kind === "approval") {
@@ -842,16 +875,14 @@ function isApprovalEvent(record: Record<string, unknown>): boolean {
       "traceId",
       "approvalId",
       "toolName",
-      "callId",
-      "argumentKeys",
+      "consentPreview",
       "requestedAt",
       "expiresAt",
       "decision",
       "outcome",
       "resolvedAt",
     ]) ||
-    !strings(record, ["sessionId", "traceId", "approvalId", "toolName", "callId"]) ||
-    !boundedStringArray(record.argumentKeys) ||
+    !strings(record, ["sessionId", "traceId", "approvalId", "toolName", "consentPreview"]) ||
     !nullableString(record.requestedAt) ||
     !nullableString(record.expiresAt) ||
     !nullableString(record.decision) ||
@@ -870,7 +901,6 @@ function isApprovalEvent(record: Record<string, unknown>): boolean {
   }
   if (
     record.phase !== "resolved" ||
-    record.argumentKeys.length !== 0 ||
     record.requestedAt !== null ||
     record.expiresAt !== null ||
     typeof record.resolvedAt !== "string"
@@ -883,10 +913,7 @@ function isApprovalEvent(record: Record<string, unknown>): boolean {
   if (record.outcome === "denied") {
     return record.decision === "deny";
   }
-  return (
-    ["expired", "cancelled", "interrupted", "event_failed"].includes(String(record.outcome)) &&
-    record.decision === null
-  );
+  return ["expired", "cancelled"].includes(String(record.outcome)) && record.decision === null;
 }
 
 function isError(value: unknown): boolean {
@@ -921,17 +948,6 @@ function nullableNumber(value: unknown): boolean {
 
 function nullableBoolean(value: unknown): boolean {
   return value === null || typeof value === "boolean";
-}
-
-function boundedStringArray(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length <= 64 &&
-    value.every((item) => typeof item === "string" && textEncoder.encode(item).byteLength <= 256) &&
-    new Set(value).size === value.length &&
-    value.every((item, index) => index === 0 || value[index - 1] <= item) &&
-    textEncoder.encode(JSON.stringify(value)).byteLength <= 8 * 1024
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

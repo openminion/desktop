@@ -39,7 +39,10 @@ desktop package, unrestricted native input, or a second agent runtime.
 
 Desktop lifecycle uses the pinned public PyPI package and ordinary OpenMinion
 commands. Text chat and completed session history use the public CLI/API.
-Approvals, media, artifacts, and full Focus parity remain incomplete; all further
+Request-bound allow-once and deny approvals use the authenticated local API
+when Desktop is paired with a compatible OpenMinion source checkout; the pinned
+PyPI runtime does not include that transport yet.
+Media, artifacts, and full Focus parity remain incomplete; all further
 integration must use existing public interfaces.
 
 Historical planning packets and workspace-local trackers are not public

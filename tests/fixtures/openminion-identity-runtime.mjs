@@ -7,7 +7,7 @@ if (!statePath) process.exit(2);
 
 const args = process.argv.slice(2);
 if (args.includes("--version")) {
-  process.stdout.write("0.0.27\n");
+  process.stdout.write("0.0.29\n");
   process.exit(0);
 }
 const identityIndex = args.indexOf("identity");

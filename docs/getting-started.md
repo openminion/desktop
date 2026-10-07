@@ -1,7 +1,7 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-09-29
+Last updated: 2026-10-06
 
 Purpose: provide the package-local bootstrap and first-run path for the
 OpenMinion Desktop source repository.
@@ -203,6 +203,13 @@ profile edits; closing Settings discards them.
 When the default profile is missing a key required by its provider, Desktop also
 opens Settings on startup so you can complete it before chatting.
 
+Use **Add profile** to create another agent with the installed CLI’s provider
+catalog, model and API-key fields. Creation makes it the default for new chats;
+existing chats retain their agent. Choose a new agent ID; duplicates are rejected.
+The new model key is scoped to the created agent and its model connection.
+Shared search and web keys remain unchanged. Unsaved Settings edits require the
+existing discard confirmation before creation.
+
 1. Use **Import profiles…** to choose an existing Focus/CLI profile JSON file.
    Import adds agents and replaces matching agent IDs. It keeps Desktop's
    connection, storage, and other profiles in place.
@@ -250,19 +257,28 @@ use **Reconnect** when offered. Your unsent message stays in the composer.
 **Stop** requests cancellation. Desktop waits for and displays the outcome
 reported by the daemon rather than treating the request itself as completion.
 
-Text chat and completed conversation history work in the real app. Attachment
-sending, artifact browsing, approval decisions, and automatic watch remain
-preview-only; the connected app marks those integrations unavailable.
+Text chat and completed conversation history work with the pinned runtime.
+Request-bound allow-once or deny tool approvals work when Desktop is paired
+with a compatible OpenMinion source checkout. Attachment sending, artifact browsing, and
+automatic watch remain preview-only; the connected app marks those integrations
+unavailable.
 
 You can write a local draft before the daemon connects. Creating a task draft and sending require the daemon connection. A new task is
 explicitly local until its first message creates the canonical saved session. Draft text
 is preserved when you connect and create the task.
 
-Unsent text stays with its task when you switch between tasks during the same
-app session. Creating another task starts with an empty composer. These local
-drafts are not persisted after quitting the app. After sending, your message remains
-visible while OpenMinion works, then the conversation refreshes from saved
-history. Rejected submissions keep the text in the composer for correction.
+Unsent text stays with its conversation across switching and app restarts. Desktop
+saves text in its existing SQLite database; images and attachments are not restored.
+A draft written before selecting a conversation remains separate at startup.
+Creating another conversation starts with an empty composer. Storage failures
+appear beside the composer so you can keep the window open and preserve the text.
+A save is durable after the main process acknowledges it; text still in flight
+at a sudden process failure is not guaranteed. Drafts are never sent automatically.
+
+An accepted message clears only its saved draft revision, preserving text typed
+while it was sending. Rejected submissions retain the draft. After sending,
+your message remains visible while OpenMinion works, then the conversation
+refreshes from canonical saved history. Closing a conversation clears its draft.
 
 Write your first message and send it to create a task automatically. Use
 **New task** in the sidebar to start another conversation. Use the send
@@ -287,8 +303,15 @@ the outcome. Successful completion hides the progress row; errors remain visible
 with the request. The composer stays in place, and history refreshes without
 clearing the conversation.
 
+If a response disconnects, use **Reconnect response** to attach to the same
+retained turn without sending your message again. If replay is unavailable,
+**Check response status** checks whether the daemon still retains that turn.
+When it no longer does, Desktop reloads saved history without claiming the turn
+succeeded or failed. This recovery requires the current Desktop process to know
+the trace; discovery after app or daemon restart is not supported.
+
 Type `/` or press **Command/Ctrl+K** to open the command menu. Arrow keys select,
-Tab completes, and Enter runs a command. Start with `/help`, `/new`, `/sessions`,
+Tab completes, Shift+Tab leaves suggestions, and Enter runs a command. Start with `/help`, `/new`, `/sessions`,
 or `/status`. Use the **Stop** button to stop a running turn.
 Desktop is the GUI for Focus; command integration is currently incomplete.
 See [Desktop Commands and Focus Parity](commands.md)

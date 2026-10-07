@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-09-29
+Last updated: 2026-10-06
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -152,9 +152,18 @@ node tests/electron/storage.mjs
 
 It seeds legacy Electron browser storage in an isolated home, launches the real
 bootstrap, and checks SQLite import, saved names after an app restart, reset
-without stale-name resurrection, and reuse of existing runtime paths. It needs
+without stale-name resurrection, and reuse of existing runtime paths. It types a
+draft into the real composer while the runtime is unavailable, waits for SQLite
+readback, verifies it after process restart, clears it, and verifies a second
+restart remains empty. It needs
 no provider credentials. The normal Vitest gate covers atomic rollback, invalid
 bridge input, future schemas and corrupt-file preservation.
+
+Disconnected-response tests use a controlled HTTP stream: known trace status,
+replay cursors, duplicate suppression, retained response/cancellation outcome,
+replayed approvals, replay gaps and missing traces. They verify that reconnection
+never resubmits a prompt. This is deterministic transport evidence; it does not
+prove recovery across app restart, daemon restart or a remote network outage.
 
 ## Native Capture
 
@@ -238,7 +247,9 @@ runs the public CLI setup against a copy of the initial config, compares MiniMax
 defaults and the saved model profiles with Desktop, then checks the first
 configured chat, missing-key startup guidance, and subsequent model/key edits.
 It also checks that changing Settings sections preserves unsaved profile values
-and that closing Settings clears entered keys.
+and that closing Settings clears entered keys. Additional-profile coverage creates
+a second agent through Settings, rejects duplicate IDs, retains the first agent's
+credentials/history, and uses the new credential for new conversations.
 It verifies that checked setup makes exactly one provider request and reports a
 verified connection, stored config permissions remain private, and the first
 chat makes its own request with the entered model and credential. It also creates a conversation with the ordinary CLI and
@@ -290,6 +301,19 @@ Run the actual sandboxed application startup check on macOS:
 ```bash
 npm run electron-check
 ```
+
+Run the request-bound approval proof against an OpenMinion source checkout:
+
+```bash
+PYTHONPATH=/path/to/openminion/src \
+OPENMINION_APPROVAL_E2E_EXECUTABLE=/path/to/openminion \
+npm run electron-check:approval
+```
+
+This starts an isolated daemon and controlled local provider, waits for the
+approval card in built Electron, selects **Allow once**, verifies the exact
+`file.write` result reaches the provider, and removes the temporary runtime on
+success. It uses no paid provider or user profile.
 
 This launches built Electron main, both CommonJS preload bundles, and the
 renderer through the real local protocol. It checks bridge availability,

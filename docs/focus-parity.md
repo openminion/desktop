@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-09-30
+Last updated: 2026-10-06
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -31,7 +31,7 @@ The canonical OpenMinion owners are:
 
 Inspect the actual handlers as well as the catalog: a help entry alone does not
 prove an operation works in Focus. Current Focus `/editor` opens an external
-editor and loads the returned text as an unsent draft; the pinned 0.0.27 Desktop
+editor and loads the returned text as an unsent draft; the pinned 0.0.29 Desktop
 runtime and Desktop's shortcut guidance do not provide that behavior yet.
 Preserve explicit renderer availability where Focus and the rich CLI renderer
 differ.
@@ -46,13 +46,13 @@ media, and artifacts still require Desktop integration.
 
 | Surface                  | Current Desktop gap                                                                                                               | Required outcome                                                                                                    |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Catalog and help         | A small static renderer list                                                                                                      | Discover canonical names, aliases, usage, availability, and descriptions through fixed public OpenMinion operations |
-| Arguments and busy state | `/tasks` supports inspection and pause/resume/cancel arguments; other commands mostly reject arguments and use local button rules | Use the same parser and command admission as Focus, including bare queries during a turn                            |
+| Catalog and help         | A small static renderer list with argument hints, alias matching and local command help                                                                                                      | Discover canonical names, aliases, usage, availability, and descriptions through fixed public OpenMinion operations |
+| Arguments and busy state | `/tasks` supports inspection and pause/resume/cancel arguments; tool status/list and selected read filters are connected; other commands mostly reject arguments | Use the same parser and command admission as Focus, including bare queries during a turn                            |
 | `/new`, `/sessions`      | Saved-task creation and selection exist; Focus directory scope is not established                                                 | Preserve working directory, selected agent, session scope, and canonical creation/binding defaults                  |
 | `/resume`                | Not connected; the incorrect `/sessions` alias was removed                                                                        | Present prior sessions with messages in the current directory, then bind and load history                           |
 | `/model`                 | Reports session metadata only                                                                                                     | Present configured choices and perform canonical model selection; return effective settings                         |
 | `/status`                | Reports connection and partial session metadata                                                                                   | Include canonical agent, model, session, and working-directory facts                                                |
-| `/clear`, `/copy`        | Visible chat clearing and assistant copying exist; canonical tool-output ordering is missing                                      | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback          |
+| `/clear`, `/copy`        | Visible chat clearing and newest assistant/runtime-supplied tool copying exist; missing raw tool content is not reconstructed                                      | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback          |
 | Tool presentation        | `/quiet` and `/normal` toggle summary cards                                                                                       | Match quiet, normal truncation, verbose, details, and expansion using canonical tool content                        |
 | Type-ahead               | Drafts remain unsent during a turn                                                                                                | Match Focus queue admission, inspection, and control through the runtime owner                                      |
 | Recovery                 | Running turns survive task switches in one app                                                                                    | Reattach to the same running turn and pending approvals after restart                                               |
@@ -102,17 +102,29 @@ config. Core owns provider defaults and profile construction. Desktop validates
 and applies that config through its existing Settings lifecycle. A checked
 setup adds the CLI's `--check-provider` flag and reports the typed verification
 outcome; unchecked setup does not make a provider request. Existing
-configured agents use Settings or profile import; onboarding does not implement
-the full CLI multi-model setup surface.
+configured agents use Settings or profile import. Settings also reuses that setup
+flow to add an agent with a distinct ID and model credential, preserving existing
+agents and shared tool keys. This does not implement the full CLI multi-model
+setup surface.
 
 Saved-session sends read `sessions show --json` and retain its agent, channel,
 and target. Desktop continues CLI-created conversations without rebinding them
 to the identity used for new GUI sessions. Working-directory scope and the
 broader `/resume` picker remain separate gaps.
 
+Desktop Settings and `/identity`, `/identity verify`, and `/identity reload`
+read the same OpenMinion identity files through fixed CLI operations under the
+Desktop-owned config and data roots. Show and verify report the active
+conversation's agent identity. Reload restarts the app-owned daemon before it
+rereads the profile so runtime policy and tool constraints are refreshed; an
+external daemon remains under its operator's lifecycle. Desktop does not copy
+identity state into SQLite or expose a generic command bridge. The ordinary CLI
+keeps its separate config and data roots unless the operator explicitly points
+both interfaces at the same installation.
+
 ## Connected Task Controls
 
-On pinned PyPI 0.0.27, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
+On pinned PyPI 0.0.29, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
 CLI calls. Main derives agent scope from the selected canonical session and passes
 its session ID. Focus's task report and these CLI commands share OpenMinion's task
 surface; Desktop does not copy lifecycle transitions, task ownership, or scheduler
@@ -120,8 +132,9 @@ logic. The CLI retains its default inventory limit of 50. GUI buttons come from
 returned `valid_actions`; core validates them again on execution.
 
 The renderer receives task presentation fields and scoped pending-approval facts.
-Those approvals are read-only in the task panel and resolve through the existing
-Focus approval flow, not task lifecycle commands.
+When paired with a compatible source runtime, tool approval cards resolve the
+exact active request through the authenticated approval-resume route, not
+through task lifecycle commands.
 Task changes are fenced against active Desktop turns and Settings updates. Reads
 remain available during a turn. The inline form creates scheduled work using fixed `schedule create` arguments:
 name, instruction, one-time ISO timestamp, interval in minutes, or cron expression
@@ -130,14 +143,14 @@ canonical task list. Core owns schedule validation and execution. Pending
 decisions, non-scheduled task creation and richer run-history inspection still
 need integration.
 
-Pinned PyPI 0.0.27 includes `/close`; Desktop routes that command to its
+Pinned PyPI 0.0.29 includes `/close`; Desktop routes that command to its
 existing canonical Close operation. `/resume` remains unavailable because the
 current saved-task picker does not establish Focus directory and non-empty
 history filtering. Broader catalog discovery remains a gap.
 
 ## Connected Reports And Export
 
-On pinned PyPI 0.0.27, `/agents` (`/agent`) reads `GET /v1/agents`, backed by
+On pinned PyPI 0.0.29, `/agents` (`/agent`) reads `GET /v1/agents`, backed by
 Focus's agent-discovery owner. An exact ID or display name filters the returned
 list; Desktop does not interpret it as agent selection. `/tools` (`/tool`)
 reads `GET /v1/tools`, the daemon's live inventory. These narrow bridges return
@@ -178,10 +191,13 @@ operate on interactive-runtime state. The pinned public CLI/daemon surface does
 not provide a general Focus command dispatcher. Separate CLI reports or config
 changes cannot stand in for those session operations.
 
-The pinned 0.0.27 package contains public session turn-input queue,
+The pinned 0.0.29 package contains public session turn-input queue,
 approval-resume, trace stream attachment, and runtime capability routes. Desktop
-must qualify and consume their exact semantics before calling those workflows
-connected or declaring a missing-core blocker. An approval grant alone does not
+now qualifies and consumes the request-bound approval semantics in source-runtime
+proof. Known-trace response recovery uses status and replay attachment in the
+current Desktop process, with explicit user action and no prompt resubmission.
+A missing retained trace triggers canonical history readback, not an invented
+terminal outcome. App-restart discovery and other workflows still require their own proof before being called connected. An approval grant alone does not
 prove the original pending action resumed. Missing public semantics require an
 explicit generic-owner dependency; Desktop must not import private Python runtime
 code, start another interactive session, or duplicate those owners.
@@ -199,7 +215,7 @@ effects while presenting friendly labels and controls; an instruction to switch
 to CLI does not complete a Desktop-supported workflow.
 
 The 2026-09-12 assessment recorded 44 CLI command families and 243 leaf paths.
-The paired 0.0.27 runtime has 55 built-in Focus commands. Desktop advertises 20
+The paired 0.0.29 runtime has 56 built-in Focus commands. Desktop advertises 21
 built-ins with partial semantics.
 Bundled/user/project custom commands and shell intent add separate qualification
 requirements. These counts are a dated source inventory, not execution proof.

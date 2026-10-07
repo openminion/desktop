@@ -754,6 +754,10 @@ h2 {
   font-size: 12px;
 }
 
+.artifact-detail-heading strong {
+  overflow-wrap: anywhere;
+}
+
 .artifact-content {
   max-height: 320px;
   margin: 0;
@@ -1388,7 +1392,8 @@ details[open] > summary .summary-chevron {
 }
 
 .approval-card {
-  border-color: var(--line-strong);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line-strong));
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 
 .activity-heading {
@@ -1397,16 +1402,46 @@ details[open] > summary .summary-chevron {
   font-weight: 760;
 }
 
+.tool-output {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.tool-output summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.tool-output pre {
+  max-height: 20rem;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
 .activity-details,
-.argument-keys {
+.approval-preview {
   margin-top: 6px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
-.argument-keys {
+.approval-preview {
+  max-height: 12rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  padding: 9px 10px;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .approval-actions {
@@ -1414,6 +1449,19 @@ details[open] > summary .summary-chevron {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
+}
+
+.session-approval-marker {
+  display: inline-flex;
+  margin-left: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 6px;
+  vertical-align: middle;
 }
 
 .chat-progress {
@@ -1552,6 +1600,12 @@ details[open] > summary .summary-chevron {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.command-usage {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .command-panel {
@@ -1963,6 +2017,13 @@ code {
     font-size: 14px;
   }
 
+  .new-session-button {
+    gap: 6px;
+    padding-inline: 8px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
   .workspace {
     grid-template-columns: 164px minmax(0, 1fr);
   }
@@ -2031,7 +2092,7 @@ code {
 .settings-body {
   min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 4px;
 }
 .settings-nav {
   display: flex;
@@ -2047,6 +2108,7 @@ code {
   color: var(--muted);
   font-size: 13px;
 }
+.settings-nav button:not(:disabled):hover,
 .settings-nav button[aria-pressed="true"] {
   background: var(--surface-raised);
   color: var(--text);

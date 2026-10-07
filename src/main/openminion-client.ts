@@ -1,4 +1,5 @@
 import type {
+  ApprovalDecisionInput,
   ErrorV1,
   SessionCloseInput,
   SessionCreateInput,
@@ -38,7 +39,7 @@ export const EVENT_FACTS = new Set([
   "requested_at",
   "expires_at",
   "resolved_at",
-  "argument_keys_count",
+  "consent_preview",
   "duration_ms",
   "ok",
   "summary_status",
@@ -175,11 +176,17 @@ function validateEventsInput(input: SessionEventsInput): SessionEventsInput {
 }
 
 function validateSubmitInput(input: TurnSubmitInput): TurnSubmitInput {
-  exactRecord(input, ["sessionId", "message"], ["attachmentIds", "observation"], "invalid_request");
+  exactRecord(
+    input,
+    ["sessionId", "message"],
+    ["attachmentIds", "observation", "draftRevision"],
+    "invalid_request",
+  );
   const value: TurnSubmitInput = {
     sessionId: inputString(input.sessionId, 256),
     message: messageInput(input.message),
   };
+  if (input.draftRevision !== undefined) value.draftRevision = inputString(input.draftRevision, 36);
   const attachmentIds = optionalMediaIds(input.attachmentIds);
   const observation = optionalObservationIntent(input.observation);
   if (attachmentIds) value.attachmentIds = attachmentIds;
@@ -227,6 +234,19 @@ function validateCancelInput(input: TurnCancelInput): TurnCancelInput {
   return {
     sessionId: inputString(input.sessionId, 256),
     traceId: inputString(input.traceId, 256),
+  };
+}
+
+function validateApprovalDecisionInput(input: ApprovalDecisionInput): ApprovalDecisionInput {
+  exactRecord(input, ["sessionId", "traceId", "approvalId", "decision"], [], "invalid_request");
+  if (input.decision !== "allow_once" && input.decision !== "deny") {
+    throw protocolError("invalid_request", "Choose allow once or deny.");
+  }
+  return {
+    sessionId: inputString(input.sessionId, 256),
+    traceId: inputString(input.traceId, 256),
+    approvalId: inputString(input.approvalId, 256),
+    decision: input.decision,
   };
 }
 
@@ -331,8 +351,13 @@ class ClientFailure extends Error {
   }
 }
 
-function protocolError(code: string, message: string, retryable = false): ClientFailure {
-  return new ClientFailure(clientError(code, message, retryable));
+function protocolError(
+  code: string,
+  message: string,
+  retryable = false,
+  retryAfterMs: number | null = null,
+): ClientFailure {
+  return new ClientFailure(clientError(code, message, retryable, retryAfterMs));
 }
 
 function clientError(
@@ -363,22 +388,23 @@ function failureFrom(_error: unknown): ClientFailureResult {
 }
 
 export {
-  validateListInput,
-  validateCreateInput,
-  validateLoadInput,
-  validateCloseInput,
-  validateEventsInput,
-  validateSubmitInput,
-  validateCancelInput,
-  requireRecord,
-  requireArray,
-  requireString,
-  optionalString,
-  responseEvent,
-  usageValue,
-  turnUsageDisplay,
   errorValue,
-  protocolError,
   failure,
   failureFrom,
+  optionalString,
+  protocolError,
+  requireArray,
+  requireRecord,
+  requireString,
+  responseEvent,
+  turnUsageDisplay,
+  usageValue,
+  validateApprovalDecisionInput,
+  validateCancelInput,
+  validateCloseInput,
+  validateCreateInput,
+  validateEventsInput,
+  validateListInput,
+  validateLoadInput,
+  validateSubmitInput,
 };

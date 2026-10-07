@@ -23,8 +23,9 @@
 </p>
 
 OpenMinion Desktop is the local graphical client for the OpenMinion agent
-runtime. It provides text chat and session history, with preview UI for approvals,
-attachments, artifacts, and screen context, while keeping agent execution,
+runtime. It provides text chat and session history; source-development pairing
+with a compatible OpenMinion checkout also supports request-bound tool approvals.
+Attachments, artifacts, and screen context remain preview UI, while agent execution,
 credentials, policy, and durable session truth in the OpenMinion daemon.
 
 The application is a development alpha. On first launch it creates an isolated
@@ -63,7 +64,7 @@ and should be treated as a scam.
 | Current runtime profile | macOS development |
 | Native package targets | macOS, Windows, and Linux |
 | Runtime | Node.js 24, npm 11, and Electron |
-| Managed core | Pinned `openminion==0.0.27` from PyPI |
+| Managed core | Pinned `openminion==0.0.29` from PyPI |
 | Best fit | Local chat, saved sessions, task controls, and visible-context preview |
 | Not the claim | Signed release, remote operation, or autonomous native control |
 
@@ -86,9 +87,11 @@ and DEB and ZIP on Linux. These are development artifacts, not public releases.
 
 - browse, reopen, and close local OpenMinion sessions; create them with a first message
 - chat with streaming progress and typed terminal outcomes
+- expand and copy tool output supplied by the runtime; partial or unavailable output is labeled
 - inspect OpenMinion work with `/tasks` and pause, resume, or cancel it through core controls
 - cancel active turns and recover completed history after renderer reload or daemon restart
-- preview approvals, attachments, artifacts, and screen context in the UI fixture
+- review and allow once or deny policy-gated tool calls when paired with a compatible source runtime
+- preview attachments, artifacts, and screen context in the UI fixture
 - select a screen or window for local preview when native permission is available
 - install, version-check, start, monitor, and stop an app-owned OpenMinion daemon
 - check compatible runtime metadata and explicitly prepare a verified PyPI or
@@ -103,7 +106,7 @@ and DEB and ZIP on Linux. These are development artifacts, not public releases.
 - hidden screen capture, always-on observation, or unrestricted native input
 - remote daemon attachment, hosted synchronization, or multi-device control
 - signed, notarized, automatically updating public releases
-- full Focus slash-command parity, connected approvals, attachment sending, or artifact browsing
+- full Focus slash-command parity, attachment sending, or artifact browsing
 - reattachment to an active turn after quitting the application
 
 ## Requirements
@@ -133,7 +136,7 @@ Start the development app:
 npm start
 ```
 
-The first launch installs `openminion==0.0.27` under `~/.openminion/desktop`,
+The first launch installs `openminion==0.0.29` under `~/.openminion/desktop`,
 creates a private initial config, and starts an isolated daemon. A setup screen
 offers OpenMinion's provider choices, including MiniMax, model and API-key fields,
 profile import, or an explicit echo demo. Setup uses the ordinary CLI setup
@@ -141,7 +144,7 @@ command and restarts the daemon with the saved profile. By default, setup sends
 one provider request and reports whether the connection was verified. Clear
 **Test connection before continuing** to save without making that request.
 Later launches reuse the environment when its installed version matches the pin.
-Desktop chat names live in SQLite; existing installations retain their recorded
+Desktop chat names and unsent text drafts live in SQLite; existing installations retain their recorded
 runtime locations. See [Desktop data](docs/getting-started.md#desktop-data) for
 storage, migration, and backup behavior.
 

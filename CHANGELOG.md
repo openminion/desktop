@@ -1,11 +1,35 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-29
+Last updated: 2026-10-05
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Preserve replacement drafts when leaving command mode, retain command arguments
+  during selection, and show usage and contextual help without invoking an action.
+
+- Confirm before discarding unsaved agent edits when switching profiles.
+
+- Refresh conversation ordering from OpenMinion after a turn completes, and add
+  Copy to inline command reports.
+
+- Copy the newest available assistant or tool output and provide Copy output on
+  completed tool cards when the runtime supplies content, with reported truncation.
+
+- Connect `/tools status` and `/tools list` through the existing public tool
+  reports. Tool activation and deactivation remain unconnected.
+
+- Align first-run managed installations with OpenMinion 0.0.29 and connect
+  `/identity`, `/identity verify`, and `/identity reload` to the canonical
+  identity owner.
+
+- Keep Settings tabs readable on hover and long output filenames wrapped so
+  the preview's Close action stays visible.
+
+- Keep sidebar creation and search controls readable in narrow windows, and
+  preserve keyboard-focus outlines inside scrollable Settings panels.
 
 - Fit user-message bubbles to their text, with compact padding and copy/time
   controls below the bubble on hover or keyboard focus.
@@ -35,7 +59,7 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
   saved Normal/Quiet preference, keyboard help, and a ⌘ / Ctrl + , shortcut.
   Runtime diagnostics and update controls now live together in Settings.
 
-- Update the managed PyPI runtime baseline to OpenMinion 0.0.27.
+- Update the managed PyPI runtime baseline to OpenMinion 0.0.29.
 - Add command-specific help, fixed installed-runtime `/graph` help, and native `/editor` composition guidance.
 - Allow repairing model credentials in Settings after the daemon exits, while
   continuing to reject profile changes when another live process owns the daemon.

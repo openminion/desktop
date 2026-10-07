@@ -7,6 +7,7 @@ import {
   assistantBody,
   captureRegionFromPercentages,
   captureStatusCopy,
+  commandMatches,
   formatDesktopTurnUsage,
   initialChatState,
   listArtifacts,
@@ -24,8 +25,11 @@ import { renderTasks } from "../../src/renderer/tasks.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
 import type {
   ArtifactCatalogItemV1,
+  ApprovalDecisionV1,
+  ApprovalEventV1,
   CaptureEventV1,
   CaptureStateV1,
+  ClientResult,
   DaemonStatus,
   MediaAttachmentV1,
   NativeApi,
@@ -37,6 +41,10 @@ import type {
 
 function mount(api: NativeApi, root: Document): Promise<void> {
   api.chatNames ??= namesApi();
+  api.drafts ??= {
+    load: async () => ({ ok: true, value: [] }),
+    save: async () => ({ ok: true, value: "00000000-0000-4000-8000-000000000001" }),
+  };
   api.presentation ??= {
     load: async () => ({ ok: true, value: { quietTools: false } }),
     save: async () => ({ ok: true, value: null }),
@@ -816,6 +824,13 @@ describe("renderer status view", () => {
       }
       search.dispatch("keydown", { key: "Enter" });
       expect(load).toHaveBeenCalledTimes(1);
+      page.element("show-commands").click();
+      page.element("composer").value = "// literal slash draft";
+      page.element("composer").dispatch("input");
+      page.element("composer").dispatch("keydown", { key: "Escape" });
+      expect(page.element("composer").value).toBe("// literal slash draft");
+      page.element("composer").value = "Keep this draft";
+      page.element("composer").dispatch("input");
       search.value = "no match";
       search.dispatch("input");
       expect(page.sessionButtons()).toHaveLength(0);
@@ -828,6 +843,9 @@ describe("renderer status view", () => {
       expect(search.focus).toHaveBeenCalled();
       expect(page.sessionButtons()).toHaveLength(3);
       expect(page.sessionButtons()[0]!.className).toContain("selected");
+      page.element("show-commands").click();
+      page.element("composer").value = "Replacement draft";
+      page.element("composer").dispatch("input");
       search.value = "SESSION-3";
       search.dispatch("input");
       page.sessionButtons()[0]!.click();
@@ -838,7 +856,7 @@ describe("renderer status view", () => {
       expect(page.element("session-search-count").hidden).toBe(true);
       expect(page.sessionButtons()[2]!.className).toContain("selected");
       page.sessionButtons()[0]!.click();
-      await vi.waitFor(() => expect(page.element("composer").value).toBe("Keep this draft"));
+      await vi.waitFor(() => expect(page.element("composer").value).toBe("Replacement draft"));
       expect(list).toHaveBeenCalledTimes(3);
     } finally {
       vi.unstubAllGlobals();
@@ -1011,6 +1029,7 @@ describe("renderer status view", () => {
       sessionSummary(),
       { ...sessionSummary(), sessionId: "session-2", title: "Other" },
     ];
+    let catalog = [...sessions];
     let receive!: (event: TurnEventV1) => void;
     const api = {
       app: { info: async () => ({ shellVersion: "test" }) },
@@ -1025,7 +1044,7 @@ describe("renderer status view", () => {
       sessions: {
         list: async () => ({
           ok: true,
-          value: { sessions, nextCursor: null, hasMore: false },
+          value: { sessions: catalog, nextCursor: null, hasMore: false },
         }),
         load: async ({ sessionId }: { sessionId: string }) => ({
           ok: true,
@@ -1073,6 +1092,7 @@ describe("renderer status view", () => {
       page.element("session-search").dispatch("input");
       expect(page.sessionButtons()).toHaveLength(0);
       expect(page.element("chat-status").textContent).toBe("Working…");
+      catalog = [sessions[1]!, sessions[0]!];
       receive({
         schemaVersion: 1,
         kind: "done",
@@ -1085,6 +1105,7 @@ describe("renderer status view", () => {
         true,
         false,
       ]);
+      await vi.waitFor(() => expect(page.sessionButtons()[0]!.textContent).toBe("Other"));
       expect(page.element("current-title").textContent).toBe("Other");
       expect(page.element("chat-status").textContent).toBe("Working…");
       receive({
@@ -1102,6 +1123,72 @@ describe("renderer status view", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it.each(["create", "close"] as const)(
+    "keeps a successful local %s when an older catalog refresh resolves",
+    async (operation) => {
+      const session = sessionSummary();
+      const newSession = { ...session, sessionId: "session-new", title: "New conversation" };
+      let resolveList!: (value: unknown) => void;
+      const oldCatalog = {
+        ok: true,
+        value: { sessions: [session], nextCursor: null, hasMore: false },
+      };
+      const list = vi
+        .fn()
+        .mockResolvedValueOnce(oldCatalog)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveList = resolve;
+            }),
+        );
+      const ready = status({ state: "ready", reachable: true, protocol: 1 });
+      const api = {
+        app: { info: async () => ({ shellVersion: "test" }) },
+        daemon: { status: async () => ready, retry: async () => ready },
+        sessions: {
+          list,
+          create: async () => ({ ok: true, value: newSession }),
+          close: async () => ({ ok: true, value: { ...session, status: "closed" } }),
+          load: async ({ sessionId }: { sessionId: string }) => ({
+            ok: true,
+            value: {
+              session: sessionId === newSession.sessionId ? newSession : session,
+              messages: [],
+              nextMessageCursor: null,
+              messagesHasMore: false,
+            },
+          }),
+          events: async () => ({
+            ok: true,
+            value: { events: [], nextCursor: null, hasMore: false },
+          }),
+        },
+        turns: { subscribe: () => () => {} },
+      } as unknown as NativeApi;
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        page.element("retry").click();
+        await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+        page.element(operation === "create" ? "new-session" : "close-session").click();
+        const expected =
+          operation === "create"
+            ? ["New conversation", "Recovered chat"]
+            : ["Recovered chat · Closed"];
+        await vi.waitFor(() =>
+          expect(page.sessionButtons().map((button) => button.textContent)).toEqual(expected),
+        );
+        resolveList(oldCatalog);
+        await vi.waitFor(() => expect(page.element("retry").disabled).toBe(false));
+        expect(page.sessionButtons().map((button) => button.textContent)).toEqual(expected);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it("creates the first task on send, preserves failed drafts, and admits one submission", async () => {
     const session = { ...sessionSummary(), isDraft: true };
@@ -1287,8 +1374,41 @@ describe("renderer status view", () => {
       ok: true,
       value: { kind: "tokens", text: "Canonical token report" },
     });
+    const readIdentity = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        profiles: [
+          {
+            agentId: session.activeAgentId,
+            displayName: "Writer",
+            source: "yaml",
+            editable: true,
+            readOnlyReason: null,
+            authoredYaml: "agent_id: writer\n",
+            profileRevision: 2,
+            profileVersion: "profile-v2",
+            sourceSha256: "source-v2",
+            validationOk: true,
+            sourceStatus: "clean",
+            verificationIssues: [],
+            generatedStatus: "clean",
+            generatedFiles: ["AGENT.md"],
+            render: {
+              text: "Mission: Write clearly.",
+              purpose: "act",
+              profileVersion: "profile-v2",
+              renderVersion: "render-v1",
+              includedFields: ["role.mission"],
+              omittedFields: [],
+            },
+          },
+        ],
+      },
+    });
+    const reloadIdentity = vi.fn().mockImplementation(readIdentity);
     const api = {
       reports: { read },
+      identity: { read: readIdentity, reload: reloadIdentity },
       app: {
         openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
         copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
@@ -1372,11 +1492,34 @@ describe("renderer status view", () => {
         agentFilter: "Writer",
         sessionId: session.sessionId,
       });
+      page.element("composer").value = "/identity";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain(
+          "Mission: Write clearly.",
+        ),
+      );
+      page.element("composer").value = "/identity verify";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-title").textContent).toBe("Identity verification"),
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Verification: valid",
+      );
+      page.element("composer").value = "/identity reload";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() => expect(reloadIdentity).toHaveBeenCalledOnce());
+      expect(page.element("command-title").textContent).toBe("Identity reloaded");
+      page.element("composer").value = "/identity unknown";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-title").textContent).toBe("Identity command");
       read.mockResolvedValue({
         ok: true,
         value: { kind: "skills", text: "Skill: Example" },
       });
       page.element("composer").value = "/skills example";
+      page.element("composer").dispatch("input");
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe("Skill: Example"),
@@ -1458,7 +1601,7 @@ describe("renderer status view", () => {
       page.element("composer").value = "/copy";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(api.app.copyText).not.toHaveBeenCalled();
-      expect(page.element("command-title").textContent).toBe("Copy reply");
+      expect(page.element("command-title").textContent).toBe("Copy");
       page.element("composer").value = "Keep drafting beside the result";
       page.element("composer").dispatch("input");
       expect(page.element("command-panel").hidden).toBe(false);
@@ -1492,6 +1635,60 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe(
         "Focus commands — partial integration",
+      );
+      read.mockResolvedValue({ ok: true, value: { kind: "tools", text: "Tool exposure status" } });
+      page.element("composer").value = "/tools status";
+      page.element("composer").dispatch("input");
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "Tool exposure status",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({
+        kind: "tools",
+        toolView: "status",
+        sessionId: session.sessionId,
+      });
+      const reportsBeforeHelp = read.mock.calls.length;
+      for (const value of ["/tasks --help", "/skills ?", "/agent --help", "/help tasks"]) {
+        page.element("composer").value = value;
+        page.element("composer").dispatch("input");
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        expect(page.element("command-title").textContent).toBe("Command help");
+        expect(page.element("command-result").children[0]?.textContent).toContain("[");
+      }
+      expect(read).toHaveBeenCalledTimes(reportsBeforeHelp);
+      page.element("command-result").children[1]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[1]!.textContent).toBe("Copied"),
+      );
+      expect(api.app.copyText).toHaveBeenLastCalledWith(
+        expect.stringContaining("/tasks pause|resume|cancel"),
+      );
+      vi.mocked(api.app.copyText).mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "clipboard_unavailable",
+          message: "Clipboard unavailable",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      page.element("command-result").children[1]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[1]!.textContent).toBe("Copy failed"),
+      );
+      vi.mocked(api.app.copyText).mockRejectedValueOnce(new Error("Clipboard unavailable"));
+      page.element("command-result").children[1]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[1]!.textContent).toBe("Copy failed"),
+      );
+      page.element("composer").value = "/help tasks extra";
+      page.element("composer").dispatch("input");
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "/tasks extra is not connected",
       );
       page.element("composer").value = "/help graph";
       page.element("composer").dispatch("keydown", { key: "Enter" });
@@ -2097,6 +2294,151 @@ describe("renderer status view", () => {
     }
   });
 
+  it("copies tool output in stream order, keeps truncation visible, and does not invent reloaded output", async () => {
+    const session = sessionSummary();
+    let receive!: (event: TurnEventV1) => void;
+    const history = [message("old", "Old reply")];
+    const copyText = vi.fn().mockResolvedValue({ ok: true, value: null });
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }), copyText },
+      daemon: { status: async () => status({ state: "ready", reachable: true, protocol: 1 }) },
+      sessions: {
+        list: async () => ({
+          ok: true,
+          value: { sessions: [session], nextCursor: null, hasMore: false },
+        }),
+        load: async () => ({
+          ok: true,
+          value: { session, messages: history, nextMessageCursor: null, messagesHasMore: false },
+        }),
+        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      },
+      turns: {
+        subscribe: (listener: typeof receive) => {
+          receive = listener;
+          return () => {};
+        },
+        submit: async () => ({
+          ok: true,
+          value: { sessionId: session.sessionId, traceId: "trace-1", requestId: "request-1" },
+        }),
+      },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "Run a tool";
+      page.element("composer").dispatch("input");
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
+      const tool = {
+        schemaVersion: 1 as const,
+        kind: "tool" as const,
+        phase: "completed" as const,
+        sessionId: session.sessionId,
+        traceId: "trace-1",
+        toolName: "exec.run",
+        callId: "call-1",
+        state: "ok",
+        ok: true,
+        durationMs: 10,
+        exitCode: 0,
+        createdAt: "2026-10-05T00:00:02Z",
+        content: "  output\nsecond line\n",
+        truncated: true,
+      };
+      receive(tool);
+      expect(page.findText()).toContain("call-1 · ok · 10 ms · Output truncated");
+      const output = page
+        .element("timeline")
+        .descendants()
+        .find((item) => item.className === "tool-output")!;
+      expect(output.tagName).toBe("details");
+      expect(output.open).toBe(false);
+      expect(output.children[0]!.tagName).toBe("summary");
+      expect(output.children[0]!.textContent).toBe("Show available output");
+      expect(output.children[1]!.tagName).toBe("pre");
+      expect(output.children[1]!.textContent).toBe(tool.content);
+      expect(page.findText()).toContain(
+        "OpenMinion reported truncated output. Only the supplied text is available.",
+      );
+      output.open = true;
+      output.children[0]!.focus();
+      output.children[1]!.scrollTop = 37;
+      const copy = page.findButtons().find((button) => button.textContent === "Copy output")!;
+      copy.click();
+      await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith(tool.content));
+      expect(copy.textContent).toBe("Copied");
+      copyText.mockRejectedValueOnce(new Error("Clipboard unavailable"));
+      copy.click();
+      await vi.waitFor(() => expect(copy.textContent).toBe("Copy failed"));
+      const copyLatest = () => {
+        page.element("composer").value = "/copy";
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+      };
+      copyLatest();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]!.textContent).toBe(
+          "Copied to clipboard.",
+        ),
+      );
+      expect(copyText).toHaveBeenLastCalledWith(tool.content);
+      copyText.mockRejectedValueOnce(new Error("Clipboard unavailable"));
+      copyLatest();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]!.textContent).toBe("Copy failed"),
+      );
+      output.children[0]!.focus();
+      receive({
+        schemaVersion: 1,
+        kind: "progress",
+        progressKind: "text",
+        sessionId: session.sessionId,
+        traceId: "trace-1",
+        text: "First reply continued",
+        createdAt: "2026-10-05T00:00:03Z",
+      });
+      expect(page.element("timeline").descendants()).toContain(output);
+      expect(output.open).toBe(true);
+      expect(output.children[1]!.scrollTop).toBe(37);
+      expect(page.activeElement).toBe(output.children[0]);
+      copyLatest();
+      await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith("First reply continued"));
+      receive({
+        ...tool,
+        callId: "call-2",
+        content: undefined,
+        truncated: undefined,
+        createdAt: "2026-10-05T00:00:04Z",
+      });
+      expect(page.findText()).toContain("Output is unavailable for this event.");
+      receive({ ...tool, callId: "call-empty", content: "", truncated: false });
+      expect(page.findText()).toContain("No output.");
+      copyLatest();
+      await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith("First reply continued"));
+      history.push({ ...message("new", "Saved final reply"), createdAt: "2026-10-05T00:00:05Z" });
+      receive({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: session.sessionId,
+        traceId: "trace-1",
+        outcome: "complete",
+      });
+      await vi.waitFor(() => expect(page.findText()).toContain("Saved final reply"));
+      copyLatest();
+      await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith("Saved final reply"));
+      // A fresh renderer has no live tool content and must not recreate it from status.
+      const reloaded = new FixtureDocument();
+      await mount(api, reloaded.asDocument());
+      expect(reloaded.findButtons().some((button) => button.textContent === "Copy output")).toBe(
+        false,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("tracks one active trace through progress, response, and terminal state", () => {
     expect(waitingTime(1000, 1000)).toBe("0s");
     expect(waitingTime(1000, 62500)).toBe("1m 01s");
@@ -2234,13 +2576,11 @@ describe("renderer status view", () => {
   it("recovers one approval and tool card from canonical safe facts", () => {
     const requested = {
       ...eventValue("event-one", "pending"),
-      eventType: "desktop.approval.requested",
+      eventType: "approval.requested",
       facts: {
         approval_id: "approval-1",
-        call_id: "call-1",
         tool_name: "workspace.write",
-        argument_keys: ["path", "text"],
-        argument_keys_count: 2,
+        consent_preview: 'workspace.write(path="notes.txt", text="[bounded]")',
         requested_at: "2026-08-19T00:00:02Z",
         expires_at: "2026-08-19T00:01:02Z",
         outcome: "pending",
@@ -2248,11 +2588,11 @@ describe("renderer status view", () => {
     };
     const resolved = {
       ...eventValue("event-two", "terminal"),
-      eventType: "desktop.approval.resolved",
+      eventType: "approval.resolved",
       facts: {
         approval_id: "approval-1",
-        call_id: "call-1",
         tool_name: "workspace.write",
+        consent_preview: 'workspace.write(path="notes.txt", text="[bounded]")',
         decision: "deny",
         outcome: "denied",
         resolved_at: "2026-08-19T00:00:03Z",
@@ -2275,7 +2615,7 @@ describe("renderer status view", () => {
       expect.objectContaining({
         kind: "approval",
         approvalId: "approval-1",
-        argumentKeys: ["path", "text"],
+        consentPreview: 'workspace.write(path="notes.txt", text="[bounded]")',
         decision: "deny",
         outcome: "denied",
       }),
@@ -2289,7 +2629,7 @@ describe("renderer status view", () => {
     expect(JSON.stringify(activity)).not.toMatch(/secret|argument.*value|\/private/i);
   });
 
-  it("replaces live approval state without losing safe argument names", () => {
+  it("replaces live approval state without losing the consent preview", () => {
     const requested = {
       schemaVersion: 1 as const,
       kind: "approval" as const,
@@ -2298,29 +2638,28 @@ describe("renderer status view", () => {
       traceId: "trace-1",
       approvalId: "approval-1",
       toolName: "workspace.write",
-      callId: "call-1",
-      argumentKeys: ["path"],
+      consentPreview: 'workspace.write(path="notes.txt")',
       requestedAt: "2026-08-19T00:00:02Z",
       expiresAt: "2026-08-19T00:01:02Z",
       decision: null,
       outcome: "pending" as const,
       resolvedAt: null,
-    };
+    } as unknown as ApprovalEventV1;
     const resolved = {
       ...requested,
       phase: "resolved" as const,
-      argumentKeys: [],
+      consentPreview: "",
       requestedAt: null,
       expiresAt: null,
       decision: "allow_once" as const,
       outcome: "applied" as const,
       resolvedAt: "2026-08-19T00:00:03Z",
-    };
+    } as ApprovalEventV1;
 
     expect(applyActivityEvent([requested], resolved)).toEqual([
       expect.objectContaining({
         phase: "resolved",
-        argumentKeys: ["path"],
+        consentPreview: 'workspace.write(path="notes.txt")',
         decision: "allow_once",
         outcome: "applied",
       }),
@@ -2432,6 +2771,17 @@ describe("renderer status view", () => {
       firstDocument.element("composer").dispatch("input");
       expect(timeline.scrollTop).toBe(1600);
       const pendingButtons = firstDocument.findButtons();
+      const pendingCard = firstDocument
+        .element("timeline")
+        .descendants()
+        .find((item) => item.className.includes("approval-card"))!;
+      expect(pendingCard.getAttribute("aria-label")).toBe("Approval for workspace.write");
+      expect(firstDocument.element("cancel").hidden).toBe(false);
+      expect(firstDocument.element("send").disabled).toBe(true);
+      expect(firstDocument.sessionButtons()[0]?.title).toContain("Needs approval");
+      expect(firstDocument.findText()).toContain(
+        'workspace.write(path="notes.txt", text="[bounded]")',
+      );
       expect(pendingButtons.map((button) => button.textContent)).toEqual(["Deny", "Allow once"]);
       expect(pendingButtons.every((button) => !button.disabled)).toBe(true);
       pendingButtons[1]!.click();
@@ -2453,8 +2803,8 @@ describe("renderer status view", () => {
       expect(reloadedDocument.findText()).toEqual(
         expect.arrayContaining([
           "Approval · workspace.write",
-          "call-1 · applied",
-          "Argument names: path, text",
+          "Resolved · applied",
+          'workspace.write(path="notes.txt", text="[bounded]")',
         ]),
       );
       expect({
@@ -2488,12 +2838,350 @@ describe("renderer status view", () => {
           approvalId: "approval-1",
           sessionId: "session-1",
           traceId: "trace-1",
-          callId: "call-1",
           decision: "allow_once",
           outcome: "applied",
           resolvedAt: "2026-08-19T00:00:03Z",
         },
       });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("disables approval actions while Stop is settling", async () => {
+    let finishCancellation!: () => void;
+    const cancellation = new Promise<void>((resolve) => {
+      finishCancellation = resolve;
+    });
+    const decide = vi.fn();
+    const api = approvalRendererApi(decide);
+    api.turns.cancel = vi.fn<NativeApi["turns"]["cancel"]>(async () => {
+      await cancellation;
+      return {
+        ok: true,
+        value: {
+          sessionId: "session-1",
+          traceId: "trace-1",
+          runId: "trace-1",
+          state: "requested",
+          terminal: false,
+        },
+      };
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("cancel").click();
+      const actions = page.findButtons();
+      expect(actions.every((button) => button.disabled)).toBe(true);
+      expect(page.findText()).toContain("Cancelling turn…");
+      actions.find((button) => button.textContent === "Allow once")!.click();
+      expect(decide).not.toHaveBeenCalled();
+    } finally {
+      finishCancellation();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps an in-flight decision disabled across conversation switches", async () => {
+    let finishDecision: ((value: unknown) => void) | undefined;
+    const decide = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        finishDecision = resolve;
+      }),
+    );
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Other conversation" },
+    ];
+    const api = approvalRendererApi(decide, sessions);
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page
+        .findButtons()
+        .find((button) => button.textContent === "Allow once")!
+        .click();
+      expect(page.findButtons().every((button) => button.disabled)).toBe(true);
+
+      page
+        .sessionButtons()
+        .find((button) => button.textContent === "Other conversation")!
+        .click();
+      await vi.waitFor(() =>
+        expect(page.element("current-title").textContent).toBe("Other conversation"),
+      );
+      expect(
+        page.sessionButtons().find((button) => button.textContent === "Recovered chat")?.title,
+      ).toContain("Needs approval");
+      page
+        .sessionButtons()
+        .find((button) => button.textContent === "Recovered chat")!
+        .click();
+      await vi.waitFor(() =>
+        expect(page.element("current-title").textContent).toBe("Recovered chat"),
+      );
+      expect(page.findButtons().every((button) => button.disabled)).toBe(true);
+      expect(decide).toHaveBeenCalledOnce();
+      finishDecision?.({
+        ok: true,
+        value: {
+          schemaVersion: 1,
+          approvalId: "approval-1",
+          sessionId: "session-1",
+          traceId: "trace-1",
+          decision: "allow_once",
+          outcome: "applied",
+          resolvedAt: "2026-08-19T00:00:03Z",
+        },
+      });
+      finishDecision = undefined;
+      let resolvedCard!: FixtureElement;
+      await vi.waitFor(() => {
+        resolvedCard = page
+          .element("timeline")
+          .descendants()
+          .find((item) => item.className.includes("approval-card"))!;
+        expect(resolvedCard.focus).toHaveBeenCalledOnce();
+      });
+      expect(page.findButtons()).toEqual([]);
+      const resolutionStatus = resolvedCard.children.find((item) =>
+        item.className.includes("activity-details"),
+      )!;
+      expect(resolutionStatus.getAttribute("role")).toBe("status");
+      expect(page.sessionButtons()[0]?.title).not.toContain("Needs approval");
+    } finally {
+      finishDecision?.({
+        ok: true,
+        value: {
+          schemaVersion: 1,
+          approvalId: "approval-1",
+          sessionId: "session-1",
+          traceId: "trace-1",
+          decision: "allow_once",
+          outcome: "applied",
+          resolvedAt: "2026-08-19T00:00:03Z",
+        },
+      });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    {
+      retryable: true,
+      message: "Could not send the decision. Try again.",
+      expected: "Decision not sent · Could not send the decision. Try again.",
+      actions: 2,
+    },
+    {
+      retryable: false,
+      message: "This approval has expired.",
+      expected: "Approval closed · This approval has expired.",
+      actions: 0,
+    },
+  ])(
+    "settles rejected decisions deterministically (retryable=$retryable)",
+    async ({ retryable, message, expected, actions }) => {
+      const decide = retryable
+        ? vi.fn().mockRejectedValue(new Error("IPC disconnected"))
+        : vi.fn().mockResolvedValue({
+            ok: false,
+            error: {
+              code: "approval_expired",
+              message,
+              retryable: false,
+              retryAfterMs: null,
+            },
+          });
+      const api = approvalRendererApi(decide);
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        page
+          .findButtons()
+          .find((button) => button.textContent === "Allow once")!
+          .click();
+        await vi.waitFor(() => expect(page.findText()).toContain(expected));
+        expect(page.findButtons()).toHaveLength(actions);
+        if (retryable) {
+          expect(page.findButtons()[0]?.focus).toHaveBeenCalledOnce();
+          expect(page.findButtons().every((button) => !button.disabled)).toBe(true);
+          expect(page.sessionButtons()[0]?.title).toContain("Needs approval");
+        } else {
+          expect(page.sessionButtons()[0]?.title).not.toContain("Needs approval");
+        }
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it("keeps a newer stream resolution when a delayed decision request fails", async () => {
+    let finishDecision!: (value: ClientResult<ApprovalDecisionV1>) => void;
+    const decide = vi.fn().mockReturnValue(
+      new Promise<ClientResult<ApprovalDecisionV1>>((resolve) => {
+        finishDecision = resolve;
+      }),
+    );
+    const api = approvalRendererApi(decide);
+    let turnListener: ((event: TurnEventV1) => void) | null = null;
+    api.turns.subscribe = vi.fn((listener) => {
+      turnListener = listener;
+      return vi.fn();
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page
+        .findButtons()
+        .find((button) => button.textContent === "Allow once")!
+        .click();
+
+      turnListener!({
+        schemaVersion: 1,
+        kind: "approval",
+        phase: "resolved",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        approvalId: "approval-1",
+        toolName: "workspace.write",
+        consentPreview: 'workspace.write(path="notes.txt", text="[bounded]")',
+        requestedAt: null,
+        expiresAt: null,
+        decision: null,
+        outcome: "expired",
+        resolvedAt: "2026-08-19T00:00:03Z",
+      });
+      finishDecision({
+        ok: false,
+        error: {
+          code: "approval_transport_failed",
+          message: "Could not send the decision. Try again.",
+          retryable: true,
+          retryAfterMs: null,
+        },
+      });
+
+      await vi.waitFor(() => expect(page.findText()).toContain("Resolved · expired"));
+      const resolvedCard = page
+        .element("timeline")
+        .descendants()
+        .find((item) => item.className.includes("approval-card"))!;
+      expect(resolvedCard.focus).toHaveBeenCalledOnce();
+      expect(
+        resolvedCard.children
+          .find((item) => item.className.includes("activity-details"))
+          ?.getAttribute("role"),
+      ).toBe("status");
+      expect(page.findText()).not.toContain(
+        "Decision not sent · Could not send the decision. Try again.",
+      );
+      expect(page.findButtons()).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("moves focus from an expired approval action to the resolved card", async () => {
+    const api = approvalRendererApi(vi.fn());
+    let turnListener: ((event: TurnEventV1) => void) | null = null;
+    api.turns.subscribe = vi.fn((listener) => {
+      turnListener = listener;
+      return vi.fn();
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page
+        .findButtons()
+        .find((button) => button.textContent === "Deny")!
+        .focus();
+
+      turnListener!({
+        schemaVersion: 1,
+        kind: "approval",
+        phase: "resolved",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        approvalId: "approval-1",
+        toolName: "workspace.write",
+        consentPreview: 'workspace.write(path="notes.txt", text="[bounded]")',
+        requestedAt: null,
+        expiresAt: null,
+        decision: null,
+        outcome: "expired",
+        resolvedAt: "2026-08-19T00:00:03Z",
+      });
+
+      const resolvedCard = page
+        .element("timeline")
+        .descendants()
+        .find((item) => item.className.includes("approval-card"))!;
+      expect(resolvedCard.focus).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("marks a background approval without stealing focus", async () => {
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Other conversation" },
+    ];
+    const api = approvalRendererApi(vi.fn(), sessions);
+    let turnListener: ((event: TurnEventV1) => void) | null = null;
+    api.sessions!.events = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { events: [], nextCursor: "event-zero", hasMore: false },
+    });
+    api.turns.subscribe = vi.fn((listener) => {
+      turnListener = listener;
+      return vi.fn();
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const focusCalls = page.element("composer").focus.mock.calls.length;
+      const focusedSession = page
+        .sessionButtons()
+        .find((button) => button.textContent === "Recovered chat")!;
+      focusedSession.focus();
+      const backgroundApproval: ApprovalEventV1 = {
+        schemaVersion: 1,
+        kind: "approval",
+        phase: "requested",
+        sessionId: "session-2",
+        traceId: "trace-2",
+        approvalId: "approval-2",
+        toolName: "exec.run",
+        consentPreview: 'exec.run(command="npm test")',
+        requestedAt: "2026-08-19T00:00:02Z",
+        expiresAt: "2026-08-19T00:01:02Z",
+        decision: null,
+        outcome: "pending",
+        resolvedAt: null,
+      };
+
+      turnListener!(backgroundApproval);
+
+      expect(page.element("composer").focus).toHaveBeenCalledTimes(focusCalls);
+      expect(page.findButtons()).toEqual([]);
+      expect(
+        page.sessionButtons().find((button) => button.textContent === "Other conversation")?.title,
+      ).toContain("Needs approval");
+      expect(page.element("approval-notice").textContent).toBe(
+        "Other conversation needs approval for exec.run.",
+      );
+      expect(
+        page.sessionButtons().find((button) => button.textContent === "Recovered chat")?.focus,
+      ).toHaveBeenCalledOnce();
+    } finally {
       vi.unstubAllGlobals();
     }
   });
@@ -2663,6 +3351,7 @@ describe("renderer status view", () => {
         expect(submit).toHaveBeenCalledWith({
           sessionId: "session-1",
           message: "Describe this image",
+          draftRevision: "00000000-0000-4000-8000-000000000001",
           attachmentIds: [image.mediaId],
         }),
       );
@@ -2800,6 +3489,8 @@ describe("renderer status view", () => {
         await historyRefresh;
         return load(input);
       });
+      const composerFocusCalls = page.element("composer").focus.mock.calls.length;
+      page.element("cancel").focus();
       turnSubscription.listener?.({
         schemaVersion: 1,
         kind: "done",
@@ -2807,6 +3498,7 @@ describe("renderer status view", () => {
         traceId: "trace-1",
         outcome: "complete",
       });
+      expect(page.element("composer").focus).toHaveBeenCalledTimes(composerFocusCalls + 1);
       expect(page.findText()).toContain("History for session-1");
       expect(page.findText()).toContain("First chunk");
       expect(page.findText()).not.toContain("What would you like to work on?");
@@ -3339,6 +4031,7 @@ describe("renderer status view", () => {
         expect(submit).toHaveBeenCalledWith({
           sessionId: session.sessionId,
           message: "What is visible?",
+          draftRevision: "00000000-0000-4000-8000-000000000001",
           observation: { includeCurrentView: true },
         }),
       );
@@ -3362,6 +4055,7 @@ describe("renderer status view", () => {
         expect(submit).toHaveBeenLastCalledWith({
           sessionId: session.sessionId,
           message: "Show me the safest next step",
+          draftRevision: "00000000-0000-4000-8000-000000000001",
           observation: { includeCurrentView: true },
         }),
       );
@@ -4246,18 +4940,27 @@ class FixtureElement {
   scrollHeight = 0;
   clientHeight = 0;
   children: FixtureElement[] = [];
+  private readonly attributes = new Map<string, string>();
   private readonly listeners = new Map<string, Array<(event: FixtureEvent) => void>>();
 
   constructor(readonly tagName: string) {}
 
+  contains(element: FixtureElement | null): boolean {
+    return element !== null && this.descendants().includes(element);
+  }
   append(...children: FixtureElement[]): void {
     this.children.push(...children);
   }
   get lastElementChild(): FixtureElement | null {
     return this.children.at(-1) ?? null;
   }
-  replaceChild(next: FixtureElement, previous: FixtureElement): void {
-    this.children.splice(this.children.indexOf(previous), 1, next);
+  insertBefore(next: FixtureElement, previous: FixtureElement | null): void {
+    this.children = this.children.filter((child) => child !== next);
+    const index = previous === null ? this.children.length : this.children.indexOf(previous);
+    this.children.splice(index, 0, next);
+  }
+  moveBefore(next: FixtureElement, previous: FixtureElement | null): void {
+    this.insertBefore(next, previous);
   }
   removeChild(child: FixtureElement): void {
     this.children.splice(this.children.indexOf(child), 1);
@@ -4265,7 +4968,13 @@ class FixtureElement {
   replaceChildren(...children: FixtureElement[]): void {
     this.children = children;
   }
-  setAttribute(_name: string, _value: string): void {}
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
 
   addEventListener(type: string, listener: (event: FixtureEvent) => void): void {
     const listeners = this.listeners.get(type) ?? [];
@@ -4345,6 +5054,7 @@ class FixtureDocument {
     "shell-version",
     "connection-label",
     "session-list",
+    "approval-notice",
     "session-search",
     "clear-session-search",
     "session-search-count",
@@ -4364,6 +5074,8 @@ class FixtureDocument {
     "timeline",
     "conversation",
     "chat-progress",
+    "reconnect-turn",
+    "draft-status",
     "jump-latest",
     "chat-status",
     "chat-detail",
@@ -4452,6 +5164,7 @@ class FixtureDocument {
   private readonly elements: Map<string, FixtureElement> = new Map(
     FixtureDocument.requiredIds.map((id) => [id, new FixtureElement("div")]),
   );
+  activeElement: FixtureElement | null = null;
 
   constructor() {
     Object.defineProperty(this.defaultView.localStorage, "length", {
@@ -4463,6 +5176,7 @@ class FixtureDocument {
     this.element("capture-region-x").value = "0";
     this.element("capture-region-y").value = "0";
     this.element("observation-trigger").value = "changes";
+    for (const element of this.elements.values()) this.trackFocus(element);
   }
 
   addEventListener = vi.fn();
@@ -4472,7 +5186,7 @@ class FixtureDocument {
   }
 
   createElement(tagName: string): FixtureElement {
-    return new FixtureElement(tagName);
+    return this.trackFocus(new FixtureElement(tagName));
   }
   asDocument(): Document {
     return this as unknown as Document;
@@ -4505,6 +5219,13 @@ class FixtureDocument {
     return this.element("session-list")
       .descendants()
       .filter((item) => item.tagName === "button");
+  }
+
+  private trackFocus(element: FixtureElement): FixtureElement {
+    element.focus = vi.fn(() => {
+      this.activeElement = element;
+    });
+    return element;
   }
 
   attachmentText(): string[] {
@@ -4579,7 +5300,7 @@ function approvalEvent(phase: "requested" | "resolved") {
   const requested = phase === "requested";
   return {
     schemaVersion: 1 as const,
-    eventType: `desktop.approval.${phase}`,
+    eventType: `approval.${phase}`,
     cursor: requested ? "event-one" : "event-two",
     createdAt: requested ? "2026-08-19T00:00:02Z" : "2026-08-19T00:00:03Z",
     runId: null,
@@ -4588,23 +5309,74 @@ function approvalEvent(phase: "requested" | "resolved") {
     facts: requested
       ? {
           approval_id: "approval-1",
-          call_id: "call-1",
           tool_name: "workspace.write",
-          argument_keys: ["path", "text"],
-          argument_keys_count: 2,
+          consent_preview: 'workspace.write(path="notes.txt", text="[bounded]")',
           requested_at: "2026-08-19T00:00:02Z",
           expires_at: "2026-08-19T00:01:02Z",
           outcome: "pending",
         }
       : {
           approval_id: "approval-1",
-          call_id: "call-1",
           tool_name: "workspace.write",
+          consent_preview: 'workspace.write(path="notes.txt", text="[bounded]")',
           decision: "allow_once",
           outcome: "applied",
           resolved_at: "2026-08-19T00:00:03Z",
         },
   };
+}
+
+function approvalRendererApi(
+  decide: ReturnType<typeof vi.fn>,
+  sessions: SessionSummaryV1[] = [sessionSummary()],
+): NativeApi {
+  return {
+    app: {
+      openLink: vi.fn().mockResolvedValue({ ok: true, value: null }),
+      copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+      info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
+    },
+    daemon: {
+      status: vi
+        .fn()
+        .mockResolvedValue(
+          status({ state: "ready", reachable: true, daemonVersion: "0.0.9", protocol: 1 }),
+        ),
+      retry: vi.fn(),
+    },
+    sessions: {
+      list: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { sessions, nextCursor: null, hasMore: false },
+      }),
+      load: vi.fn(async ({ sessionId }) => ({
+        ok: true,
+        value: {
+          session: sessions.find((session) => session.sessionId === sessionId)!,
+          messages: [],
+          nextMessageCursor: "message-zero",
+          messagesHasMore: false,
+        },
+      })),
+      events: vi.fn(async ({ sessionId }) => ({
+        ok: true,
+        value: {
+          events: sessionId === "session-1" ? [approvalEvent("requested")] : [],
+          nextCursor: sessionId === "session-1" ? "event-one" : "event-zero",
+          hasMore: false,
+        },
+      })),
+      create: vi.fn(),
+      close: vi.fn(),
+    },
+    turns: {
+      submit: vi.fn(),
+      cancel: vi.fn(),
+      subscribe: vi.fn().mockReturnValue(vi.fn()),
+    },
+    approvals: { decide },
+    media: { pick: vi.fn(), release: vi.fn() },
+  } as unknown as NativeApi;
 }
 
 function sessionSummary(): SessionSummaryV1 {
@@ -4761,3 +5533,331 @@ function artifactCatalogItem(): ArtifactCatalogItemV1 {
     actions: ["detach", "read"],
   };
 }
+
+describe("command discovery", () => {
+  it("matches canonical names and aliases without hiding argument usage", () => {
+    expect(commandMatches("/task pause task-1").map((item) => item.name)).toEqual(["/tasks"]);
+    expect(commandMatches("/cls").map((item) => item.name)).toEqual(["/clear"]);
+    expect(commandMatches("/skills ").map((item) => item.name)).toEqual(["/skills"]);
+    expect(commandMatches("//literal")).toEqual([]);
+  });
+});
+
+describe("command picker keyboard access", () => {
+  it("lets Shift+Tab leave suggestions without completion or restoring an older draft", async () => {
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: { status: async () => status({ state: "degraded" }) },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const composer = page.element("composer");
+      composer.value = "Original draft";
+      composer.dispatch("input");
+      page.element("show-commands").click();
+      composer.value = "/task pause task-1";
+      composer.dispatch("input");
+      expect(page.element("command-menu").hidden).toBe(false);
+      expect(page.element("command-menu").children.length).toBe(1);
+      expect(page.element("command-menu").children[0]!.getAttribute("tabindex")).toBe("-1");
+      const preventDefault = vi.fn();
+      composer.dispatch("keydown", { key: "Tab", shiftKey: true, preventDefault });
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(page.element("command-menu").hidden).toBe(true);
+      expect(composer.value).toBe("/task pause task-1");
+      expect(composer.removeAttribute).toHaveBeenCalledWith("aria-activedescendant");
+      expect(page.element("show-commands").getAttribute("aria-expanded")).toBe("false");
+      composer.dispatch("keydown", { key: "Escape" });
+      expect(composer.value).toBe("/task pause task-1");
+
+      composer.dispatch("input");
+      composer.dispatch("keydown", { key: "Tab", preventDefault });
+      expect(preventDefault).toHaveBeenCalledOnce();
+      expect(composer.value).toBe("/tasks pause task-1");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("describes composer shortcuts without relying on the hidden visual hint", () => {
+    const html = readFileSync(new URL("../../src/renderer/index.html", import.meta.url), "utf8");
+    expect(html).toContain('aria-describedby="composer-keyboard-help"');
+    expect(html).toContain('id="composer-keyboard-help" class="sr-only"');
+    expect(html).toContain("Shift+Tab to leave suggestions.");
+  });
+});
+
+describe("saved drafts and disconnected responses", () => {
+  function apiForDrafts(sessions = [sessionSummary()]): NativeApi {
+    const api = approvalRendererApi(vi.fn(), sessions);
+    vi.mocked(api.sessions.events).mockResolvedValue({
+      ok: true,
+      value: { events: [], nextCursor: "event-zero", hasMore: false },
+    });
+    return api;
+  }
+
+  it("blocks sending until a failed unbound-draft transfer cleanup succeeds", async () => {
+    const api = apiForDrafts();
+    vi.mocked(api.sessions.list).mockResolvedValue({
+      ok: true,
+      value: { sessions: [], nextCursor: null, hasMore: false },
+    });
+    vi.mocked(api.sessions.create).mockResolvedValue({ ok: true, value: sessionSummary() });
+    api.drafts = {
+      load: async () => ({ ok: true, value: [{ sessionId: "", text: "Original draft" }] }),
+      save: vi.fn(async ({ clearUnbound }) =>
+        clearUnbound
+          ? {
+              ok: false as const,
+              error: {
+                code: "storage_unavailable",
+                message: "Draft cleanup failed. Keep this window open.",
+                retryable: false,
+                retryAfterMs: null,
+              },
+            }
+          : { ok: true as const, value: "00000000-0000-4000-8000-000000000001" },
+      ),
+    };
+    vi.mocked(api.turns.submit).mockResolvedValue({
+      ok: false,
+      error: { code: "rejected", message: "Not accepted.", retryable: false, retryAfterMs: null },
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(page.element("draft-status").textContent).toBe(
+          "Draft cleanup failed. Keep this window open.",
+        ),
+      );
+      expect(page.element("draft-status").hidden).toBe(false);
+      expect(page.element("composer").value).toBe("Original draft");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.drafts.save).toHaveBeenCalledTimes(2));
+      expect(api.turns.submit).not.toHaveBeenCalled();
+      vi.mocked(api.drafts.save).mockResolvedValue({
+        ok: true,
+        value: "00000000-0000-4000-8000-000000000001",
+      });
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+      expect(page.element("draft-status").hidden).toBe(true);
+      expect(page.element("composer").value).toBe("Original draft");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("restores independent session drafts and keeps unbound startup text out of existing chats", async () => {
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Second" },
+    ];
+    const api = apiForDrafts(sessions);
+    const saved = new Map([
+      ["", "Unbound draft"],
+      ["session-1", "First draft"],
+      ["session-2", "Second draft"],
+    ]);
+    api.drafts = {
+      load: async () => ({
+        ok: true,
+        value: [...saved].map(([sessionId, text]) => ({ sessionId, text })),
+      }),
+      save: vi.fn(async ({ sessionId, text }) => {
+        saved.set(sessionId, text);
+        return { ok: true as const, value: "00000000-0000-4000-8000-000000000001" };
+      }),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      expect(page.element("current-title").textContent).toBe("New conversation");
+      expect(page.element("composer").value).toBe("Unbound draft");
+      page.sessionButtons()[0]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("current-title").textContent).toBe("Recovered chat"),
+      );
+      expect(page.element("composer").value).toBe("First draft");
+      page.element("composer").value = "Edited first";
+      page.element("composer").dispatch("input");
+      page.sessionButtons()[1]!.click();
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Second"));
+      expect(page.element("composer").value).toBe("Second draft");
+      const reloaded = new FixtureDocument();
+      await mount(api, reloaded.asDocument());
+      expect(reloaded.element("composer").value).toBe("Unbound draft");
+      reloaded.sessionButtons()[0]!.click();
+      await vi.waitFor(() => expect(reloaded.element("composer").value).toBe("Edited first"));
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows save failure without losing text or submitting, and fences repeated sends during a save", async () => {
+    const api = apiForDrafts();
+    const failure = {
+      ok: false as const,
+      error: {
+        code: "storage_unavailable",
+        message: "Draft not saved. Keep this window open.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    };
+    let finishSave!: (result: ClientResult<string>) => void;
+    api.drafts = {
+      load: async () => ({ ok: true, value: [] }),
+      save: vi
+        .fn()
+        .mockResolvedValueOnce(failure)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishSave = resolve;
+            }),
+        ),
+    };
+    vi.mocked(api.turns.submit).mockResolvedValue({
+      ok: false,
+      error: {
+        code: "request_rejected",
+        message: "Not accepted.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "Keep this";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(page.element("draft-status").hidden).toBe(false));
+      expect(page.element("composer").value).toBe("Keep this");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.drafts.save).toHaveBeenCalledTimes(2));
+      page.element("composer-form").dispatch("submit");
+      await Promise.resolve();
+      expect(api.drafts.save).toHaveBeenCalledTimes(2);
+      expect(page.element("send").disabled).toBe(true);
+      finishSave({ ok: true, value: "00000000-0000-4000-8000-000000000001" });
+      await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+      expect(page.element("composer").value).toBe("Keep this");
+      expect(page.element("draft-status").hidden).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reconnects explicitly without clearing new drafts or text, and reads history when a turn is no longer retained", async () => {
+    const api = apiForDrafts();
+    let listener!: (event: TurnEventV1) => void;
+    vi.mocked(api.turns.subscribe).mockImplementation((next) => {
+      listener = next;
+      return () => {};
+    });
+    vi.mocked(api.turns.submit).mockResolvedValue({
+      ok: true,
+      value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+    });
+    const error = {
+      code: "stream_disconnected",
+      message: "Response disconnected. Reconnect to continue.",
+      retryable: true,
+      retryAfterMs: null,
+    };
+    api.turns.reconnect = vi.fn(async () => {
+      listener({
+        schemaVersion: 1,
+        kind: "connection",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        state: "reconnected",
+        error: null,
+      });
+      return {
+        ok: true as const,
+        value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+      };
+    });
+    let onHide = () => {};
+    vi.stubGlobal("window", {
+      addEventListener: (_name: string, callback: () => void) => {
+        onHide = callback;
+      },
+    });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "First request";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+      listener({
+        schemaVersion: 1,
+        kind: "progress",
+        progressKind: "text",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        text: "Partial response",
+        createdAt: "2026-10-06T00:00:00Z",
+      });
+      page.element("composer").value = "Next draft";
+      page.element("composer").dispatch("input");
+      listener({
+        schemaVersion: 1,
+        kind: "connection",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        state: "disconnected",
+        error,
+      });
+      expect(page.element("reconnect-turn").hidden).toBe(false);
+      expect(page.element("reconnect-turn").disabled).toBe(false);
+      expect(api.turns.reconnect).not.toHaveBeenCalled();
+      page.element("reconnect-turn").click();
+      await vi.waitFor(() => expect(page.element("reconnect-turn").hidden).toBe(true));
+      expect(api.turns.reconnect).toHaveBeenCalledWith({
+        sessionId: "session-1",
+        traceId: "trace-1",
+      });
+      expect(page.findText()).toContain("Partial response");
+      expect(page.element("composer").value).toBe("Next draft");
+      expect(api.turns.submit).toHaveBeenCalledOnce();
+      listener({
+        schemaVersion: 1,
+        kind: "connection",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        state: "unavailable",
+        error: {
+          ...error,
+          code: "trace_not_found",
+          message: "Turn is no longer retained. Check conversation history.",
+          retryable: false,
+        },
+      });
+      await vi.waitFor(() => expect(api.sessions.load).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(page.element("cancel").hidden).toBe(true));
+      expect(page.element("chat-status").textContent).toBe(
+        "Turn is no longer retained. Check conversation history.",
+      );
+      expect(page.element("composer").value).toBe("Next draft");
+      expect(api.turns.submit).toHaveBeenCalledOnce();
+      onHide();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

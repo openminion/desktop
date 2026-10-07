@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain } from "electron";
+
+const { IPC_CHANNELS } = await import("../../dist/src/shared/contracts.js");
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "openminion-electron-check-"));
 app.setPath("userData", temporaryRoot);
@@ -372,6 +374,115 @@ async function check() {
     assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
     assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
 
+    // Commands remain usable locally without turning help or completion into a chat send.
+    await click("composer");
+    await key("k", [process.platform === "darwin" ? "meta" : "control"]);
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "/");
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
+    await key("k", [process.platform === "darwin" ? "meta" : "control"]);
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("Replacement draft");
+    await settled();
+    assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), true);
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "Replacement draft");
+    const timelineBeforeHelp = await evaluate("document.querySelector('#timeline').textContent");
+    for (const [command, usage] of [
+      ["/tasks --help", "/tasks [task-id]"],
+      ["/skills ?", "/skills [skill-id]"],
+      ["/task --help", "/tasks [task-id]"],
+    ]) {
+      await click("composer");
+      await evaluate("document.querySelector('#composer').select()");
+      await window.webContents.insertText(command);
+      await settled();
+      assert.equal(await evaluate("document.querySelector('#composer').value"), command);
+      assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), false);
+      const hint = await evaluate(
+        "document.querySelector('#command-menu .command-usage').textContent",
+      );
+      assert.ok(hint.includes(usage), `${command} exposes argument syntax: ${hint}`);
+      await key("Return");
+      await waitFor("document.querySelector('#command-title').textContent === 'Command help'");
+      assert.ok(
+        (await evaluate("document.querySelector('#command-result p').textContent")).includes(usage),
+      );
+      assert.equal(
+        await evaluate("document.querySelector('#timeline').textContent"),
+        timelineBeforeHelp,
+      );
+      assert.equal(await evaluate("document.querySelector('#profile-dialog').open"), false);
+      await click("close-command");
+      assert.equal(await evaluate("document.activeElement.id"), "composer");
+    }
+    await window.webContents.insertText("Original draft before commands");
+    await settled();
+    await key("k", [process.platform === "darwin" ? "meta" : "control"]);
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("/ta");
+    await settled();
+    assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), false);
+    await key("Tab", ["shift"]);
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "/ta");
+    assert.equal(await evaluate("document.querySelector('#command-menu').hidden"), true);
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    assert.equal(
+      await evaluate(
+        "document.activeElement.id !== 'composer' && !document.activeElement.closest('#command-menu') && document.activeElement.getClientRects().length > 0",
+      ),
+      true,
+      "Shift+Tab leaves suggestions for a visible control without completing or restoring a draft",
+    );
+    await key("Tab");
+    assert.equal(await evaluate("document.activeElement.id"), "composer");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "/ta");
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("/tasks pause task-id");
+    await settled();
+    await key("Tab");
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "/tasks pause task-id",
+      "Tab completion preserves arguments already entered",
+    );
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("/cls");
+    await settled();
+    await key("Tab");
+    assert.equal(await evaluate("document.querySelector('#composer').value"), "/clear ");
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("/status");
+    await settled();
+    await key("Return");
+    await waitFor("document.querySelector('#command-title').textContent === 'Conversation status'");
+    const commandReport = await evaluate("document.querySelector('#command-result p').textContent");
+    const copyPoint = await evaluate(`(() => {
+      const button = document.querySelector('[aria-label="Copy command result"]');
+      button.scrollIntoView({block:'nearest'});
+      const bounds = button.getBoundingClientRect();
+      return {x:Math.round(bounds.x + bounds.width / 2), y:Math.round(bounds.y + bounds.height / 2)};
+    })()`);
+    for (const type of ["mouseDown", "mouseUp"])
+      window.webContents.sendInputEvent({ type, button: "left", clickCount: 1, ...copyPoint });
+    await waitFor(
+      "document.querySelector('[aria-label=\"Copy command result\"]').textContent === 'Copied'",
+    );
+    assert.equal(
+      await clipboard.readText(),
+      commandReport,
+      "Copy includes the report, not its controls",
+    );
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    assert.equal(await evaluate("document.activeElement.id"), "composer");
+    await window.webContents.insertText("Keep drafting");
+    await settled();
+    console.log(
+      "PASS: native command shortcut/draft replacement, contextual help, alias and argument completion, Shift+Tab focus exit, report Copy and Dismiss focus without a runtime.",
+    );
+
     // Real unavailable-runtime Settings must retain diagnostics and local preferences.
     await click("show-settings");
     await waitFor(
@@ -553,6 +664,187 @@ async function check() {
     await waitFor("!document.querySelector('#profile-dialog').open");
     console.log(
       "SET-01/03/04/05 passed: profile/setup failure navigation, DOM select change with real SQLite reload, native keyboard/focus and responsive layout.",
+    );
+
+    // Controlled session facts; tool events cross the real production preload boundary.
+    const toolSession = {
+      schemaVersion: 1,
+      sessionId: "tool-output-fixture",
+      title: "Tool output fixture",
+      status: "active",
+      createdAt: "2026-10-06T00:00:00Z",
+      updatedAt: "2026-10-06T00:00:00Z",
+      activeAgentId: null,
+      model: { provider: null, modelId: null },
+      projectId: null,
+      eventCursor: "0",
+    };
+    const identity = {
+      sessionId: toolSession.sessionId,
+      traceId: "tool-trace",
+      requestId: "tool-request",
+    };
+    for (const [channel, handler] of [
+      [
+        IPC_CHANNELS.daemonStatus,
+        () => ({
+          state: "ready",
+          reachable: true,
+          daemonVersion: "fixture",
+          protocol: null,
+          configId: null,
+          capabilities: ["turns.text"],
+          errorCode: null,
+        }),
+      ],
+      [
+        IPC_CHANNELS.sessionsList,
+        () => ({ ok: true, value: { sessions: [toolSession], nextCursor: null, hasMore: false } }),
+      ],
+      [
+        IPC_CHANNELS.sessionsLoad,
+        () => ({
+          ok: true,
+          value: {
+            session: toolSession,
+            messages: [],
+            nextMessageCursor: null,
+            messagesHasMore: false,
+          },
+        }),
+      ],
+      [
+        IPC_CHANNELS.sessionsEvents,
+        () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      ],
+      [
+        IPC_CHANNELS.profilesRead,
+        () => ({ ok: true, value: { ...profile.value, setupRequired: false } }),
+      ],
+      [IPC_CHANNELS.turnsSubmit, () => ({ ok: true, value: identity })],
+    ]) {
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, handler);
+    }
+    assert.equal(
+      (await evaluate("window.openminion.drafts.save({sessionId:'',text:''})")).ok,
+      true,
+    );
+    assert.equal(
+      (await evaluate("window.openminion.presentation.save({quietTools:false})")).ok,
+      true,
+    );
+    window.reload();
+    await new Promise((resolve) => window.webContents.once("did-finish-load", resolve));
+    await waitFor(
+      "document.querySelector('#current-title').textContent === 'Tool output fixture' && !document.querySelector('#composer').disabled",
+    );
+    await click("composer");
+    await window.webContents.insertText("Run fixture tool");
+    await key("Return");
+    await waitFor("document.querySelector('#chat-status').textContent === 'Working…'");
+    const toolContent =
+      "  <script>literal output</script>\n" +
+      Array.from({ length: 80 }, (_, index) => `Line ${index + 1}`).join("\n") +
+      "\n";
+    const tool = {
+      schemaVersion: 1,
+      kind: "tool",
+      phase: "completed",
+      sessionId: toolSession.sessionId,
+      traceId: identity.traceId,
+      toolName: "exec.run",
+      callId: "tool-output-call",
+      state: "ok",
+      createdAt: "2026-10-06T00:00:01Z",
+      ok: true,
+      durationMs: 10,
+      exitCode: 0,
+      content: toolContent,
+      truncated: true,
+    };
+    window.webContents.send(IPC_CHANNELS.turnEvent, tool);
+    await waitFor(
+      "document.querySelector('.tool-output summary')?.textContent === 'Show available output'",
+    );
+    assert.equal(await evaluate("document.querySelector('.tool-output').open"), false);
+    await evaluate("document.querySelector('.tool-output summary').focus()");
+    await key("Space");
+    assert.equal(await evaluate("document.querySelector('.tool-output').open"), true);
+    assert.equal(
+      await evaluate("document.querySelector('.tool-output pre').textContent"),
+      toolContent,
+    );
+    assert.equal(await evaluate("document.querySelector('.tool-output script')"), null);
+    await evaluate("document.querySelector('.tool-output pre').scrollTop = 40");
+    window.webContents.send(IPC_CHANNELS.turnEvent, {
+      schemaVersion: 1,
+      kind: "progress",
+      progressKind: "text",
+      sessionId: toolSession.sessionId,
+      traceId: identity.traceId,
+      text: "First assistant response after tool output",
+      createdAt: "2026-10-06T00:00:02Z",
+    });
+    await waitFor(
+      "document.querySelector('#timeline').textContent.includes('First assistant response after tool output')",
+    );
+    assert.equal(await evaluate("document.querySelector('.tool-output').open"), true);
+    assert.equal(
+      await evaluate("document.activeElement === document.querySelector('.tool-output summary')"),
+      true,
+    );
+    assert.equal(await evaluate("document.querySelector('.tool-output pre').scrollTop"), 40);
+    await key("Tab");
+    assert.equal(
+      await evaluate("document.activeElement === document.querySelector('.tool-output pre')"),
+      true,
+      "Scrollable tool output remains keyboard accessible",
+    );
+    await key("Tab");
+    assert.equal(
+      await evaluate("document.activeElement.getAttribute('aria-label')"),
+      "Copy output from exec.run",
+    );
+    await key("Space");
+    await waitFor("document.querySelector('.tool-card button').textContent === 'Copied'");
+    assert.equal(await clipboard.readText(), toolContent);
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+      [1600, 1000],
+    ]) {
+      window.setContentSize(width, height);
+      await settled();
+      assert.equal(await evaluate("document.documentElement.scrollWidth > innerWidth"), false);
+      if (process.env.OPENMINION_E2E_ARTIFACTS) {
+        mkdirSync(process.env.OPENMINION_E2E_ARTIFACTS, { recursive: true });
+        writeFileSync(
+          join(process.env.OPENMINION_E2E_ARTIFACTS, `tool-output-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+    }
+    window.webContents.send(IPC_CHANNELS.turnEvent, {
+      ...tool,
+      callId: "metadata-only",
+      content: undefined,
+      truncated: undefined,
+    });
+    await settled();
+    assert.equal(
+      await evaluate("document.querySelectorAll('.tool-card').length"),
+      1,
+      "Malformed optional output fields must not cross the preload",
+    );
+    const { content: _content, truncated: _truncated, ...metadataOnly } = tool;
+    window.webContents.send(IPC_CHANNELS.turnEvent, { ...metadataOnly, callId: "metadata-only" });
+    await waitFor(
+      "document.querySelector('#timeline').textContent.includes('Output is unavailable for this event.')",
+    );
+    assert.equal(await evaluate("document.querySelectorAll('.tool-output').length"), 1);
+    console.log(
+      "PASS: controlled tool events through production preload, native output expansion, literal content, insertion focus/scroll, exact Copy, missing-output honesty and responsive layout.",
     );
 
     const worker = new BrowserWindow({

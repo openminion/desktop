@@ -72,6 +72,20 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.runtimeControl, (event, input: unknown) =>
     !isAppInvocation(event) ? forbiddenResult() : supervisor.controlRuntime(input),
   );
+  ipcMain.handle(IPC_CHANNELS.draftsLoad, (event) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.loadDrafts()
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
+  ipcMain.handle(IPC_CHANNELS.draftsSave, (event, input: unknown) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.saveDraft(input)
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
   ipcMain.handle(IPC_CHANNELS.chatNamesLoad, (event, input: unknown) =>
     !isAppInvocation(event)
       ? forbiddenResult()
@@ -149,7 +163,18 @@ export function registerIpcHandlers(
       }
       let deliveryActive = true;
       const result = await supervisor.client.submit(submittedInput, (turnEvent: TurnEventV1) => {
-        if (turnEvent.kind === "done") settleManualTurn();
+        if (turnEvent.kind === "started" && turnInput.draftRevision && store) {
+          const consumed = store.consumeDraft({
+            sessionId: turnInput.sessionId,
+            revision: turnInput.draftRevision,
+          });
+          if (!consumed.ok) turnEvent = { ...turnEvent, draftError: consumed.error.message };
+        }
+        if (
+          turnEvent.kind === "done" ||
+          (turnEvent.kind === "connection" && turnEvent.state === "unavailable")
+        )
+          settleManualTurn();
         const observationDelivery = prepared?.ok
           ? observation.acceptTurnEvent(prepared.value, turnEvent)
           : true;
@@ -308,6 +333,9 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.identitySave, (event, input: unknown) =>
     isAppInvocation(event) ? supervisor.saveIdentity(input) : forbiddenResult(),
   );
+  ipcMain.handle(IPC_CHANNELS.identityReload, (event) =>
+    isAppInvocation(event) ? supervisor.reloadIdentity() : forbiddenResult(),
+  );
   ipcMain.handle(IPC_CHANNELS.profilesPresets, (event) =>
     isAppInvocation(event) ? supervisor.setupPresets() : forbiddenResult(),
   );
@@ -385,6 +413,9 @@ export function registerIpcHandlers(
   );
   ipcMain.handle(IPC_CHANNELS.turnsCancel, (event, input) =>
     isAppInvocation(event) ? supervisor.client.cancel(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsReconnect, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.reconnect(input) : forbiddenResult(),
   );
   ipcMain.handle(IPC_CHANNELS.approvalsDecide, (event, input) =>
     isAppInvocation(event) ? supervisor.client.decide(input) : forbiddenResult(),

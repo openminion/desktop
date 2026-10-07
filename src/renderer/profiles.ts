@@ -40,6 +40,9 @@ export function mountProfiles(
   const importButton = get<HTMLButtonElement>("profile-import");
   const tools = get<HTMLElement>("profile-tools");
   const setupFields = get<HTMLFieldSetElement>("setup-fields");
+  const setupAgent = get<HTMLInputElement>("setup-agent");
+  const addProfile = get<HTMLButtonElement>("profile-add");
+  const cancelAddProfile = get<HTMLButtonElement>("profile-add-cancel");
   const setupProvider = get<HTMLSelectElement>("setup-provider");
   const setupModel = get<HTMLInputElement>("setup-model");
   const setupEndpoint = get<HTMLInputElement>("setup-endpoint");
@@ -101,6 +104,8 @@ export function mountProfiles(
     return { id, input, remove };
   });
   let settings: ProfileSettings | null = null;
+  let addingProfile = false;
+  let displayedAgent = "";
   let pending = false;
   let identitySettings: IdentitySettings | null = null;
   let identityPending = false;
@@ -209,6 +214,7 @@ export function mountProfiles(
   const populateAgent = () => {
     const agent = settings?.agents.find((item) => item.id === select.value);
     if (!agent || !settings) return;
+    displayedAgent = agent.id;
     model.value = agent.model;
     endpoint.value = agent.baseUrl;
     key.value = "";
@@ -229,18 +235,17 @@ export function mountProfiles(
   const populate = (value: ProfileSettings) => {
     const selected = select.value;
     settings = value;
-    setupFields.hidden = !value.setupRequired;
+    addingProfile = false;
+    renderProfileForm();
     get<HTMLElement>("settings-eyebrow").textContent = value.setupRequired ? "Setup" : "OpenMinion";
     get<HTMLElement>("profile-import-note").hidden = value.setupRequired;
     get<HTMLElement>("profile-intro").textContent = value.setupRequired
       ? "Connect your model to start chatting, or import an existing OpenMinion profile."
       : "Finish running chats before saving. Applying changes restarts OpenMinion.";
-    fields.hidden = value.setupRequired;
     demo.hidden = !value.setupRequired || !value.agents.some((agent) => agent.provider === "echo");
     get<HTMLElement>("settings-title").textContent = value.setupRequired
       ? "Welcome to OpenMinion"
       : "Settings";
-    save.textContent = value.setupRequired ? "Set up and start" : "Save and apply";
     setupKey.value = "";
     select.replaceChildren();
     for (const agent of value.agents) {
@@ -262,12 +267,30 @@ export function mountProfiles(
         : "Not set — enter API key";
     }
   };
+  const renderProfileForm = () => {
+    setupFields.hidden = !settings?.setupRequired && !addingProfile;
+    fields.hidden = Boolean(settings?.setupRequired || addingProfile);
+    setupAgent.disabled = !addingProfile;
+    get<HTMLElement>("setup-agent-fields").hidden = !addingProfile;
+    get<HTMLElement>("setup-legend").textContent = addingProfile
+      ? "Add an agent profile"
+      : "Set up your first agent";
+    addProfile.hidden = !settings || settings.setupRequired || addingProfile;
+    cancelAddProfile.hidden = !addingProfile;
+    save.textContent = addingProfile
+      ? "Create and apply"
+      : settings?.setupRequired
+        ? "Set up and start"
+        : "Save and apply";
+  };
   const setPending = (value: boolean) => {
     pending = value;
-    fields.disabled = value || settings === null || settings.setupRequired;
-    setupFields.disabled = value || !settings?.setupRequired || !presets.length;
-    save.disabled = value || settings === null || (settings.setupRequired && !presets.length);
-    importButton.disabled = value || settings === null;
+    fields.disabled = value || settings === null || settings.setupRequired || addingProfile;
+    setupFields.disabled = value || !(settings?.setupRequired || addingProfile) || !presets.length;
+    save.disabled =
+      value || settings === null || ((settings.setupRequired || addingProfile) && !presets.length);
+    importButton.disabled = value || settings === null || addingProfile;
+    addProfile.disabled = cancelAddProfile.disabled = value;
     close.disabled = value;
     demo.disabled = value;
   };
@@ -292,6 +315,48 @@ export function mountProfiles(
     setupKey.placeholder = preset.requiresKey ? "Enter API key" : "No API key required";
   };
   setupProvider.addEventListener("change", populatePreset);
+  const loadPresets = async () => {
+    const listed = await api.profiles.presets();
+    if (listed.ok) {
+      presets = listed.value;
+      setupProvider.replaceChildren(
+        ...presets.map((preset) => {
+          const option = root.createElement("option");
+          option.value = preset.id;
+          option.textContent = preset.label;
+          return option;
+        }),
+      );
+      populatePreset();
+    } else status.textContent = listed.error.message;
+  };
+  addProfile.addEventListener("click", async () => {
+    if (pending || !settings) return;
+    addingProfile = true;
+    setupAgent.value = "";
+    setupKey.value = "";
+    presets = [];
+    renderProfileForm();
+    setPending(true);
+    status.textContent = "Loading providers…";
+    try {
+      await loadPresets();
+      if (presets.length) status.textContent = "";
+    } catch {
+      status.textContent = "Could not load providers. Cancel and try again.";
+    } finally {
+      setPending(false);
+      setupAgent.focus();
+    }
+  });
+  cancelAddProfile.addEventListener("click", () => {
+    addingProfile = false;
+    setupKey.value = "";
+    renderProfileForm();
+    setPending(false);
+    status.textContent = "";
+    addProfile.focus();
+  });
   demo.addEventListener("click", () => dialog.close());
   const show = async (known?: ProfileSettings, section: Section = "profiles") => {
     returnFocus = root.activeElement as HTMLElement;
@@ -306,19 +371,7 @@ export function mountProfiles(
         populate(result.value);
         status.textContent = "";
         if (result.value.setupRequired) {
-          const listed = await api.profiles.presets();
-          if (listed.ok) {
-            presets = listed.value;
-            setupProvider.replaceChildren(
-              ...presets.map((preset) => {
-                const option = root.createElement("option");
-                option.value = preset.id;
-                option.textContent = preset.label;
-                return option;
-              }),
-            );
-            populatePreset();
-          } else status.textContent = listed.error.message;
+          await loadPresets();
         }
       } else status.textContent = result.error.message;
     } catch {
@@ -352,7 +405,28 @@ export function mountProfiles(
     for (const field of credentials) field.input.value = "";
     returnFocus.focus();
   });
-  select.addEventListener("change", populateAgent);
+  const profileEdited = () => {
+    const agent = settings?.agents.find((item) => item.id === displayedAgent);
+    return (
+      agent &&
+      (model.value !== agent.model ||
+        endpoint.value !== agent.baseUrl ||
+        key.value !== "" ||
+        removeKey.checked ||
+        makeDefault.checked !== (settings?.defaultAgent === agent.id))
+    );
+  };
+  select.addEventListener("change", () => {
+    if (
+      select.value !== displayedAgent &&
+      profileEdited() &&
+      !root.defaultView!.confirm("Discard unsaved changes for this agent and switch agents?")
+    ) {
+      select.value = displayedAgent;
+      return;
+    }
+    populateAgent();
+  });
   identityAgent.addEventListener("change", populateIdentity);
   identityYaml.addEventListener("input", () => {
     const profile = identitySettings?.profiles.find(
@@ -413,7 +487,7 @@ export function mountProfiles(
           ),
         };
         identityStatus.textContent =
-          "Identity saved. Prompt changes apply on the next turn; use /identity reload for cached policy and tool constraints.";
+          "Identity saved. Prompt changes apply on the next turn; /identity reload restarts OpenMinion to refresh cached policy and tool constraints.";
       }
     } catch {
       identityStatus.textContent = "Could not save identity. Reload Settings and try again.";
@@ -429,7 +503,14 @@ export function mountProfiles(
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!settings || pending) return;
-    if (settings.setupRequired) {
+    if (settings.setupRequired || addingProfile) {
+      if (
+        addingProfile &&
+        (profileEdited() ||
+          credentials.some((field) => field.input.value || field.remove.checked)) &&
+        !root.defaultView!.confirm("Discard unsaved settings edits and create the new profile?")
+      )
+        return;
       setPending(true);
       const checkProvider = setupCheck.checked;
       status.textContent = checkProvider
@@ -438,6 +519,7 @@ export function mountProfiles(
       try {
         const result = await api.profiles.setup({
           revision: settings.revision,
+          ...(addingProfile ? { agentId: setupAgent.value.trim() } : {}),
           presetId: setupProvider.value,
           model: setupModel.value.trim(),
           baseUrl: setupEndpoint.value.trim(),

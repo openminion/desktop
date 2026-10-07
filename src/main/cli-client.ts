@@ -3,6 +3,7 @@ import { type IncomingMessage, request } from "node:http";
 import type {
   ApprovalDecisionInput,
   ApprovalDecisionV1,
+  ApprovalEventV1,
   ArtifactContentV1,
   ArtifactDecisionInput,
   ArtifactDecisionValue,
@@ -10,6 +11,7 @@ import type {
   ArtifactListValue,
   ArtifactReadInput,
   ClientResult,
+  ErrorV1,
   MediaAttachmentV1,
   MediaReleaseInput,
   MediaReleaseValue,
@@ -39,6 +41,7 @@ import type {
   TaskError,
   TaskRun,
 } from "../shared/tasks.js";
+import type { DesktopStore } from "./desktop-store.js";
 import { publicStatusText } from "./focus-status.js";
 import { type RunCommand, runCommand } from "./installation.js";
 import {
@@ -54,6 +57,7 @@ import {
   responseEvent,
   turnUsageDisplay,
   usageValue,
+  validateApprovalDecisionInput,
   validateCancelInput,
   validateCloseInput,
   validateCreateInput,
@@ -66,7 +70,100 @@ import {
 export type CliCommandContext = { executable: string; args: readonly string[] };
 type DraftSession = SessionSummaryV1 & { isDraft: true };
 type TranscriptRecord = Record<string, unknown>;
-type ActiveTurn = { identity: TurnSubmitValue | null };
+type ActiveTurn = {
+  identity: TurnSubmitValue | null;
+  disconnected: boolean;
+  replaySupported: boolean;
+  lastSequence: number | null;
+  receivedResponse: boolean;
+  outcome: "complete" | "error" | "cancelled";
+  emit: (event: TurnEventV1) => void;
+};
+
+function toolProgressEvent(
+  chunk: Record<string, unknown>,
+  detail: Record<string, unknown>,
+  identity: TurnSubmitValue,
+): TurnEventV1 {
+  const phase = chunk.kind === "tool_started" ? ("started" as const) : ("completed" as const);
+  const base = {
+    schemaVersion: 1 as const,
+    kind: "tool" as const,
+    phase,
+    sessionId: identity.sessionId,
+    traceId: identity.traceId,
+    toolName: requireString(detail.tool_name),
+    callId: requireString(detail.call_id),
+    state: requireString(detail.state),
+    createdAt: requireString(chunk.ts),
+  };
+  if (phase === "started") {
+    return { ...base, ok: null, durationMs: null, exitCode: null };
+  }
+  if (
+    typeof detail.ok !== "boolean" ||
+    !Number.isSafeInteger(detail.duration_ms) ||
+    Number(detail.duration_ms) < 0 ||
+    (detail.exit_code !== undefined &&
+      detail.exit_code !== null &&
+      !Number.isSafeInteger(detail.exit_code)) ||
+    (detail.content !== undefined && typeof detail.content !== "string") ||
+    (detail.truncated !== undefined && typeof detail.truncated !== "boolean")
+  ) {
+    throw protocolError("invalid_daemon_response", "OpenMinion returned invalid tool progress.");
+  }
+  return {
+    ...base,
+    ok: detail.ok,
+    durationMs: Number(detail.duration_ms),
+    exitCode: detail.exit_code == null ? null : Number(detail.exit_code),
+    ...(typeof detail.content === "string" ? { content: detail.content } : {}),
+    ...(typeof detail.truncated === "boolean" ? { truncated: detail.truncated } : {}),
+  };
+}
+
+function approvalEvent(detail: Record<string, unknown>, identity: TurnSubmitValue): TurnEventV1 {
+  if (detail.session_id !== identity.sessionId || detail.trace_id !== identity.traceId) {
+    throw protocolError(
+      "stream_identity_mismatch",
+      "The approval identity did not match the turn.",
+    );
+  }
+  const phase = requireString(detail.phase);
+  const decision = optionalString(detail.decision ?? null);
+  const outcome = requireString(detail.outcome);
+  const requestedAt = optionalString(detail.requested_at ?? null);
+  const expiresAt = optionalString(detail.expires_at ?? null);
+  const resolvedAt = optionalString(detail.resolved_at ?? null);
+  if (
+    (phase !== "requested" && phase !== "resolved") ||
+    (decision !== null && decision !== "allow_once" && decision !== "deny") ||
+    !["pending", "applied", "denied", "expired", "cancelled"].includes(outcome) ||
+    (phase === "requested" &&
+      (outcome !== "pending" || decision !== null || !requestedAt || !expiresAt || resolvedAt)) ||
+    (phase === "resolved" && (!resolvedAt || outcome === "pending"))
+  ) {
+    throw protocolError(
+      "invalid_daemon_response",
+      "OpenMinion returned an invalid approval event.",
+    );
+  }
+  return {
+    schemaVersion: 1,
+    kind: "approval",
+    phase,
+    sessionId: identity.sessionId,
+    traceId: identity.traceId,
+    approvalId: requireString(detail.approval_id),
+    toolName: requireString(detail.tool_name),
+    consentPreview: requireString(detail.consent_preview),
+    requestedAt,
+    expiresAt,
+    decision,
+    outcome: outcome as ApprovalEventV1["outcome"],
+    resolvedAt,
+  };
+}
 
 function runtimeTask(value: unknown): RuntimeTask {
   const row = requireRecord(value);
@@ -202,9 +299,15 @@ export class CliClient {
   readonly #active = new Map<string, ActiveTurn>();
   readonly #taskControls = new Set<string>();
 
-  constructor(context: () => CliCommandContext | null, run: RunCommand = runCommand) {
+  constructor(
+    context: () => CliCommandContext | null,
+    run: RunCommand = runCommand,
+    private readonly store?: DesktopStore,
+  ) {
     this.#context = context;
     this.#run = run;
+    for (const session of store?.draftSessions() ?? [])
+      this.#drafts.set(session.sessionId, { ...session, isDraft: true });
   }
 
   #configuring = false;
@@ -225,12 +328,25 @@ export class CliClient {
       if (
         Object.keys(value).some(
           (key) =>
-            !["kind", "sessionId", "agentFilter", "agentId", "skillId", "proposalId"].includes(key),
+            ![
+              "kind",
+              "sessionId",
+              "agentFilter",
+              "agentId",
+              "skillId",
+              "proposalId",
+              "toolView",
+            ].includes(key),
         )
       )
         throw protocolError("invalid_request", "Choose a supported report.");
       if (this.#configuring)
         throw protocolError("settings_busy", "Wait for Settings to finish applying.");
+      if (
+        value.toolView !== undefined &&
+        (value.kind !== "tools" || (value.toolView !== "status" && value.toolView !== "list"))
+      )
+        throw protocolError("invalid_request", "Choose tool status or list.");
       if (
         value.agentFilter !== undefined &&
         (value.kind !== "agents" ||
@@ -285,6 +401,65 @@ export class CliClient {
         };
       }
       if (value.kind === "tools") {
+        if (value.toolView === "status") {
+          const sessionId =
+            value.sessionId === undefined
+              ? null
+              : validateLoadInput({
+                  sessionId: value.sessionId,
+                } as SessionLoadInput).sessionId;
+          const payload = await this.#request(
+            `/v1/tools/exposure${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`,
+          );
+          if (payload.ok !== true)
+            throw protocolError("report_unavailable", "Tool status is unavailable.");
+          const exposure = requireRecord(payload.exposure);
+          const lines = ["Tool exposure profiles:"];
+          for (const item of requireArray(exposure.profiles)) {
+            const profile = requireRecord(item);
+            if (typeof profile.active !== "boolean")
+              throw protocolError(
+                "invalid_daemon_response",
+                "OpenMinion did not report tool profile availability.",
+              );
+            lines.push(
+              `  ${profile.active ? "active" : "hidden"}  ${requireString(profile.profile_id)} (${requireString(profile.tier)})  ${requireString(profile.dependency_readiness)}`,
+            );
+            for (const item of requireArray(profile.dependency_statuses)) {
+              const dependency = requireRecord(item);
+              const hints = requireArray(dependency.setup_hints ?? []);
+              const detail =
+                dependency.state === "ready"
+                  ? optionalString(dependency.version ?? dependency.resolved_path ?? null)
+                  : hints.length
+                    ? optionalString(requireRecord(hints[0]).label ?? null)
+                    : null;
+              lines.push(
+                `    ${requireString(dependency.dependency_id)}: ${requireString(dependency.state)}${detail ? ` · ${detail}` : ""}`,
+              );
+            }
+          }
+          if (lines.length === 1) lines.push("  (none)");
+          const otherTools = requireArray(exposure.unprofiled_dependency_tools);
+          if (otherTools.length) lines.push("Other tool dependencies:");
+          for (const item of otherTools) {
+            const tool = requireRecord(item);
+            const dependencies = requireArray(tool.dependency_statuses).map((item) =>
+              requireString(requireRecord(item).dependency_id),
+            );
+            lines.push(
+              `  ${requireString(tool.tool_name)}: ${requireString(tool.dependency_readiness)}${dependencies.length ? ` (${dependencies.join(", ")})` : ""}`,
+            );
+          }
+          if (exposure.security_lab !== undefined) {
+            const lab = requireRecord(exposure.security_lab);
+            if (lab.state !== "not_configured")
+              lines.push(
+                `Security lab: ${requireString(lab.state)}${lab.reason ? ` · ${requireString(lab.reason)}` : ""}`,
+              );
+          }
+          return { kind: "tools", text: lines.join("\n") };
+        }
         const payload = await this.#request("/v1/tools");
         if (payload.ok !== true)
           throw protocolError("report_unavailable", "Tool inventory is unavailable.");
@@ -584,6 +759,7 @@ export class CliClient {
       ).map((item) => {
         const row = requireRecord(item);
         const id = requireString(row.id);
+        this.store?.promoteDraftSession(id);
         this.#drafts.delete(id);
         return summary(row, false);
       });
@@ -618,6 +794,7 @@ export class CliClient {
         turnUsageDisplay: "total",
         isDraft: true,
       };
+      this.store?.rememberDraftSession(draft);
       this.#drafts.set(draft.sessionId, draft);
       return draft;
     });
@@ -700,6 +877,7 @@ export class CliClient {
         );
       const draft = this.#drafts.get(value.sessionId);
       if (draft) {
+        this.store?.removeDraft(value.sessionId);
         this.#drafts.delete(value.sessionId);
         return { ...draft, status: "closed" as const };
       }
@@ -710,10 +888,12 @@ export class CliClient {
         "--reason",
         value.reason ?? "manual_close",
       ]);
-      return summary(
+      const closed = summary(
         requireRecord(await this.#json(["sessions", "show", value.sessionId, "--json"])),
         true,
       );
+      this.store?.removeDraft(value.sessionId);
+      return closed;
     });
   }
 
@@ -801,7 +981,15 @@ export class CliClient {
         );
       if (this.#active.has(value.sessionId))
         return failure("session_turn_active", "A turn is already active for this session.");
-      const pending: ActiveTurn = { identity: null };
+      const pending: ActiveTurn = {
+        identity: null,
+        disconnected: false,
+        replaySupported: false,
+        lastSequence: 0,
+        receivedResponse: false,
+        outcome: "complete",
+        emit,
+      };
       this.#active.set(value.sessionId, pending);
       reservedSession = value.sessionId;
       const endpoint = await this.#endpoint();
@@ -814,6 +1002,7 @@ export class CliClient {
         channel: details ? requireString(details.channel) : "console",
         user: details ? requireString(details.target) : "api-user",
         stream: true,
+        approval_transport: "turn_stream",
         deliver: false,
         idempotency_key: randomUUID(),
         inbound_metadata: { caller_handles_delivery: "true", resume: "true" },
@@ -853,6 +1042,100 @@ export class CliClient {
     } catch (error) {
       if (reservedSession) this.#active.delete(reservedSession);
       return failureFrom(error);
+    }
+  }
+
+  async reconnect(input: TurnCancelInput): Promise<ClientResult<TurnSubmitValue>> {
+    let active: ActiveTurn | undefined;
+    try {
+      const value = validateCancelInput(input);
+      active = this.#active.get(value.sessionId);
+      if (!active?.identity || active.identity.traceId !== value.traceId)
+        return failure("trace_not_found", "This turn is not tracked by Desktop.");
+      if (!active.disconnected)
+        return failure("stream_connected", "This turn is already connected or reconnecting.");
+      active.disconnected = false;
+      const status = await this.#request(`/v1/turn/${encodeURIComponent(value.traceId)}/status`);
+      const stream = requireRecord(status.stream);
+      if (
+        status.ok !== true ||
+        status.trace_id !== value.traceId ||
+        status.session_id !== value.sessionId ||
+        stream.schema_version !== "openminion.turn-stream.v1" ||
+        !Number.isSafeInteger(stream.replay_floor_sequence) ||
+        Number(stream.replay_floor_sequence) < 1
+      )
+        throw protocolError(
+          "stream_identity_mismatch",
+          "OpenMinion returned a different turn identity.",
+        );
+      if (!active.replaySupported || active.lastSequence === null)
+        throw protocolError(
+          "stream_replay_unavailable",
+          "This turn is still active, but its live updates cannot be restored. Check its status again later.",
+        );
+      if (active.lastSequence < Number(stream.replay_floor_sequence) - 1)
+        throw protocolError(
+          "stream_replay_gap",
+          "This turn is still active, but some live updates are no longer available. Check its status again later.",
+        );
+      const endpoint = await this.#endpoint();
+      const cursor = active.lastSequence;
+      const response = await new Promise<IncomingMessage>((resolve, reject) => {
+        const req = request(
+          {
+            hostname: endpoint.host,
+            port: endpoint.port,
+            path: `/v1/turn/${encodeURIComponent(value.traceId)}/stream?after_sequence=${cursor}`,
+            method: "GET",
+            headers: { "X-IPC-Token": endpoint.token, Accept: "text/event-stream" },
+          },
+          resolve,
+        );
+        req.setTimeout(30_000, () => req.destroy(new Error("daemon_timeout")));
+        req.on("error", reject);
+        req.end();
+      });
+      if (response.statusCode === 404) {
+        response.destroy();
+        throw protocolError("trace_not_found", "The runtime no longer has this live turn.");
+      }
+      if (
+        response.statusCode !== 200 ||
+        !response.headers["content-type"]?.startsWith("text/event-stream")
+      ) {
+        response.destroy();
+        throw protocolError(
+          "stream_reconnect_failed",
+          "OpenMinion could not reconnect this turn.",
+          true,
+        );
+      }
+      response.setTimeout(0);
+      return await this.#stream(
+        response,
+        active,
+        value.sessionId,
+        value.traceId,
+        active.emit,
+        true,
+      );
+    } catch (error) {
+      const result = failureFrom(error);
+      if (active?.identity) {
+        active.disconnected = true;
+        const unavailable = result.error.code === "trace_not_found";
+        if (unavailable) this.#active.delete(active.identity.sessionId);
+        active.emit({
+          schemaVersion: 1,
+          kind: "connection",
+          sessionId: active.identity.sessionId,
+          traceId: active.identity.traceId,
+          state: unavailable ? "unavailable" : "disconnected",
+          error: result.error,
+        });
+      }
+      return result;
     }
   }
 
@@ -904,8 +1187,47 @@ export class CliClient {
     }
   }
 
-  async decide(_input: ApprovalDecisionInput): Promise<ClientResult<ApprovalDecisionV1>> {
-    return unsupported("Approval decisions");
+  decide(input: ApprovalDecisionInput): Promise<ClientResult<ApprovalDecisionV1>> {
+    return this.#control(async () => {
+      const value = validateApprovalDecisionInput(input);
+      const payload = await this.#request("/v1/approvals/resume", {
+        session_id: value.sessionId,
+        trace_id: value.traceId,
+        approval_id: value.approvalId,
+        decision: value.decision,
+      });
+      if (payload.ok !== true) {
+        throw protocolError("invalid_daemon_response", "OpenMinion did not resolve the approval.");
+      }
+      const outcome = requireString(payload.outcome) as ApprovalDecisionV1["outcome"];
+      if (outcome !== "applied" && outcome !== "denied") {
+        throw protocolError(
+          "invalid_daemon_response",
+          "OpenMinion returned an invalid approval outcome.",
+        );
+      }
+      const result = {
+        schemaVersion: 1 as const,
+        sessionId: requireString(payload.session_id),
+        traceId: requireString(payload.trace_id),
+        approvalId: requireString(payload.approval_id),
+        decision: requireString(payload.decision),
+        outcome,
+        resolvedAt: requireString(payload.resolved_at),
+      };
+      if (
+        result.sessionId !== value.sessionId ||
+        result.traceId !== value.traceId ||
+        result.approvalId !== value.approvalId ||
+        result.decision !== value.decision
+      ) {
+        throw protocolError(
+          "invalid_daemon_response",
+          "The resolved approval identity did not match.",
+        );
+      }
+      return { ...result, decision: value.decision };
+    });
   }
 
   async listArtifacts(_input: ArtifactListInput): Promise<ClientResult<ArtifactListValue>> {
@@ -1047,8 +1369,10 @@ export class CliClient {
           response.on("end", () => {
             try {
               const payload = requireRecord(JSON.parse(text));
-              if (response.statusCode !== 200)
-                throw protocolError("daemon_request_failed", "OpenMinion rejected this operation.");
+              if (response.statusCode !== 200) {
+                const error = errorValue(payload.error);
+                throw protocolError(error.code, error.message, error.retryable, error.retryAfterMs);
+              }
               resolve(payload);
             } catch (error) {
               reject(error);
@@ -1070,17 +1394,39 @@ export class CliClient {
     sessionId: string,
     traceId: string,
     emit: (event: TurnEventV1) => void,
+    reconnecting = false,
   ): Promise<ClientResult<TurnSubmitValue>> {
     return new Promise((resolve) => {
       let buffer = "";
       let bytes = 0;
       let terminal = false;
-      let receivedResponse = false;
-      let outcome: "complete" | "error" | "cancelled" = "complete";
-      const fail = () => {
+      let receivedMeta = false;
+      const fail = (interrupted = false, detail?: ErrorV1) => {
         if (terminal) return;
         terminal = true;
         clearTimeout(startupTimer);
+        if (interrupted && active.identity) {
+          active.disconnected = true;
+          const result = detail
+            ? { ok: false as const, error: detail }
+            : failure(
+                "stream_interrupted",
+                "Connection interrupted. The turn may still be running.",
+                active.replaySupported && active.lastSequence !== null,
+              );
+          if (detail && !detail.retryable) active.replaySupported = false;
+          emit({
+            schemaVersion: 1,
+            kind: "connection",
+            sessionId,
+            traceId,
+            state: "disconnected",
+            error: result.error,
+          });
+          resolve(result);
+          response.destroy();
+          return;
+        }
         this.#active.delete(sessionId);
         const result = failure(
           "daemon_stream_failed",
@@ -1106,7 +1452,7 @@ export class CliClient {
         resolve(result);
         response.destroy();
       };
-      const startupTimer = setTimeout(fail, 30_000);
+      const startupTimer = setTimeout(() => fail(true), 30_000);
       response.setEncoding("utf8");
       response.on("data", (chunk: string) => {
         bytes += Buffer.byteLength(chunk);
@@ -1131,27 +1477,95 @@ export class CliClient {
               const data = requireRecord(JSON.parse(dataText));
               if (row.event === "meta") {
                 if (
-                  active.identity ||
+                  receivedMeta ||
+                  (!reconnecting && active.identity) ||
                   data.session_id !== sessionId ||
                   data.trace_id !== traceId ||
                   data.stream_schema_version !== "openminion.turn-stream.v1"
                 )
-                  throw new Error("Invalid stream identity");
+                  throw protocolError(
+                    "stream_identity_mismatch",
+                    "OpenMinion returned a different turn identity.",
+                  );
+                if (
+                  reconnecting &&
+                  (!Number.isSafeInteger(data.replay_floor_sequence) ||
+                    Number(data.replay_floor_sequence) < 1 ||
+                    active.lastSequence === null ||
+                    active.lastSequence < Number(data.replay_floor_sequence) - 1)
+                )
+                  throw protocolError(
+                    "stream_replay_gap",
+                    "This turn is still active, but some live updates are no longer available. Check its status again later.",
+                  );
+                active.replaySupported =
+                  Array.isArray(data.capabilities) &&
+                  data.capabilities.includes("active_turn_replay");
                 active.identity = {
                   requestId: requireString(data.request_id),
                   traceId: requireString(data.trace_id),
                   sessionId,
                 };
+                receivedMeta = true;
                 clearTimeout(startupTimer);
-                emit({ schemaVersion: 1, kind: "started", ...active.identity });
+                if (reconnecting)
+                  emit({
+                    schemaVersion: 1,
+                    kind: "connection",
+                    sessionId,
+                    traceId,
+                    state: "reconnected",
+                    error: null,
+                  });
+                else emit({ schemaVersion: 1, kind: "started", ...active.identity });
                 resolve({ ok: true, value: active.identity });
               } else {
                 if (
+                  !receivedMeta ||
                   !active.identity ||
                   (row.event !== "error" && data.trace_id !== active.identity.traceId)
                 )
-                  throw new Error("Invalid stream identity");
+                  throw protocolError(
+                    "stream_identity_mismatch",
+                    "OpenMinion returned a different turn identity.",
+                  );
                 if (row.event === "chunk") {
+                  const eventId = lines.find((item) => item.startsWith("id: "))?.slice(4);
+                  if (data.sequence !== undefined || eventId !== undefined) {
+                    if (
+                      !Number.isSafeInteger(data.sequence) ||
+                      Number(data.sequence) < 1 ||
+                      eventId !== `${traceId}:${data.sequence}` ||
+                      data.event_id !== eventId
+                    )
+                      throw protocolError(
+                        "invalid_daemon_response",
+                        "OpenMinion returned an invalid stream cursor.",
+                      );
+                    if (
+                      active.lastSequence !== null &&
+                      Number(data.sequence) <= active.lastSequence
+                    ) {
+                      newline = buffer.indexOf("\n\n");
+                      continue;
+                    }
+                    if (
+                      active.lastSequence !== null &&
+                      Number(data.sequence) !== active.lastSequence + 1
+                    )
+                      throw protocolError(
+                        "stream_replay_gap",
+                        "This turn is still active, but some live updates are no longer available. Check its status again later.",
+                      );
+                    active.lastSequence = Number(data.sequence);
+                  } else {
+                    if (reconnecting)
+                      throw protocolError(
+                        "invalid_daemon_response",
+                        "OpenMinion omitted the replay cursor.",
+                      );
+                    active.lastSequence = null;
+                  }
                   const detail = requireRecord(data.data);
                   if (data.kind === "status") {
                     const label = publicStatusText(detail);
@@ -1178,17 +1592,22 @@ export class CliClient {
                       text: requireString(detail.text),
                       createdAt: requireString(data.ts),
                     });
+                  if (data.kind === "tool_started" || data.kind === "tool_completed")
+                    emit(toolProgressEvent(data, detail, active.identity));
+                  if (data.kind === "approval") {
+                    emit(approvalEvent(detail, active.identity));
+                  }
                 } else if (row.event === "response") {
                   const response = responseEvent(data, active.identity);
-                  receivedResponse = true;
+                  active.receivedResponse = true;
                   this.#drafts.delete(sessionId);
                   if (response.errors.length)
-                    outcome = response.errors.some((error) => error.code === "cancelled")
+                    active.outcome = response.errors.some((error) => error.code === "cancelled")
                       ? "cancelled"
                       : "error";
                   emit(response);
                 } else if (row.event === "error") {
-                  outcome = "error";
+                  active.outcome = "error";
                   emit({
                     schemaVersion: 1,
                     kind: "error",
@@ -1198,10 +1617,16 @@ export class CliClient {
                   });
                 } else if (row.event === "done") {
                   if (!["complete", "error"].includes(String(data.status)))
-                    throw new Error("Invalid stream outcome");
-                  if (data.status === "error") outcome = "error";
-                  if (outcome === "complete" && !receivedResponse)
-                    throw new Error("Missing turn response");
+                    throw protocolError(
+                      "invalid_daemon_response",
+                      "OpenMinion returned an invalid stream outcome.",
+                    );
+                  if (data.status === "error") active.outcome = "error";
+                  if (active.outcome === "complete" && !active.receivedResponse)
+                    throw protocolError(
+                      "invalid_daemon_response",
+                      "OpenMinion omitted the turn response.",
+                    );
                   terminal = true;
                   response.destroy();
                   clearTimeout(startupTimer);
@@ -1211,20 +1636,25 @@ export class CliClient {
                     kind: "done",
                     sessionId,
                     traceId: active.identity.traceId,
-                    outcome,
+                    outcome: active.outcome,
                   });
-                } else throw new Error("Unsupported stream event");
+                } else
+                  throw protocolError(
+                    "invalid_daemon_response",
+                    "OpenMinion returned an unsupported stream event.",
+                  );
               }
             }
             newline = buffer.indexOf("\n\n");
           }
-        } catch {
-          fail();
+        } catch (error) {
+          if (reconnecting) fail(true, failureFrom(error).error);
+          else fail();
         }
       });
-      response.on("error", fail);
+      response.on("error", () => fail(true));
       response.on("close", () => {
-        if (!terminal) fail();
+        if (!terminal) fail(true);
       });
     });
   }

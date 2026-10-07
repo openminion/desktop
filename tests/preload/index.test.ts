@@ -21,6 +21,116 @@ describe("preload surface", () => {
     removeListener.mockReset();
   });
 
+  it("bridges explicit reconnect and only admits typed connection events", async () => {
+    await import("../../src/preload/index.js");
+    const api = exposeInMainWorld.mock.calls[0][1];
+    await api.turns.reconnect({ sessionId: "session-1", traceId: "trace-1" });
+    expect(invoke).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.turnsReconnect, {
+      sessionId: "session-1",
+      traceId: "trace-1",
+    });
+    const listener = vi.fn();
+    api.turns.subscribe(listener);
+    const receive = on.mock.calls[0][1];
+    const event = {
+      schemaVersion: 1,
+      kind: "connection",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      state: "disconnected",
+      error: {
+        code: "stream_interrupted",
+        message: "Connection interrupted",
+        retryable: true,
+        retryAfterMs: null,
+      },
+    };
+    receive({}, event);
+    receive({}, { ...event, state: "reconnected", error: null });
+    receive({}, { ...event, state: "unavailable" });
+    expect(listener).toHaveBeenCalledTimes(3);
+    for (const invalid of [
+      { ...event, state: ["disconnected"] },
+      { ...event, state: "done" },
+      { ...event, error: null },
+      { ...event, state: "reconnected" },
+      { ...event, traceId: null },
+      { ...event, token: "secret" },
+    ])
+      receive({}, invalid);
+    expect(listener).toHaveBeenCalledTimes(3);
+  });
+
+  it("delivers accepted turns with a typed draft cleanup warning without admitting extra fields", async () => {
+    await import("../../src/preload/index.js");
+    const api = exposeInMainWorld.mock.calls[0][1];
+    const listener = vi.fn();
+    api.turns.subscribe(listener);
+    const receive = on.mock.calls[0][1];
+    const event = {
+      schemaVersion: 1,
+      kind: "started",
+      requestId: "request-1",
+      traceId: "trace-1",
+      sessionId: "session-1",
+    };
+    receive({}, event);
+    const warning = {
+      ...event,
+      draftError: "Message accepted, but its saved draft could not be cleared. Do not resend it.",
+    };
+    receive({}, warning);
+    expect(listener).toHaveBeenNthCalledWith(1, event);
+    expect(listener).toHaveBeenNthCalledWith(2, warning);
+    for (const draftError of [undefined, null, 1, [], {}]) receive({}, { ...event, draftError });
+    receive({}, { ...warning, token: "must-not-cross" });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("delivers supplied tool output and truncation while rejecting malformed or unexpected fields", async () => {
+    await import("../../src/preload/index.js");
+    const api = exposeInMainWorld.mock.calls[0][1];
+    const listener = vi.fn();
+    api.turns.subscribe(listener);
+    const receive = on.mock.calls[0][1];
+    const event = {
+      schemaVersion: 1,
+      kind: "tool",
+      phase: "completed",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      toolName: "exec.run",
+      callId: "call-1",
+      state: "ok",
+      createdAt: "2026-10-06T00:00:00Z",
+      ok: true,
+      durationMs: 10,
+      exitCode: 0,
+    };
+    for (const optional of [
+      {},
+      { content: "" },
+      { truncated: false },
+      { content: "  <script>literal</script>\noutput\n", truncated: true },
+    ]) {
+      const supplied = { ...event, ...optional };
+      receive({}, supplied);
+      expect(listener).toHaveBeenLastCalledWith(supplied);
+    }
+    expect(listener).toHaveBeenCalledTimes(4);
+    for (const invalid of [
+      { content: null },
+      { content: [] },
+      { content: 1 },
+      { truncated: "true" },
+      { truncated: null },
+      { content: "output", token: "must-not-cross" },
+      { phase: "started", ok: null, durationMs: null, exitCode: null, content: "premature" },
+    ])
+      receive({}, { ...event, ...invalid });
+    expect(listener).toHaveBeenCalledTimes(4);
+  });
+
   it("exposes only the exact typed desktop methods", async () => {
     await import("../../src/preload/index.js");
     expect(exposeInMainWorld).toHaveBeenCalledOnce();
@@ -28,6 +138,7 @@ describe("preload surface", () => {
     expect(name).toBe("openminion");
     expect(Object.keys(api)).toEqual([
       "runtime",
+      "drafts",
       "chatNames",
       "presentation",
       "reports",
@@ -55,6 +166,14 @@ describe("preload surface", () => {
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeStage);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeControl, {
       action: "pause",
+    });
+    expect(Object.keys(api.drafts)).toEqual(["load", "save"]);
+    await api.drafts.load();
+    await api.drafts.save({ sessionId: "session-1", text: "Draft" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.draftsLoad);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.draftsSave, {
+      sessionId: "session-1",
+      text: "Draft",
     });
     expect(Object.keys(api.chatNames)).toEqual(["load", "save"]);
     await api.chatNames.load([]);
@@ -89,7 +208,7 @@ describe("preload surface", () => {
     });
     invoke.mockClear();
     expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);
-    expect(Object.keys(api.identity)).toEqual(["read", "verify", "save"]);
+    expect(Object.keys(api.identity)).toEqual(["read", "verify", "save", "reload"]);
     expect(Object.keys(api.app)).toEqual(["openLink", "copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["inspect", "status", "retry"]);
     expect(Object.keys(api.sessions)).toEqual([
@@ -100,7 +219,7 @@ describe("preload surface", () => {
       "close",
       "events",
     ]);
-    expect(Object.keys(api.turns)).toEqual(["submit", "cancel", "subscribe"]);
+    expect(Object.keys(api.turns)).toEqual(["submit", "cancel", "reconnect", "subscribe"]);
     expect(Object.keys(api.approvals)).toEqual(["decide"]);
     expect(Object.keys(api.artifacts)).toEqual(["list", "read", "detach", "restore"]);
     expect(Object.keys(api.files)).toEqual(["pick", "list", "import", "release"]);
@@ -148,6 +267,7 @@ describe("preload surface", () => {
       expectedProfileVersion: "v1",
       expectedSourceSha256: "sha1",
     });
+    await api.identity.reload();
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityRead);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityVerify, { yaml: "agent_id: ops" });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identitySave, {
@@ -155,6 +275,7 @@ describe("preload surface", () => {
       expectedProfileVersion: "v1",
       expectedSourceSha256: "sha1",
     });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityReload);
     invoke.mockClear();
     invoke.mockResolvedValue({ state: "ready" });
     await api.app.copyText("Local reply");
@@ -399,8 +520,7 @@ describe("preload surface", () => {
       traceId: "trace-1",
       approvalId: "approval-1",
       toolName: "workspace.search",
-      callId: "call-1",
-      argumentKeys: ["path", "query"],
+      consentPreview: 'workspace.search(query="release notes")',
       requestedAt: "2026-08-20T00:00:00Z",
       expiresAt: "2026-08-20T00:01:00Z",
       decision: null,
@@ -410,13 +530,29 @@ describe("preload surface", () => {
     expect(second).toHaveBeenCalledTimes(4);
     secondWrapped(null, {
       schemaVersion: 1,
+      kind: "approval",
+      phase: "resolved",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      approvalId: "approval-1",
+      toolName: "workspace.search",
+      consentPreview: 'workspace.search(query="release notes")',
+      requestedAt: null,
+      expiresAt: null,
+      decision: null,
+      outcome: "expired",
+      resolvedAt: "2026-08-20T00:01:00Z",
+    });
+    expect(second).toHaveBeenCalledTimes(5);
+    secondWrapped(null, {
+      schemaVersion: 1,
       kind: "started",
       requestId: "request-1",
       traceId: "trace-1",
       sessionId: "session-1",
       token: "must-not-cross",
     });
-    expect(second).toHaveBeenCalledTimes(4);
+    expect(second).toHaveBeenCalledTimes(5);
     firstUnsubscribe();
     secondUnsubscribe();
     secondUnsubscribe();

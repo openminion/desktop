@@ -10,7 +10,7 @@ import {
   type RuntimeOffer,
 } from "./runtime-manifest.js";
 
-export const OPENMINION_VERSION = "0.0.27";
+export const OPENMINION_VERSION = "0.0.29";
 
 export type CommandResult = {
   exitCode: number | null;
@@ -142,6 +142,7 @@ export class OpenMinionInstallation {
           await chmod(executable, 0o700);
           await chmod(daemonExecutable, 0o700);
         }
+        await this.#verifyNativeTrust(platform, executable, daemonExecutable, signal);
         if (
           (await this.#readVersion(
             executable,
@@ -215,6 +216,52 @@ export class OpenMinionInstallation {
       ? await this.#runCommand(executable, ["--version"], 30_000, environment, signal)
       : await this.#runCommand(executable, ["--version"], 30_000);
     return result.exitCode === 0 ? result.stdout.trim() || null : null;
+  }
+
+  async #verifyNativeTrust(
+    platform: NodeJS.Platform,
+    executable: string,
+    daemonExecutable: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (platform === "darwin") {
+      for (const path of [executable, daemonExecutable]) {
+        const signature = await this.#runCommand(
+          "/usr/bin/codesign",
+          ["--verify", "--strict", "--verbose=2", path],
+          30_000,
+          undefined,
+          signal,
+        );
+        const gatekeeper = await this.#runCommand(
+          "/usr/sbin/spctl",
+          ["--assess", "--type", "execute", "--verbose=2", path],
+          30_000,
+          undefined,
+          signal,
+        );
+        if (signature.exitCode !== 0 || gatekeeper.exitCode !== 0)
+          throw new Error("runtime_native_trust_failed");
+      }
+      return;
+    }
+    if (platform === "win32") {
+      for (const path of [executable, daemonExecutable]) {
+        const trust = await this.#runCommand(
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$signature = Get-AuthenticodeSignature -LiteralPath $env:OPENMINION_NATIVE_PATH; if ($signature.Status -ne 'Valid') { exit 1 }",
+          ],
+          30_000,
+          { OPENMINION_NATIVE_PATH: path },
+          signal,
+        );
+        if (trust.exitCode !== 0) throw new Error("runtime_native_trust_failed");
+      }
+    }
   }
 }
 

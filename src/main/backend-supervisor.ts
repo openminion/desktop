@@ -93,7 +93,7 @@ export class DaemonSupervisor {
   constructor(options: DaemonSupervisorOptions) {
     this.#options = options;
     this.#runCommand = options.runCommand ?? runCommand;
-    this.client = new CliClient(() => this.getCommandContext(), this.#runCommand);
+    this.client = new CliClient(() => this.getCommandContext(), this.#runCommand, options.store);
     this.#installation = new OpenMinionInstallation(options);
     this.profiles =
       options.configPath && options.homeRoot && options.dataRoot
@@ -120,6 +120,29 @@ export class DaemonSupervisor {
 
   async saveIdentity(input: unknown): Promise<ClientResult<IdentityProfileView>> {
     return this.#withIdentity((identity, executable) => identity.save(input, executable));
+  }
+
+  async reloadIdentity(): Promise<ClientResult<IdentitySettings>> {
+    if (!this.identity || !this.#executable)
+      return failure("identity_unavailable", "Connect to OpenMinion before reloading identity.");
+    if (!this.#daemon)
+      return failure(
+        "runtime_external",
+        "This daemon is managed outside Desktop. Restart it to reload identity.",
+      );
+    if (this.#startPromise || !this.client.beginConfiguration())
+      return failure("settings_busy", "Finish or stop running work before reloading identity.");
+    try {
+      const stopped = await this.stop();
+      if (!stopped.stopped)
+        return failure("identity_reload_failed", "OpenMinion could not restart identity.");
+      const daemon = await this.start();
+      if (daemon.state !== "ready")
+        return failure("identity_reload_failed", "OpenMinion could not restart identity.");
+      return this.readIdentity();
+    } finally {
+      this.client.endConfiguration();
+    }
   }
 
   async #withIdentity<T>(
