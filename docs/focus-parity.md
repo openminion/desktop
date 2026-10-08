@@ -85,7 +85,7 @@ All canonical command families need coverage:
 | `/new`, `/new session`, `/sessions`, `/session`, `/resume`                                              | Directory-scoped session creation, inventory, binding, and history                                                                                                  |
 | `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Room membership, handoff, messaging, start, and routing                                                                                                             |
 | `/agents`, `/agent`, `/model`, `/effort`                                                                | Agent inspection/selection, configured model choices, effective effort                                                                                              |
-| `/delegate`, `/goal`, `/project`, `/tasks`, `/task`, `/queue`                                           | Existing delegation, goal, project, durable task, and prompt-queue owners                                                                                           |
+| `/delegate`, `/goal`, `/project`, `/tasks`, `/task`, `/queue`                                           | Delegation start/list/inspection and task controls are connected slices; goal, project, and prompt-queue owners remain pending                                       |
 | `/tools`, `/tool`, `/mcp`, `/skills`, `/learning`                                                       | Configured tool, server, skill, and learning-proposal inventory and supported changes                                                                               |
 | `/permissions`, `/readonly`                                                                             | Canonical policy queries, updates, and effective mode                                                                                                               |
 | `/context`, `/context-review`, `/compact`, `/cost`, `/tokens`                                           | Context evidence, supported compaction, live/durable usage, available cost                                                                                          |
@@ -215,7 +215,7 @@ effects while presenting friendly labels and controls; an instruction to switch
 to CLI does not complete a Desktop-supported workflow.
 
 The 2026-09-12 assessment recorded 44 CLI command families and 243 leaf paths.
-The paired 0.0.29 runtime has 56 built-in Focus commands. Desktop advertises 21
+The paired 0.0.29 runtime has 56 built-in Focus commands. Desktop advertises 23
 built-ins with partial semantics.
 Bundled/user/project custom commands and shell intent add separate qualification
 requirements. These counts are a dated source inventory, not execution proof.

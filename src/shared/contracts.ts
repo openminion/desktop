@@ -13,7 +13,12 @@ import type {
   SetupPreset,
 } from "./profiles.js";
 import type { ReportInput, ReportValue } from "./reports.js";
-import type { TaskControlInput, TaskControlValue } from "./tasks.js";
+import type {
+  DelegationControlInput,
+  DelegationControlValue,
+  TaskControlInput,
+  TaskControlValue,
+} from "./tasks.js";
 export type DaemonState =
   | "idle"
   | "probing"
@@ -674,6 +679,9 @@ export type NativeApi = {
   tasks: {
     control(input: TaskControlInput): Promise<ClientResult<TaskControlValue>>;
   };
+  delegation: {
+    control(input: DelegationControlInput): Promise<ClientResult<DelegationControlValue>>;
+  };
   profiles: {
     presets(): Promise<ClientResult<SetupPreset[]>>;
     setup(input: ProfileSetupInput): Promise<ClientResult<ProfileSetupApplyResult>>;
@@ -767,6 +775,7 @@ export const IPC_CHANNELS = {
   reportsRead: "openminion:reports:read",
   sessionsExport: "openminion:sessions:export",
   tasksControl: "openminion:tasks:control",
+  delegationControl: "openminion:delegation:control",
   profilesRead: "openminion:profiles:read",
   profilesPresets: "openminion:profiles:presets",
   profilesSetup: "openminion:profiles:setup",

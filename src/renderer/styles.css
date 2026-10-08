@@ -1683,6 +1683,48 @@ details[open] > summary .summary-chevron {
   margin: 0 0 6px;
 }
 
+.delegation-inspection {
+  margin-block: 12px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+}
+
+.delegation-inspection h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.delegation-tree {
+  display: grid;
+  gap: 4px;
+}
+
+.delegation-child-node {
+  margin-left: 20px;
+  width: calc(100% - 20px);
+}
+
+.delegation-tree [aria-pressed="true"] {
+  background: #393939;
+}
+
+.delegation-node-details,
+.delegation-timeline p {
+  white-space: pre-wrap;
+}
+
+.delegation-links button {
+  margin: 4px 8px 4px 0;
+}
+
+.delegation-timeline {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
 .composer textarea {
   flex: 1 1 auto;
   width: 100%;

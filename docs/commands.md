@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-10-05
+Last updated: 2026-10-07
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -43,6 +43,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/close`                | Close the selected conversation through the public CLI; new messages require an open conversation.                                                                                                                        |
 | `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration.                                                                                                                                           |
 | `/tasks`, `/task`       | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID, use the returned Pause, Resume, and Cancel controls, or create scheduled work in the inline form.                                 |
+| `/delegate`             | Start sync or background delegated work, list recent delegations, and inspect or control one task through the selected conversation's agent/session scope. Inspection renders a structural tree and separate A2A protocol timeline. |
 | `/agents`, `/agent`     | Read the daemon's agent discovery list. An exact ID or display name filters the list; this does not change the session's agent.                                                                                           |
 | `/tools`, `/tool`       | Show the daemon's tool inventory and reported availability. `list` shows the same inventory; `status` reports exposure profiles and readiness for the selected session. Exposure changes are not connected.                                                                                                                           |
 | `/mcp`                  | Show configured and exposed MCP servers plus registered/exposed MCP tool counts from the daemon's capability report.                                                                                                      |
@@ -78,6 +79,22 @@ denied from their request-bound card. Task lifecycle controls remain separate
 and do not grant or deny them.
 The inventory uses the public CLI's default limit of 50.
 
+`/delegate <agent> <instruction>` waits for a result; add `async` after the
+command to start a background task. `/delegate list [1-200]` shows recent work.
+Use `/delegate inspect <task-id>` for the structural parent/child tree and A2A
+protocol timeline. Status, result, cancel, and the explicitly unsupported
+resume operation use the same task ID. Desktop invokes fixed CLI operations in
+trusted main with the selected conversation's exact agent and session; the
+renderer cannot supply executable paths, roots, configuration, or arbitrary
+commands. The safe timeline excludes prompts, tool content, credentials, and
+removed error prose. A recorded child conversation is a separate link, not a
+reconstructed transcript.
+
+Delegation inspection requires a runtime with the public `agent delegate-inspect`
+command. That command is not in the pinned PyPI `0.0.29` runtime. The native
+delegation journey is qualified against the corresponding core source worktree;
+published-runtime inspection remains pending the core change and release.
+
 The `/tasks` panel includes **Schedule work**. Enter a name and instruction, then
 choose a local date/time, an interval in minutes, or an advanced cron expression
 and timezone. Creation invokes the ordinary CLI `schedule create` command with
@@ -93,7 +110,7 @@ link explicitly opens the system browser. Other URL schemes are unavailable.
 Unchanged message elements stay mounted during status updates so text selection
 and reading position can be retained.
 
-Except for task commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
+Except for task and delegation commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
 The composer remains editable during a turn so you can write a draft or run a
@@ -134,7 +151,7 @@ broader Focus commands remain pending.
 | `/cost`                                                                                                 | Return live session usage and supported cost accounting. `/tokens` is connected to durable CLI accounting; it is not a live-cost substitute.                                                                                                                 |
 | `/memory`, `/telemetry`, `/trace`, `/overview`                                                          | Expose bounded, redacted owner queries over the existing public interfaces. `/graph` currently provides Focus-equivalent CLI guidance only; the graph workflow remains pending.                                                                              |
 | `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership, handoff, messaging, start, and routing operations for admitted sessions.                                                                                                                                                             |
-| `/goal`, `/project`, `/delegate`, `/queue`                                                              | Expose the existing goal, project, delegation, and queue owners; do not create Desktop-owned execution queues.                                                                                                                                               |
+| `/goal`, `/project`, `/queue`                                                                           | Expose the existing goal, project, and queue owners; do not create Desktop-owned execution queues.                                                                                                                                                            |
 | `/init`, `/diff`, `/review`, `/undo`, `/browser`                                                        | Expose scoped workspace/browser operations and their existing permission and audit boundaries.                                                                                                                                                               |
 | `/theme`, `/statusline`, `/verbose`, `/details`, `/expand`, `/editor`, `/exit`, `/quit`                 | Additional Desktop presentation or native interactions. Current Focus `/editor` composes an unsent draft through an external editor; Desktop shortcut guidance alone is not equivalent.                                                                      |
 
@@ -150,7 +167,9 @@ unsupported-command rejection, response streaming, and task switching. Main
 and preload tests cover clipboard writes and fixed task controls, scope binding,
 credential projection, invalid inputs, and concurrent operation admission. The
 macOS Electron smoke checks the actual command menu and help panel with the
-sandboxed preload. The installed-runtime test checks that Desktop's listed
+sandboxed preload. `npm run electron-check:delegation` proves bidirectional
+CLI/Desktop delegation against one real provider-free daemon and shared
+isolated roots. The installed-runtime test checks that Desktop's listed
 command names and aliases exist in Focus; it does not prove complete menu,
 argument, or effect parity. Real-daemon integration remains a separate tier
 described in [Testing and Validation](testing-and-validation.md).

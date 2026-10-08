@@ -280,6 +280,17 @@ const api: NativeApi = {
       },
     }),
   },
+  delegation: {
+    control: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Delegation requires the connected application.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
+  },
   profiles: {
     presets: async () => ok([]),
     setup: async () => ({
