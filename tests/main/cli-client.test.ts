@@ -520,6 +520,220 @@ describe("PyPI CLI client", () => {
     }
   });
 
+  it("runs fixed session-scoped delegation operations and projects safe inspection facts", async () => {
+    const run = vi.fn();
+    const client = new CliClient(
+      () => ({ executable: "openminion", args: ["--config", "/private/config.json"] }),
+      run,
+    );
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        ok: true,
+        mode: "async",
+        status: "running",
+        agent_id: "reviewer",
+        task_id: "task-1",
+        trace_id: "a2a-trace-1",
+        content: "Delegated A2A job is still running.",
+        outputs: {},
+      }),
+    });
+
+    expect(
+      await client.controlDelegation({
+        sessionId,
+        action: "async",
+        targetAgentId: "reviewer",
+        instruction: "Review the bounded change.",
+        timeoutSeconds: 90,
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        action: "async",
+        status: "running",
+        taskId: "task-1",
+        a2aTraceId: "a2a-trace-1",
+      },
+    });
+    expect(run.mock.calls.at(-1)).toEqual([
+      "openminion",
+      [
+        "--config",
+        "/private/config.json",
+        "agent",
+        "delegate",
+        "--target-agent-id=reviewer",
+        "--instruction=Review the bounded change.",
+        "--mode",
+        "async",
+        "--timeout-seconds",
+        "90",
+        "--parent-agent-id",
+        "writer",
+        "--session-id",
+        sessionId,
+        "--json",
+      ],
+      100_000,
+    ]);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        ok: true,
+        mode: "inspect",
+        status: "running",
+        task_id: "task-1",
+        trace_id: "a2a-trace-1",
+        outputs: {
+          support: "supported",
+          authority: "session_task_owner",
+          task: {
+            task_id: "task-1",
+            trace_id: "a2a-trace-1",
+            agent_id: "reviewer",
+            method: "delegate",
+            state: "RUNNING",
+            current_step: "working",
+            progress: 0.5,
+            created_at: "2026-10-07T00:00:00Z",
+            updated_at: "2026-10-07T00:00:01Z",
+            private_result: "never return this",
+          },
+          links: {
+            invocation_id: "invocation-1",
+            source_execution_id: "execution-1",
+            handoff_id: "handoff-1",
+            credential: "never return this",
+          },
+          timeline: [
+            {
+              timestamp: "2026-10-07T00:00:00Z",
+              message_id: "message-1",
+              a2a_trace_id: "a2a-trace-1",
+              from_agent: "writer",
+              to_agent: "reviewer",
+              type: "job.start",
+              method: "delegate",
+              status: "JOB_QUEUED",
+              task_id: "task-1",
+              private_prompt: "never return this",
+            },
+          ],
+          child_session: { status: "available", session_id: "child-session" },
+          raw_content: { status: "unavailable", content: "never return this" },
+        },
+      }),
+    });
+
+    const inspected = await client.controlDelegation({
+      sessionId,
+      action: "inspect",
+      taskId: "task-1",
+    });
+    expect(inspected).toMatchObject({
+      ok: true,
+      value: {
+        inspection: {
+          authority: "session_task_owner",
+          links: {
+            invocationId: "invocation-1",
+            sourceExecutionId: "execution-1",
+            handoffId: "handoff-1",
+          },
+          childSession: { status: "available", sessionId: "child-session" },
+          rawContentStatus: "unavailable",
+        },
+      },
+    });
+    expect(JSON.stringify(inspected)).not.toContain("never return this");
+    expect(run.mock.calls.at(-1)?.[1]).toEqual([
+      "--config",
+      "/private/config.json",
+      "agent",
+      "delegate-inspect",
+      "--task-id",
+      "task-1",
+      "--parent-agent-id",
+      "writer",
+      "--session-id",
+      sessionId,
+      "--json",
+    ]);
+    const calls = run.mock.calls.length;
+    for (const input of [
+      { sessionId, action: "inspect", taskId: "--help" },
+      { sessionId, action: "inspect", taskId: "task-1", instruction: "hidden" },
+      { sessionId, action: "async", targetAgentId: "reviewer", instruction: "" },
+      { sessionId, action: "shell", args: ["--config", "/other"] },
+    ])
+      expect(await client.controlDelegation(input)).toMatchObject({ ok: false });
+    expect(run).toHaveBeenCalledTimes(calls);
+  });
+
+  it.each(["SUCCESS", "FAILED"])(
+    "drops terminal %s child prose from delegation inspection",
+    async (state) => {
+      const run = vi.fn();
+      const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+      const created = await client.create({ agentId: "writer" });
+      if (!created.ok) throw new Error("Draft not created");
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          ok: true,
+          mode: "inspect",
+          status: "success",
+          task_id: "task-terminal",
+          trace_id: "a2a-trace-terminal",
+          content: "PRIVATE TERMINAL CHILD PROSE",
+          outputs: {
+            support: "supported",
+            authority: "session_task_owner",
+            task: {
+              task_id: "task-terminal",
+              trace_id: "a2a-trace-terminal",
+              agent_id: "reviewer",
+              method: "delegate",
+              state,
+            },
+            links: {
+              invocation_id: "",
+              source_execution_id: "",
+              handoff_id: "",
+            },
+            timeline: [],
+            child_session: { status: "not_recorded" },
+            raw_content: { status: "unavailable" },
+          },
+        }),
+      });
+
+      const inspected = await client.controlDelegation({
+        sessionId: created.value.sessionId,
+        action: "inspect",
+        taskId: "task-terminal",
+      });
+
+      expect(inspected).toMatchObject({
+        ok: true,
+        value: {
+          content: null,
+          inspection: { task: { state }, rawContentStatus: "unavailable" },
+        },
+      });
+      expect(JSON.stringify(inspected)).not.toContain("PRIVATE TERMINAL CHILD PROSE");
+    },
+  );
+
   it("loads saved CLI task scope without consulting the daemon", async () => {
     const run = vi.fn(async (_executable: string, args: readonly string[]) => {
       if (args[0] === "sessions" && args[1] === "show")

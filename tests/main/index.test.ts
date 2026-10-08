@@ -182,6 +182,10 @@ describe("desktop main boundary", () => {
       controlTasks: vi
         .fn()
         .mockResolvedValue({ ok: true, value: { tasks: [], pendingActions: 0 } }),
+      controlDelegation: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { action: "inspect", status: "running", tasks: [], inspection: null },
+      }),
       list: vi.fn(),
       create: vi.fn(),
       load: vi.fn(),
@@ -305,6 +309,7 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.presentationLoad,
       IPC_CHANNELS.presentationSave,
       IPC_CHANNELS.tasksControl,
+      IPC_CHANNELS.delegationControl,
       IPC_CHANNELS.reportsRead,
       IPC_CHANNELS.sessionsExport,
       IPC_CHANNELS.openLink,
@@ -371,6 +376,16 @@ describe("desktop main boundary", () => {
       action: "list",
     });
     expect(client.controlTasks).toHaveBeenCalledWith({ sessionId: "session-1", action: "list" });
+    await mocks.ipcHandlers.get(IPC_CHANNELS.delegationControl)!(event, {
+      sessionId: "session-1",
+      action: "inspect",
+      taskId: "task-1",
+    });
+    expect(client.controlDelegation).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      action: "inspect",
+      taskId: "task-1",
+    });
     const turnIdentity = { sessionId: "session-1", traceId: "trace-1" };
     expect(
       await mocks.ipcHandlers.get(IPC_CHANNELS.turnsReconnect)!(event, turnIdentity),
@@ -388,6 +403,7 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.presentationLoad,
       IPC_CHANNELS.presentationSave,
       IPC_CHANNELS.tasksControl,
+      IPC_CHANNELS.delegationControl,
       IPC_CHANNELS.reportsRead,
       IPC_CHANNELS.sessionsExport,
       IPC_CHANNELS.profilesRead,

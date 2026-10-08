@@ -34,6 +34,9 @@ const api: NativeApi = {
   tasks: {
     control: (input) => ipcRenderer.invoke(IPC_CHANNELS.tasksControl, input),
   },
+  delegation: {
+    control: (input) => ipcRenderer.invoke(IPC_CHANNELS.delegationControl, input),
+  },
   profiles: {
     presets: () => ipcRenderer.invoke(IPC_CHANNELS.profilesPresets),
     setup: (input) => ipcRenderer.invoke(IPC_CHANNELS.profilesSetup, input),

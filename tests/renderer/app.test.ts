@@ -1743,6 +1743,153 @@ describe("renderer status view", () => {
     expect(JSON.stringify(view)).not.toMatch(/token|host|port|path/i);
   });
 
+  it("renders native delegation inspection with separate tree, session, and timeline navigation", async () => {
+    const parent = sessionSummary();
+    const child = { ...sessionSummary(), sessionId: "child-session", title: "Child review" };
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [parent], nextCursor: null, hasMore: false },
+      })
+      .mockResolvedValue({
+        ok: true,
+        value: { sessions: [parent, child], nextCursor: null, hasMore: false },
+      });
+    const control = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        action: "inspect",
+        status: "running",
+        agentId: "reviewer",
+        taskId: "task-1",
+        a2aTraceId: "a2a-trace-1",
+        content: null,
+        tasks: [
+          {
+            taskId: "task-1",
+            a2aTraceId: "a2a-trace-1",
+            agentId: "reviewer",
+            method: "delegate",
+            state: "RUNNING",
+            currentStep: "working",
+            progress: 0.5,
+            createdAt: "2026-10-07T00:00:00Z",
+            updatedAt: "2026-10-07T00:00:01Z",
+          },
+        ],
+        inspection: {
+          support: "supported",
+          authority: "session_task_owner",
+          task: {
+            taskId: "task-1",
+            a2aTraceId: "a2a-trace-1",
+            agentId: "reviewer",
+            method: "delegate",
+            state: "RUNNING",
+            currentStep: "working",
+            progress: 0.5,
+            createdAt: "2026-10-07T00:00:00Z",
+            updatedAt: "2026-10-07T00:00:01Z",
+          },
+          links: {
+            invocationId: "invocation-1",
+            sourceExecutionId: "execution-1",
+            handoffId: "handoff-1",
+          },
+          timeline: [
+            {
+              timestamp: "2026-10-07T00:00:00Z",
+              messageId: "message-1",
+              a2aTraceId: "a2a-trace-1",
+              fromAgent: "writer",
+              toAgent: "reviewer",
+              type: "job.start",
+              method: "delegate",
+              status: "JOB_QUEUED",
+              taskId: "task-1",
+              errorCode: null,
+            },
+          ],
+          childSession: { status: "available", sessionId: "child-session" },
+          rawContentStatus: "unavailable",
+        },
+      },
+    });
+    const api = {
+      app: {
+        info: async () => ({ shellVersion: "test" }),
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+      },
+      daemon: { status: async () => status({ state: "ready", reachable: true }) },
+      sessions: {
+        list,
+        load: async ({ sessionId }: { sessionId: string }) => ({
+          ok: true,
+          value: {
+            session: sessionId === child.sessionId ? child : parent,
+            messages: [],
+            nextMessageCursor: "0",
+            messagesHasMore: false,
+          },
+        }),
+        events: async () => ({
+          ok: true,
+          value: { events: [], nextCursor: "0", hasMore: false },
+        }),
+      },
+      delegation: { control },
+      turns: { subscribe: () => () => {} },
+      media: { release: vi.fn() },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/delegate inspect task-1";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() => expect(control).toHaveBeenCalledOnce());
+      expect(control).toHaveBeenCalledWith({
+        sessionId: parent.sessionId,
+        action: "inspect",
+        taskId: "task-1",
+      });
+      const content = page.element("command-result");
+      expect(content.descendants().map((item) => item.textContent)).toEqual(
+        expect.arrayContaining([
+          "Delegation details",
+          "reviewer · RUNNING",
+          "Open child conversation",
+          "Show protocol timeline",
+        ]),
+      );
+      const tree = content.descendants().find((item) => item.className === "delegation-tree")!;
+      expect(tree.getAttribute("role")).toBe("group");
+      expect(tree.getAttribute("aria-label")).toBe("Delegation participants");
+      const timeline = content
+        .descendants()
+        .find((item) => item.textContent === "Show protocol timeline")!;
+      expect(timeline.getAttribute("aria-expanded")).toBe("false");
+      timeline.click();
+      expect(timeline.getAttribute("aria-expanded")).toBe("true");
+      expect(
+        content.descendants().find((item) => item.textContent === "A2A protocol timeline")!.focus,
+      ).toHaveBeenCalledOnce();
+      expect(content.descendants().map((item) => item.textContent)).toContain(
+        "2026-10-07T00:00:00Z · job.start · JOB_QUEUED · writer → reviewer",
+      );
+      content
+        .descendants()
+        .find((item) => item.textContent === "Open child conversation")!
+        .click();
+      await vi.waitFor(() =>
+        expect(page.element("current-title").textContent).toBe("Child review"),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("distinguishes a running runtime from a connected chat transport", () => {
     expect(
       statusView(status({ state: "running", reachable: true, daemonVersion: "0.0.18" })),

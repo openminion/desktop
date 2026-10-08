@@ -185,6 +185,20 @@ through the ordinary CLI, starts the daemon, probes its machine-readable status,
 and stops it. Use the pinned PyPI release or a source executable with the same
 public lifecycle commands. This is lifecycle proof, not rich chat/session proof.
 
+Run the provider-free cross-surface delegation journey with one exact
+OpenMinion executable and source revision:
+
+```bash
+OPENMINION_DELEGATION_E2E_EXECUTABLE=/path/to/openminion \
+  npm run electron-check:delegation
+```
+
+The harness uses shared isolated home, data, config, working-directory, agent,
+and session facts. It proves CLI start -> Desktop inspect and Desktop start ->
+CLI inspect, task ownership, structural tree/timeline rendering, typed errors,
+privacy, help discovery, focus behavior, and narrow/wide layout. It uses the
+local echo provider only; it does not qualify a paid provider or remote peer.
+
 ## Published Package Conversation
 
 Use an isolated installation of the pinned PyPI package:

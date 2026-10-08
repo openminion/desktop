@@ -29,10 +29,10 @@ import type {
   TurnSubmitValue,
   TurnUsageDisplay,
 } from "../shared/contracts.js";
-import type { ScheduleInput, TaskAction } from "../shared/tasks.js";
+import type { DelegationControlInput, ScheduleInput, TaskAction } from "../shared/tasks.js";
 import { renderMarkdown } from "./markdown.js";
 import { mountProfiles } from "./profiles.js";
-import { renderTasks } from "./tasks.js";
+import { renderDelegation, renderTasks } from "./tasks.js";
 
 declare global {
   interface Window {
@@ -83,6 +83,11 @@ export const DESKTOP_COMMANDS = [
     name: "/tasks",
     description: "Inspect and control tasks",
     usage: "/tasks [task-id] · /tasks pause|resume|cancel <task-id>",
+  },
+  {
+    name: "/delegate",
+    description: "Delegate work or inspect a delegated task",
+    usage: "/delegate [async] <agent> <instruction> · /delegate inspect <task-id>",
   },
   {
     name: "/agents",
@@ -1727,6 +1732,53 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     );
   };
 
+  const runDelegation = async (
+    input: Omit<DelegationControlInput, "sessionId"> = { action: "list" },
+  ): Promise<string | undefined> => {
+    if (!selected) {
+      showCommandResult("Delegation", "Choose a saved conversation first.");
+      return "Choose a saved conversation first.";
+    }
+    const sessionId = selected.sessionId;
+    showCommandResult(
+      "Delegation",
+      input.action === "sync" || input.action === "async"
+        ? "Delegating work…"
+        : input.action === "cancel" || input.action === "resume"
+          ? "Applying delegation change…"
+          : "Reading delegated work…",
+    );
+    const request = commandResultGeneration;
+    const result = await api.delegation.control({ sessionId, ...input });
+    if (request !== commandResultGeneration || selected?.sessionId !== sessionId) return;
+    if (elements.commandPanel.hidden) return;
+    if (!result.ok) {
+      showCommandResult("Delegation", `${result.error.code}: ${result.error.message}`);
+      return result.error.message;
+    }
+    showCommandResult(
+      "Delegation",
+      result.value.taskId
+        ? `Delegation ${result.value.taskId} · ${result.value.status}`
+        : `${result.value.tasks.length} delegated task${result.value.tasks.length === 1 ? "" : "s"}`,
+    );
+    renderDelegation(
+      root,
+      elements.commandResult,
+      result.value,
+      chat.active,
+      runDelegation,
+      async (childSessionId) => {
+        await loadSessions();
+        const child = sessions.find((session) => session.sessionId === childSessionId);
+        if (!child) return "The child conversation is not available to this Desktop session.";
+        await selectSession(child);
+        hideCommandResult();
+      },
+    );
+    return undefined;
+  };
+
   const runCommand = async (text: string): Promise<boolean> => {
     const value = text.trim();
     if (!value.startsWith("/") || value.startsWith("//")) return false;
@@ -1747,6 +1799,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       args.length &&
       command !== "/tools" &&
       command !== "/tasks" &&
+      command !== "/delegate" &&
       command !== "/agents" &&
       command !== "/skills" &&
       command !== "/learning" &&
@@ -1885,6 +1938,42 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             "Task command",
             "Use /tasks, /tasks <task-id>, or /tasks pause|resume|cancel <task-id>.",
           );
+        break;
+      }
+      case "/delegate": {
+        const action = args[0]?.toLowerCase();
+        if (!action) await runDelegation();
+        else if (action === "list" && args.length <= 2) {
+          const limit = args[1] === undefined ? 20 : Number(args[1]);
+          if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200)
+            showCommandResult("Delegation command", "Use /delegate list [1-200].");
+          else await runDelegation({ action: "list", limit });
+        } else if (
+          ["status", "resume", "result", "inspect", "cancel"].includes(action) &&
+          args.length === 2
+        )
+          await runDelegation({
+            action: action as "status" | "resume" | "result" | "inspect" | "cancel",
+            taskId: args[1],
+          });
+        else {
+          const explicitMode = action === "sync" || action === "async";
+          const mode = explicitMode ? action : "sync";
+          const targetAgentId = explicitMode ? args[1] : args[0];
+          const instruction = (explicitMode ? args.slice(2) : args.slice(1)).join(" ");
+          if (!targetAgentId || !instruction)
+            showCommandResult(
+              "Delegation command",
+              "Use /delegate [sync|async] <agent> <instruction>, /delegate list, or /delegate status|resume|result|inspect|cancel <task-id>.",
+            );
+          else
+            await runDelegation({
+              action: mode,
+              targetAgentId,
+              instruction,
+              timeoutSeconds: 120,
+            });
+        }
         break;
       }
       case "/identity": {
