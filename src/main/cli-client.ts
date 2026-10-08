@@ -33,6 +33,11 @@ import type {
 } from "../shared/contracts.js";
 import type { ReportValue } from "../shared/reports.js";
 import type {
+  DelegationAction,
+  DelegationControlValue,
+  DelegationInspection,
+  DelegationTask,
+  DelegationTimelineEntry,
   PendingTaskAction,
   RuntimeTask,
   SchedulerReadiness,
@@ -251,6 +256,84 @@ function taskControlValue(payload: Record<string, unknown>, tasks: unknown[]): T
     tasks: tasks.map(runtimeTask),
     pendingActions: requireArray(payload.pending_actions ?? []).map(pendingTaskAction),
     scheduler: schedulerReadiness(payload.scheduler),
+  };
+}
+
+function delegationTask(value: unknown): DelegationTask {
+  const row = requireRecord(value);
+  return {
+    taskId: requireString(row.task_id),
+    a2aTraceId: optionalString(row.trace_id ?? null),
+    agentId: optionalString(row.agent_id ?? null),
+    method: optionalString(row.method ?? null),
+    state: optionalString(row.state ?? row.status ?? null),
+    currentStep: optionalString(row.current_step ?? null),
+    progress:
+      typeof row.progress === "number" && Number.isFinite(row.progress) ? row.progress : null,
+    createdAt: optionalString(row.created_at ?? null),
+    updatedAt: optionalString(row.updated_at ?? null),
+  };
+}
+
+function delegationTimelineEntry(value: unknown): DelegationTimelineEntry {
+  const row = requireRecord(value);
+  return {
+    timestamp: optionalString(row.timestamp ?? null),
+    messageId: optionalString(row.message_id ?? null),
+    a2aTraceId: optionalString(row.a2a_trace_id ?? null),
+    fromAgent: optionalString(row.from_agent ?? null),
+    toAgent: optionalString(row.to_agent ?? null),
+    type: optionalString(row.type ?? null),
+    method: optionalString(row.method ?? null),
+    status: optionalString(row.status ?? null),
+    taskId: optionalString(row.task_id ?? null),
+    errorCode: optionalString(row.error_code ?? null),
+  };
+}
+
+function delegationInspection(value: unknown): DelegationInspection {
+  const outputs = requireRecord(value);
+  const links = requireRecord(outputs.links);
+  const childSession = requireRecord(outputs.child_session);
+  const rawContent = requireRecord(outputs.raw_content);
+  return {
+    support: requireString(outputs.support),
+    authority: requireString(outputs.authority),
+    task: delegationTask(outputs.task),
+    links: {
+      invocationId: optionalString(links.invocation_id ?? null),
+      sourceExecutionId: optionalString(links.source_execution_id ?? null),
+      handoffId: optionalString(links.handoff_id ?? null),
+    },
+    timeline: requireArray(outputs.timeline).map(delegationTimelineEntry),
+    childSession: {
+      status: requireString(childSession.status),
+      sessionId: optionalString(childSession.session_id ?? null),
+    },
+    rawContentStatus: requireString(rawContent.status),
+  };
+}
+
+function delegationControlValue(
+  payload: Record<string, unknown>,
+  action: DelegationAction,
+): DelegationControlValue {
+  const outputs = requireRecord(payload.outputs ?? {});
+  const inspection = action === "inspect" ? delegationInspection(outputs) : null;
+  return {
+    action,
+    status: requireString(payload.status),
+    agentId: optionalString(payload.agent_id ?? null),
+    taskId: optionalString(payload.task_id ?? null),
+    a2aTraceId: optionalString(payload.trace_id ?? null),
+    content: action === "inspect" ? null : optionalString(payload.content ?? null),
+    tasks:
+      action === "list"
+        ? requireArray(outputs.jobs ?? []).map(delegationTask)
+        : inspection
+          ? [inspection.task]
+          : [],
+    inspection,
   };
 }
 
@@ -743,6 +826,113 @@ export class CliClient {
             "Your schedule was created. Refresh the work list to see its details.",
           );
         throw error;
+      } finally {
+        if (mutating) this.#taskControls.delete(sessionId);
+      }
+    });
+  }
+
+  controlDelegation(input: unknown): Promise<ClientResult<DelegationControlValue>> {
+    return this.#control(async () => {
+      const value = requireRecord(input);
+      if (
+        Object.keys(value).some(
+          (key) =>
+            ![
+              "sessionId",
+              "action",
+              "targetAgentId",
+              "instruction",
+              "taskId",
+              "timeoutSeconds",
+              "limit",
+            ].includes(key),
+        )
+      )
+        throw protocolError("invalid_request", "Choose a supported delegation operation.");
+      const { sessionId } = validateLoadInput({
+        sessionId: value.sessionId,
+      } as SessionLoadInput);
+      const action = requireString(value.action) as DelegationAction;
+      if (
+        !["sync", "async", "list", "status", "resume", "result", "inspect", "cancel"].includes(
+          action,
+        )
+      )
+        throw protocolError("invalid_request", "Choose a supported delegation action.");
+      const start = action === "sync" || action === "async";
+      const list = action === "list";
+      const lifecycle = !start && !list;
+      if (
+        (!start && (value.targetAgentId !== undefined || value.instruction !== undefined)) ||
+        (!start && value.timeoutSeconds !== undefined) ||
+        (!list && value.limit !== undefined) ||
+        (!lifecycle && value.taskId !== undefined)
+      )
+        throw protocolError("invalid_request", "Use only the fields for this delegation action.");
+      const targetAgentId = start ? requireString(value.targetAgentId).trim() : "";
+      const instruction = start ? requireString(value.instruction).trim() : "";
+      const timeoutSeconds = start ? Number(value.timeoutSeconds ?? 120) : 30;
+      const taskId = lifecycle ? requireString(value.taskId).trim() : "";
+      const limit = list ? Number(value.limit ?? 20) : 20;
+      if (start && (!targetAgentId || targetAgentId.length > 512 || /[\s\0]/.test(targetAgentId)))
+        throw protocolError("invalid_request", "Choose an exact target agent ID.");
+      if (start && (!instruction || instruction.length > 32_000 || instruction.includes("\0")))
+        throw protocolError("invalid_request", "Enter a delegation instruction.");
+      if (
+        start &&
+        (!Number.isSafeInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 3600)
+      )
+        throw protocolError("invalid_request", "Choose a timeout from 1 to 3600 seconds.");
+      if (
+        lifecycle &&
+        (!taskId || taskId.length > 512 || taskId.startsWith("-") || /[\s\0]/.test(taskId))
+      )
+        throw protocolError("invalid_request", "Choose an exact delegated task ID.");
+      if (list && (!Number.isSafeInteger(limit) || limit < 1 || limit > 200))
+        throw protocolError("invalid_request", "Choose a list limit from 1 to 200.");
+      const mutating = start || action === "cancel" || action === "resume";
+      if (this.#configuring || this.#taskControls.has(sessionId))
+        throw protocolError("task_control_busy", "Wait for the current operation to finish.");
+      if (mutating && this.#active.has(sessionId))
+        throw protocolError(
+          "session_turn_active",
+          "Finish or stop this turn before changing delegated work.",
+        );
+      if (mutating) this.#taskControls.add(sessionId);
+      try {
+        const loaded = await this.load({ sessionId, messageLimit: 1 });
+        if (!loaded.ok) throw protocolError(loaded.error.code, loaded.error.message);
+        const parentAgentId = loaded.value.session.activeAgentId;
+        if (!parentAgentId)
+          throw protocolError("delegation_unavailable", "This conversation has no active agent.");
+        const scope = ["--parent-agent-id", parentAgentId, "--session-id", sessionId, "--json"];
+        const args = start
+          ? [
+              "agent",
+              "delegate",
+              `--target-agent-id=${targetAgentId}`,
+              `--instruction=${instruction}`,
+              "--mode",
+              action,
+              "--timeout-seconds",
+              String(timeoutSeconds),
+              ...scope,
+            ]
+          : list
+            ? ["agent", "delegate-list", "--limit", String(limit), ...scope]
+            : ["agent", `delegate-${action}`, "--task-id", taskId, ...scope];
+        const payload = requireRecord(
+          await this.#json(args, start ? (timeoutSeconds + 10) * 1000 : 30_000),
+        );
+        if (payload.ok !== true) {
+          const error = requireRecord(payload.error ?? {});
+          throw protocolError(
+            optionalString(error.code ?? null) ?? "delegation_failed",
+            optionalString(error.message ?? null) ?? "OpenMinion could not complete delegation.",
+          );
+        }
+        return delegationControlValue(payload, action);
       } finally {
         if (mutating) this.#taskControls.delete(sessionId);
       }
@@ -1269,9 +1459,9 @@ export class CliClient {
     return context;
   }
 
-  async #command(args: string[]): Promise<string> {
+  async #command(args: string[], timeoutMs = 30_000): Promise<string> {
     const context = this.#requireContext();
-    const result = await this.#run(context.executable, [...context.args, ...args], 30_000);
+    const result = await this.#run(context.executable, [...context.args, ...args], timeoutMs);
     if (result.exitCode !== 0)
       throw protocolError(
         "cli_command_failed",
@@ -1280,9 +1470,9 @@ export class CliClient {
     return result.stdout;
   }
 
-  async #json(args: string[]): Promise<unknown> {
+  async #json(args: string[], timeoutMs = 30_000): Promise<unknown> {
     const context = this.#requireContext();
-    const result = await this.#run(context.executable, [...context.args, ...args], 30_000);
+    const result = await this.#run(context.executable, [...context.args, ...args], timeoutMs);
     try {
       return JSON.parse(result.stdout);
     } catch (error) {

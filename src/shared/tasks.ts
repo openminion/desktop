@@ -76,3 +76,73 @@ export type ScheduleInput = {
   value: string;
   timezone: string;
 };
+
+export type DelegationAction =
+  | "sync"
+  | "async"
+  | "list"
+  | "status"
+  | "resume"
+  | "result"
+  | "inspect"
+  | "cancel";
+
+export type DelegationControlInput = {
+  sessionId: string;
+  action: DelegationAction;
+  targetAgentId?: string;
+  instruction?: string;
+  taskId?: string;
+  timeoutSeconds?: number;
+  limit?: number;
+};
+
+export type DelegationTask = {
+  taskId: string;
+  a2aTraceId: string | null;
+  agentId: string | null;
+  method: string | null;
+  state: string | null;
+  currentStep: string | null;
+  progress: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type DelegationTimelineEntry = {
+  timestamp: string | null;
+  messageId: string | null;
+  a2aTraceId: string | null;
+  fromAgent: string | null;
+  toAgent: string | null;
+  type: string | null;
+  method: string | null;
+  status: string | null;
+  taskId: string | null;
+  errorCode: string | null;
+};
+
+export type DelegationInspection = {
+  support: string;
+  authority: string;
+  task: DelegationTask;
+  links: {
+    invocationId: string | null;
+    sourceExecutionId: string | null;
+    handoffId: string | null;
+  };
+  timeline: DelegationTimelineEntry[];
+  childSession: { status: string; sessionId: string | null };
+  rawContentStatus: string;
+};
+
+export type DelegationControlValue = {
+  action: DelegationAction;
+  status: string;
+  agentId: string | null;
+  taskId: string | null;
+  a2aTraceId: string | null;
+  content: string | null;
+  tasks: DelegationTask[];
+  inspection: DelegationInspection | null;
+};

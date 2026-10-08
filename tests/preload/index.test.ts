@@ -143,6 +143,7 @@ describe("preload surface", () => {
       "presentation",
       "reports",
       "tasks",
+      "delegation",
       "profiles",
       "identity",
       "app",
@@ -205,6 +206,18 @@ describe("preload surface", () => {
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.tasksControl, {
       sessionId: "session-1",
       action: "list",
+    });
+    invoke.mockClear();
+    expect(Object.keys(api.delegation)).toEqual(["control"]);
+    await api.delegation.control({
+      sessionId: "session-1",
+      action: "inspect",
+      taskId: "task-1",
+    });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.delegationControl, {
+      sessionId: "session-1",
+      action: "inspect",
+      taskId: "task-1",
     });
     invoke.mockClear();
     expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);

@@ -1,4 +1,315 @@
-import type { ScheduleInput, TaskAction, TaskControlValue, TaskRun } from "../shared/tasks.js";
+import type {
+  DelegationAction,
+  DelegationControlInput,
+  DelegationControlValue,
+  ScheduleInput,
+  TaskAction,
+  TaskControlValue,
+  TaskRun,
+} from "../shared/tasks.js";
+
+export function renderDelegation(
+  root: Document,
+  container: HTMLElement,
+  value: DelegationControlValue | null,
+  busy: boolean,
+  onAction: (input: Omit<DelegationControlInput, "sessionId">) => Promise<string | undefined>,
+  onOpenSession: (sessionId: string) => Promise<string | undefined>,
+): void {
+  if (value) {
+    const summary = root.createElement("section");
+    summary.className = "runtime-task";
+    const heading = root.createElement("h3");
+    heading.textContent = value.taskId ? `Delegation ${value.taskId}` : "Delegation result";
+    const facts = root.createElement("p");
+    facts.textContent = [
+      `Status: ${value.status}`,
+      value.agentId && `Agent: ${value.agentId}`,
+      value.taskId && `Task: ${value.taskId}`,
+      value.a2aTraceId && `A2A trace: ${value.a2aTraceId}`,
+      value.content,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    summary.append(heading, facts);
+    container.append(summary);
+  }
+
+  if (value?.inspection) {
+    const inspection = value.inspection;
+    const tree = root.createElement("section");
+    tree.className = "delegation-inspection";
+    const heading = root.createElement("h3");
+    heading.textContent = "Delegation details";
+    const treeControls = root.createElement("div");
+    treeControls.className = "delegation-tree";
+    treeControls.setAttribute("role", "group");
+    treeControls.setAttribute("aria-label", "Delegation participants");
+    const details = root.createElement("p");
+    details.className = "delegation-node-details";
+    details.setAttribute("role", "status");
+    const parent = root.createElement("button");
+    parent.type = "button";
+    parent.className = "command-option";
+    parent.textContent = `Parent${inspection.links.invocationId ? ` · invocation ${inspection.links.invocationId}` : " · invocation not recorded"}`;
+    const child = root.createElement("button");
+    child.type = "button";
+    child.className = "command-option delegation-child-node";
+    child.textContent = `${inspection.task.agentId ?? "Delegated agent"} · ${inspection.task.state ?? "status unknown"}`;
+    const selectNode = (selected: "parent" | "child") => {
+      parent.setAttribute("aria-pressed", String(selected === "parent"));
+      child.setAttribute("aria-pressed", String(selected === "child"));
+      details.textContent =
+        selected === "parent"
+          ? [
+              `Invocation: ${inspection.links.invocationId ?? "Not recorded"}`,
+              `Source execution: ${inspection.links.sourceExecutionId ?? "Not recorded"}`,
+              `Handoff: ${inspection.links.handoffId ?? "Not recorded"}`,
+            ].join("\n")
+          : [
+              `Task: ${inspection.task.taskId}`,
+              `Agent: ${inspection.task.agentId ?? "Not recorded"}`,
+              `State: ${inspection.task.state ?? "Unknown"}`,
+              `Step: ${inspection.task.currentStep ?? "Not recorded"}`,
+              `Progress: ${inspection.task.progress ?? "Unknown"}`,
+              `A2A trace: ${inspection.task.a2aTraceId ?? "Not recorded"}`,
+            ].join("\n");
+    };
+    parent.addEventListener("click", () => selectNode("parent"));
+    child.addEventListener("click", () => selectNode("child"));
+    treeControls.append(parent, child);
+    tree.append(heading, treeControls, details);
+    selectNode("child");
+
+    const links = root.createElement("div");
+    links.className = "delegation-links";
+    if (inspection.childSession.status === "available" && inspection.childSession.sessionId) {
+      const openSession = root.createElement("button");
+      openSession.type = "button";
+      openSession.className = "secondary-tool";
+      openSession.textContent = "Open child conversation";
+      openSession.addEventListener("click", async () => {
+        const error = await onOpenSession(inspection.childSession.sessionId!);
+        details.textContent = error ?? details.textContent;
+      });
+      links.append(openSession);
+    } else {
+      const unavailable = root.createElement("p");
+      unavailable.textContent = `Child conversation: ${inspection.childSession.status}`;
+      links.append(unavailable);
+    }
+    const toggleTimeline = root.createElement("button");
+    toggleTimeline.type = "button";
+    toggleTimeline.className = "secondary-tool";
+    toggleTimeline.textContent = "Show protocol timeline";
+    toggleTimeline.setAttribute("aria-expanded", "false");
+    const timeline = root.createElement("section");
+    timeline.className = "delegation-timeline";
+    timeline.hidden = true;
+    const timelineHeading = root.createElement("h3");
+    timelineHeading.textContent = "A2A protocol timeline";
+    timeline.append(timelineHeading);
+    if (inspection.timeline.length) {
+      for (const event of inspection.timeline) {
+        const row = root.createElement("p");
+        row.textContent = [
+          event.timestamp ?? "Time not recorded",
+          event.type ?? "event",
+          event.status ?? "status unknown",
+          event.fromAgent && event.toAgent && `${event.fromAgent} → ${event.toAgent}`,
+          event.errorCode && `Error: ${event.errorCode}`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        timeline.append(row);
+      }
+    } else {
+      const empty = root.createElement("p");
+      empty.textContent = "No protocol events were recorded.";
+      timeline.append(empty);
+    }
+    toggleTimeline.addEventListener("click", () => {
+      timeline.hidden = !timeline.hidden;
+      toggleTimeline.textContent = timeline.hidden
+        ? "Show protocol timeline"
+        : "Hide protocol timeline";
+      toggleTimeline.setAttribute("aria-expanded", String(!timeline.hidden));
+      if (!timeline.hidden) timelineHeading.focus();
+    });
+    timelineHeading.tabIndex = -1;
+    links.append(toggleTimeline);
+    tree.append(links, timeline);
+    container.append(tree);
+  }
+
+  if (value?.tasks.length && value.action === "list") {
+    for (const task of value.tasks) {
+      const card = root.createElement("section");
+      card.className = "runtime-task";
+      const heading = root.createElement("h3");
+      heading.textContent = task.agentId ?? task.taskId;
+      const facts = root.createElement("p");
+      facts.textContent = [
+        `Task: ${task.taskId}`,
+        `State: ${task.state ?? "Unknown"}`,
+        task.a2aTraceId && `A2A trace: ${task.a2aTraceId}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const inspect = root.createElement("button");
+      inspect.type = "button";
+      inspect.className = "secondary-tool";
+      inspect.textContent = "Inspect";
+      inspect.addEventListener(
+        "click",
+        () => void onAction({ action: "inspect", taskId: task.taskId }),
+      );
+      card.append(heading, facts, inspect);
+      container.append(card);
+    }
+  }
+
+  container.append(delegationStartForm(root, busy, onAction));
+  container.append(delegationTaskForm(root, busy, onAction));
+}
+
+function delegationStartForm(
+  root: Document,
+  busy: boolean,
+  onAction: (input: Omit<DelegationControlInput, "sessionId">) => Promise<string | undefined>,
+): HTMLFormElement {
+  const form = root.createElement("form");
+  form.className = "schedule-form delegation-form";
+  const heading = root.createElement("h3");
+  heading.textContent = "Delegate work";
+  const targetLabel = root.createElement("label");
+  targetLabel.textContent = "Target agent ID";
+  const target = root.createElement("input");
+  target.id = "delegate-target";
+  target.required = true;
+  target.maxLength = 512;
+  target.disabled = busy;
+  targetLabel.append(target);
+  const instructionLabel = root.createElement("label");
+  instructionLabel.textContent = "Instruction";
+  const instruction = root.createElement("textarea");
+  instruction.id = "delegate-instruction";
+  instruction.required = true;
+  instruction.maxLength = 32_000;
+  instruction.disabled = busy;
+  instructionLabel.append(instruction);
+  const modeLabel = root.createElement("label");
+  modeLabel.textContent = "Run mode";
+  const mode = root.createElement("select");
+  mode.id = "delegate-mode";
+  mode.disabled = busy;
+  for (const [id, label] of [
+    ["async", "Background task"],
+    ["sync", "Wait for result"],
+  ]) {
+    const option = root.createElement("option");
+    option.value = id!;
+    option.textContent = label!;
+    mode.append(option);
+  }
+  modeLabel.append(mode);
+  const timeoutLabel = root.createElement("label");
+  timeoutLabel.textContent = "Timeout in seconds";
+  const timeout = root.createElement("input");
+  timeout.id = "delegate-timeout";
+  timeout.type = "number";
+  timeout.min = "1";
+  timeout.max = "3600";
+  timeout.value = "120";
+  timeout.disabled = busy;
+  timeoutLabel.append(timeout);
+  const error = root.createElement("p");
+  error.setAttribute("role", "alert");
+  const submit = root.createElement("button");
+  submit.type = "submit";
+  submit.className = "secondary-tool";
+  submit.textContent = "Delegate";
+  submit.disabled = busy;
+  form.append(heading, targetLabel, instructionLabel, modeLabel, timeoutLabel, error, submit);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
+    error.textContent = "Delegating…";
+    const failure = await onAction({
+      action: mode.value as "sync" | "async",
+      targetAgentId: target.value,
+      instruction: instruction.value,
+      timeoutSeconds: Number(timeout.value),
+    });
+    submit.disabled = busy;
+    error.textContent = failure ?? "";
+  });
+  return form;
+}
+
+function delegationTaskForm(
+  root: Document,
+  busy: boolean,
+  onAction: (input: Omit<DelegationControlInput, "sessionId">) => Promise<string | undefined>,
+): HTMLFormElement {
+  const form = root.createElement("form");
+  form.className = "schedule-form delegation-form";
+  const heading = root.createElement("h3");
+  heading.textContent = "Inspect or control a delegated task";
+  const taskLabel = root.createElement("label");
+  taskLabel.textContent = "Task ID";
+  const taskId = root.createElement("input");
+  taskId.id = "delegate-task-id";
+  taskId.required = true;
+  taskId.maxLength = 512;
+  taskLabel.append(taskId);
+  const actionLabel = root.createElement("label");
+  actionLabel.textContent = "Action";
+  const action = root.createElement("select");
+  action.id = "delegate-task-action";
+  for (const [id, label] of [
+    ["inspect", "Inspect tree and timeline"],
+    ["status", "Refresh status"],
+    ["result", "Read latest result"],
+    ["cancel", "Cancel task"],
+    ["resume", "Resume if supported"],
+  ]) {
+    const option = root.createElement("option");
+    option.value = id!;
+    option.textContent = label!;
+    action.append(option);
+  }
+  const syncBusyState = () => {
+    const mutating = action.value === "cancel" || action.value === "resume";
+    taskId.disabled = busy && mutating;
+    action.disabled = busy && mutating;
+    submit.disabled = busy && mutating;
+  };
+  actionLabel.append(action);
+  const error = root.createElement("p");
+  error.setAttribute("role", "alert");
+  const submit = root.createElement("button");
+  submit.type = "submit";
+  submit.className = "secondary-tool";
+  submit.textContent = "Apply";
+  action.addEventListener("change", syncBusyState);
+  syncBusyState();
+  form.append(heading, taskLabel, actionLabel, error, submit);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
+    error.textContent = "Reading delegated work…";
+    const failure = await onAction({
+      action: action.value as DelegationAction,
+      taskId: taskId.value,
+    });
+    syncBusyState();
+    error.textContent = failure ?? "";
+  });
+  return form;
+}
 
 export function renderTasks(
   root: Document,
