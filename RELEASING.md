@@ -1,19 +1,21 @@
 # OpenMinion Desktop Releasing
 
-Status: runtime qualification enabled; public Desktop distribution not enabled
-Last updated: 2026-10-01
+Status: unsigned development distribution enabled; stable distribution not enabled
+Last updated: 2026-10-08
 
-Purpose: define the proof required before OpenMinion Desktop can enable public
-distribution.
+Purpose: define the unsigned development-package process and the additional
+proof required before OpenMinion Desktop can enable stable distribution.
 
-OpenMinion Desktop currently proves an unsigned local macOS package only. There
-is no public release workflow, signing identity, notarization process, updater,
-rollback contract, or clean-machine certification yet.
+OpenMinion Desktop produces unsigned macOS, Windows, and Linux packages. These
+packages may be published as an explicitly unsigned development prerelease in
+`openminion/runtime`. There is no signing identity, notarization process,
+Desktop updater, rollback contract, or clean-machine certification yet.
 
-The manual `CI` workflow can stage unsigned macOS, Windows, and Linux packages
-in a private draft release. This is a development handoff only, not public
-distribution or platform certification. Delete the draft after verification or
-transfer.
+The manual `CI` workflow stages unsigned macOS, Windows, and Linux packages in
+a private draft release. Transfer every package to a public development
+prerelease, verify every public download, then delete the private draft. This is
+public development distribution, not platform certification or a stable
+Desktop update.
 
 The separate `Runtime qualification` workflow is not a Desktop distribution
 release. It builds a real-version packaged Desktop on all supported hosts to
@@ -44,6 +46,26 @@ Before enabling public distribution:
 4. document supported macOS versions and architectures,
 5. define artifact provenance and release-key ownership, and
 6. publish only from a reviewed `main` revision through a dedicated workflow.
+
+## Unsigned development release
+
+Desktop and OpenMinion runtime versions are independent. For each reviewed
+Desktop development release:
+
+1. dispatch `CI` from Desktop `main` with `packages=true`,
+2. require the quality job and macOS arm64, Linux x86_64, and Windows x86_64
+   package jobs to pass,
+3. transfer every staged DMG, DEB, or ZIP to
+   `desktop-dev-v<desktop-version>-build.<number>` in `openminion/runtime`,
+4. add `desktop-release.json` and `SHA256SUMS` with the exact Desktop source
+   commit, package filenames, sizes, and SHA-256 digests,
+5. publish the Release as a prerelease whose notes clearly say unsigned and not
+   notarized, stable, or automatic-update eligible,
+6. anonymously download every public asset and verify every digest, and
+7. delete the private transfer draft only after public readback passes.
+
+Do not add an unsigned Desktop prerelease to any stable update manifest or call
+it a supported Desktop release.
 
 ## Runtime qualification evidence
 
@@ -89,6 +111,7 @@ override, renderer authority or product test mode is added.
 
 ## Current boundary
 
-An unsigned local package is development evidence, not a release candidate.
-Do not add a release workflow or `.github/release.yml` until the distribution
-activation requirements have owners and passing evidence.
+An unsigned public prerelease is downloadable development evidence, not a
+stable release candidate. Do not add a stable release workflow or
+`.github/release.yml` until the distribution activation requirements have
+owners and passing evidence.
