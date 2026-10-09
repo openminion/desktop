@@ -1,7 +1,7 @@
 # OpenMinion Desktop Releasing
 
 Status: unsigned development distribution enabled; stable distribution not enabled
-Last updated: 2026-10-08
+Last updated: 2026-10-09
 
 Purpose: define the unsigned development-package process and the additional
 proof required before OpenMinion Desktop can enable stable distribution.
@@ -21,6 +21,22 @@ The separate `Runtime qualification` workflow is not a Desktop distribution
 release. It builds a real-version packaged Desktop on all supported hosts to
 qualify exact immutable OpenMinion runtime bytes, then opens a reviewed evidence
 PR. It never publishes the Desktop packages or changes the runtime feed.
+
+## Desktop version
+
+Desktop starts at `0.0.1` and is versioned independently of the OpenMinion
+runtime and Electron. `package.json` is the version source for the application
+and its packages; keep `package-lock.json` in sync.
+
+For the next patch release, run `npm version patch --no-git-tag-version`
+(`0.0.1` → `0.0.2`), review the changelog, and commit both package files through
+the normal PR process. Use `minor` or `major` for a deliberately reviewed larger
+release. Bump once per planned release, not per commit. Do not reset to `0.0.0`
+or reuse a version for different stable releases.
+
+A version bump alone does not publish packages or establish signing, native
+qualification, or runtime compatibility. Until publication, changes remain
+under **Unreleased** in the changelog; date and label them when actually released.
 
 ## Release floor
 
@@ -73,8 +89,8 @@ Runtime compatibility is not inferred from a matching version or a successful
 package build. Before OpenMinion can publish a source record with non-null
 Desktop compatibility:
 
-1. replace the development-only `0.0.0` package version with the reviewed
-   three-part Desktop release version,
+1. confirm the reviewed three-part Desktop version in `package.json` matches
+   the packaged application being qualified,
 2. qualify the exact packaged Desktop and official production OpenMinion wheel
    on `darwin-arm64`, `linux-x64`, and `win32-x64`,
 3. record package and `app.asar` digests, exact source commits, compatibility
