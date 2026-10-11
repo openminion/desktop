@@ -196,7 +196,7 @@ const profileSettings = {
   credentials: [],
 };
 const previewNames = new Map<string, string>();
-let previewQuietTools = false;
+let previewToolDisplay: "quiet" | "normal" | "verbose" = "normal";
 const api: NativeApi = {
   tools: {
     control: async () => ({
@@ -263,9 +263,9 @@ const api: NativeApi = {
     },
   },
   presentation: {
-    load: async () => ({ ok: true, value: { quietTools: previewQuietTools } }),
-    save: async ({ quietTools }) => {
-      previewQuietTools = quietTools;
+    load: async () => ({ ok: true, value: { toolDisplay: previewToolDisplay } }),
+    save: async ({ toolDisplay }) => {
+      previewToolDisplay = toolDisplay;
       return { ok: true, value: null };
     },
   },

@@ -57,9 +57,13 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/copy`                 | Copy the newest available assistant reply or runtime-supplied completed tool output. Never fall back to user input or cleared replies. Unavailable raw output is not reconstructed; clipboard writes are capped at 1 MB. |
 | `/clear`, `/cls`        | Clear the visible chat while idle. Saved history remains in OpenMinion; selecting the task restores it.                                                                                                                   |
 | `/quiet`                | Hide tool activity cards while keeping approvals visible; saved as a Desktop display preference.                                                                                                                          |
-| `/normal`               | Restore tool activity cards; saved as a Desktop display preference.                                                                                                                                                       |
+| `/normal`               | Show the first six lines of supplied tool output, with a disclosure for more; saved as a Desktop display preference.                                                                                                                                                       |
+| `/verbose` | Expand all available tool output. Missing or truncated runtime content is not reconstructed. |
+| `/details [on\|off\|quiet\|toggle]` | Toggle verbose/normal or select a mode. Uses Focus aliases: verbose/full/details → on; normal/concise → off. |
 | `/graph`                | Show the installed OpenMinion CLI's graph help through a fixed read-only invocation. This is guidance, not an embedded graph workflow.                                                                                    |
 | `/editor`               | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.29 runtime.                                                                               |
+
+Tool display is saved for this Desktop installation and applies across conversations. Manual disclosure changes survive unrelated chat updates; changing the display mode resets disclosures to that mode. Quiet always keeps approvals visible.
 
 Files, screenshots, cancellation, task closing, and reconnection use their
 existing GUI controls. Their former Desktop-only slash shortcuts were removed
@@ -154,7 +158,7 @@ broader Focus commands remain pending.
 | `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership, handoff, messaging, start, and routing operations for admitted sessions.                                                                                                                                                             |
 | `/goal`, `/project`, `/queue`                                                                           | Expose the existing goal, project, and queue owners; do not create Desktop-owned execution queues.                                                                                                                                                            |
 | `/init`, `/diff`, `/review`, `/undo`, `/browser`                                                        | Expose scoped workspace/browser operations and their existing permission and audit boundaries.                                                                                                                                                               |
-| `/theme`, `/statusline`, `/verbose`, `/details`, `/expand`, `/editor`, `/exit`, `/quit`                 | Additional Desktop presentation or native interactions. Current Focus `/editor` composes an unsent draft through an external editor; Desktop shortcut guidance alone is not equivalent.                                                                      |
+| `/theme`, `/statusline`, `/expand`, `/editor`, `/exit`, `/quit`                 | Additional Desktop presentation or native interactions. Current Focus `/editor` composes an unsent draft through an external editor; Desktop shortcut guidance alone is not equivalent.                                                                      |
 
 These are pending integration requirements, not shipped methods. Desktop must
 use fixed, validated public OpenMinion CLI or HTTP operations and keep executable

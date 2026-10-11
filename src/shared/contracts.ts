@@ -19,6 +19,8 @@ import type {
   TaskControlInput,
   TaskControlValue,
 } from "./tasks.js";
+export type ToolDisplay = "quiet" | "normal" | "verbose";
+
 export type DaemonState =
   | "idle"
   | "probing"
@@ -686,8 +688,8 @@ export type NativeApi = {
     save(input: { sessionId: string; title: string | null }): Promise<ClientResult<null>>;
   };
   presentation: {
-    load(): Promise<ClientResult<{ quietTools: boolean }>>;
-    save(input: { quietTools: boolean }): Promise<ClientResult<null>>;
+    load(): Promise<ClientResult<{ toolDisplay: ToolDisplay }>>;
+    save(input: { toolDisplay: ToolDisplay }): Promise<ClientResult<null>>;
   };
   tools: {
     control(input: ToolProfileInput): Promise<ClientResult<{ text: string }>>;

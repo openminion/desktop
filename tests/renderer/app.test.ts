@@ -48,7 +48,7 @@ function mount(api: NativeApi, root: Document): Promise<void> {
     save: async () => ({ ok: true, value: "00000000-0000-4000-8000-000000000001" }),
   };
   api.presentation ??= {
-    load: async () => ({ ok: true, value: { quietTools: false } }),
+    load: async () => ({ ok: true, value: { toolDisplay: "normal" } }),
     save: async () => ({ ok: true, value: null }),
   };
   api.runtime ??= {
@@ -284,7 +284,7 @@ describe("renderer computer observation", () => {
       daemon: { status: async () => status({ state: "degraded" }) },
       turns: { subscribe: () => () => {} },
       presentation: {
-        load: vi.fn(async () => ({ ok: true, value: { quietTools: true } })),
+        load: vi.fn(async () => ({ ok: true, value: { toolDisplay: "quiet" } })),
         save,
       },
     } as unknown as NativeApi;
@@ -296,11 +296,40 @@ describe("renderer computer observation", () => {
       expect(page.element("chat-display").value).toBe("quiet");
       page.element("composer").value = "/normal";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: false }));
+      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: "normal" }));
       page.element("composer").value = "/quiet";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: true }));
+      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: "quiet" }));
       await vi.waitFor(() => expect(page.element("chat-display").value).toBe("quiet"));
+      for (const [command, expected] of [
+        ["/verbose", "verbose"],
+        ["/details", "normal"],
+        ["/details toggle", "verbose"],
+        ["/details off", "normal"],
+        ["/details on", "verbose"],
+        ["/details quiet", "quiet"],
+        ["/details", "verbose"],
+        ["/details normal", "normal"],
+        ["/details full", "verbose"],
+        ["/details concise", "normal"],
+        ["/details details", "verbose"],
+        ["/details verbose", "verbose"],
+      ]) {
+        save.mockClear();
+        page.element("composer").value = command!;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: expected }));
+        await vi.waitFor(() => expect(page.element("chat-display").disabled).toBe(false));
+        expect(page.element("chat-display").value).toBe(expected);
+      }
+      save.mockClear();
+      for (const command of ["/details never", "/details on off", "/verbose extra"]) {
+        page.element("composer").value = command;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await Promise.resolve();
+        expect(save).not.toHaveBeenCalled();
+        expect(page.element("chat-display").value).toBe("verbose");
+      }
       page.element("chat-display").value = "normal";
       page.element("chat-display").dispatch("change");
       await vi.waitFor(() =>
@@ -2696,7 +2725,7 @@ describe("renderer status view", () => {
         durationMs: 10,
         exitCode: 0,
         createdAt: "2026-10-05T00:00:02Z",
-        content: "  output\nsecond line\n",
+        content: "  output\nsecond line\nthird\nfourth\nfifth\nsixth\nseventh\n",
         truncated: true,
       };
       receive(tool);
@@ -2705,6 +2734,21 @@ describe("renderer status view", () => {
         .element("timeline")
         .descendants()
         .find((item) => item.className === "tool-output")!;
+      expect(
+        page
+          .element("timeline")
+          .descendants()
+          .find((item) => item.className === "tool-preview")!.textContent,
+      ).toBe("  output\nsecond line\nthird\nfourth\nfifth\nsixth");
+      for (const [command, expanded] of [
+        ["/verbose", true],
+        ["/details off", false],
+      ] as const) {
+        page.element("composer").value = command;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await vi.waitFor(() => expect(output.open).toBe(expanded));
+        expect(page.element("timeline").descendants()).toContain(output);
+      }
       expect(output.tagName).toBe("details");
       expect(output.open).toBe(false);
       expect(output.children[0]!.tagName).toBe("summary");
@@ -3094,7 +3138,7 @@ describe("renderer status view", () => {
         subscribe: vi.fn().mockReturnValue(vi.fn()),
       },
       presentation: {
-        load: async () => ({ ok: true, value: { quietTools } }),
+        load: async () => ({ ok: true, value: { toolDisplay: quietTools ? "quiet" : "normal" } }),
         save: vi.fn(),
       },
       approvals: { decide },
@@ -5295,6 +5339,10 @@ class FixtureElement {
   private readonly listeners = new Map<string, Array<(event: FixtureEvent) => void>>();
 
   constructor(readonly tagName: string) {}
+
+  querySelector(tag: string): FixtureElement | null {
+    return this.descendants().find((item) => item !== this && item.tagName === tag) ?? null;
+  }
 
   contains(element: FixtureElement | null): boolean {
     return element !== null && this.descendants().includes(element);
