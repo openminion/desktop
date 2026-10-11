@@ -153,9 +153,13 @@ history filtering. Broader catalog discovery remains a gap.
 On pinned PyPI 0.0.29, `/agents` (`/agent`) reads `GET /v1/agents`, backed by
 Focus's agent-discovery owner. An exact ID or display name filters the returned
 list; Desktop does not interpret it as agent selection. `/tools` (`/tool`)
-reads `GET /v1/tools`, the daemon's live inventory. These narrow bridges return
-only public IDs, labels, names, and enabled flags. Tool exposure arguments remain
-unconnected. Filtering an agent waits for an active turn to finish; bare queries
+shows Core exposure status by default; `/tools list` reads `GET /v1/tools`,
+the daemon's live inventory. Activate/deactivate forms use the existing
+authenticated exposure routes with explicit selected conversation scope. These narrow bridges return
+only public status facts. Exposure options are entered in the activation/deactivation
+forms; inline CLI option syntax is not parsed by Desktop. Source integration
+is qualified separately from the managed runtime pin. Filtering an agent waits
+for an active turn to finish; bare queries
 remain available.
 
 Bare `/mcp` reads the selected agent's existing runtime capability report and
@@ -243,3 +247,17 @@ proof separate as defined in [Testing and Validation](testing-and-validation.md)
 
 Full parity remains open until these checks pass. The current command subset
 is documented in [Desktop Commands and Focus Parity](commands.md).
+
+## October 11 scoped contract update
+
+Custom command discovery and argument rendering now consume the existing
+session-scoped Core routes. Returned prompts go through ordinary turn submission
+without a second slash interpretation. Terminal-local expansion is rejected by
+Core and fresh local drafts have no discoverable session yet.
+
+Delegation verifies the exact installed command's parent-agent/session flags
+before execution. Current Core source adds those flags to existing handlers;
+inspection still requires its separate Core command. Resume remains unsupported.
+Neither change updates the managed 0.0.29 runtime pin or establishes published
+runtime compatibility. Queue draining, persisted model/policy selection,
+workspace-aware resume and cold-start active-turn recovery remain open.

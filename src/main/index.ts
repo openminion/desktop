@@ -265,6 +265,9 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.delegationControl, (event, input: unknown) =>
     isAppInvocation(event) ? supervisor.client.controlDelegation(input) : forbiddenResult(),
   );
+  ipcMain.handle(IPC_CHANNELS.toolsControl, (event, input: unknown) =>
+    isAppInvocation(event) ? supervisor.client.controlTools(input) : forbiddenResult(),
+  );
   ipcMain.handle(IPC_CHANNELS.reportsRead, (event, input: unknown) =>
     isAppInvocation(event) ? supervisor.client.readReport(input) : forbiddenResult(),
   );

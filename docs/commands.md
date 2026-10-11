@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-10-07
+Last updated: 2026-10-11
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -45,7 +45,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/tasks`, `/task`       | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID, use the returned Pause, Resume, and Cancel controls, or create scheduled work in the inline form.                                 |
 | `/delegate`             | Start sync or background delegated work, list recent delegations, and inspect or control one task through the selected conversation's agent/session scope. Inspection renders a structural tree and separate A2A protocol timeline. |
 | `/agents`, `/agent`     | Read the daemon's agent discovery list. An exact ID or display name filters the list; this does not change the session's agent.                                                                                           |
-| `/tools`, `/tool`       | Show the daemon's tool inventory and reported availability. `list` shows the same inventory; `status` reports exposure profiles and readiness for the selected session. Exposure changes are not connected.                                                                                                                           |
+| `/tools`, `/tool`       | Show exposure status for the selected session, matching Focus. `list` shows the tool inventory. `activate [profile]` and `deactivate [profile]` open scoped forms backed by Core tool exposure operations.                                                                                                                           |
 | `/mcp`                  | Show configured and exposed MCP servers plus registered/exposed MCP tool counts from the daemon's capability report.                                                                                                      |
 | `/skills`               | List the OpenMinion skill catalog or inspect one exact skill ID through the public daemon API. Skill admission and mutation are not connected.                                                                            |
 | `/learning`             | Show the skill-learning suggestion summary or inspect one exact proposal ID through the public daemon API. Review and apply remain operator CLI actions.                                                                  |
@@ -82,17 +82,18 @@ The inventory uses the public CLI's default limit of 50.
 `/delegate <agent> <instruction>` waits for a result; add `async` after the
 command to start a background task. `/delegate list [1-200]` shows recent work.
 Use `/delegate inspect <task-id>` for the structural parent/child tree and A2A
-protocol timeline. Status, result, cancel, and the explicitly unsupported
-resume operation use the same task ID. Desktop invokes fixed CLI operations in
+protocol timeline. Status, result, and cancel use the same task ID. Resume explains that Core cannot resume delegated jobs; it does not issue a pretend resume operation. Desktop invokes fixed CLI operations in
 trusted main with the selected conversation's exact agent and session; the
 renderer cannot supply executable paths, roots, configuration, or arbitrary
 commands. The safe timeline excludes prompts, tool content, credentials, and
 removed error prose. A recorded child conversation is a separate link, not a
 reconstructed transcript.
 
-Delegation inspection requires a runtime with the public `agent delegate-inspect`
-command. That command is not in the pinned PyPI `0.0.29` runtime. The native
-delegation journey is qualified against the corresponding core source worktree;
+Every delegation action requires its installed CLI command to advertise both
+`--parent-agent-id` and `--session-id`. An unavailable scoped contract produces
+an update explanation before an operation is sent. Scope is never silently
+dropped. Delegation inspection additionally requires `agent delegate-inspect`. That command is not in the pinned PyPI `0.0.29` runtime. The native
+delegation inspection journey belongs to its corresponding Core source worktree;
 published-runtime inspection remains pending the core change and release.
 
 The `/tasks` panel includes **Schedule work**. Enter a name and instruction, then
@@ -110,7 +111,7 @@ link explicitly opens the system browser. Other URL schemes are unavailable.
 Unchanged message elements stay mounted during status updates so text selection
 and reading position can be retained.
 
-Except for task and delegation commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
+Except for task and delegation commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, `/tools activate [profile]`, `/tools deactivate [profile]`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
 The composer remains editable during a turn so you can write a draft or run a
@@ -173,3 +174,22 @@ isolated roots. The installed-runtime test checks that Desktop's listed
 command names and aliases exist in Focus; it does not prove complete menu,
 argument, or effect parity. Real-daemon integration remains a separate tier
 described in [Testing and Validation](testing-and-validation.md).
+
+## Custom commands and tool access
+
+For saved conversations, the slash picker discovers Core's bundled, user, and
+project custom commands. Core renders arguments before Desktop submits the exact
+returned prompt through ordinary chat. Editing the draft or switching
+conversations during rendering abandons that result. Local file and shell
+expansion stay unavailable through the public render contract; errors preserve
+the command draft. A new, unsent conversation has no Core session to discover
+commands for yet. Send its first message before using custom commands.
+
+Tool activation forms pass the selected conversation plus optional target/task
+scope, credential scope names, dependencies, expiry, reason and attribution to
+Core. Approval starts unchecked and changes only when selected explicitly. The
+form accepts names, never API-key values. Core decides whether activation is
+allowed. Deactivation uses the same profile and optional target/task scope.
+The form opens without changing access; submit it to apply the operation.
+Focus's inline option syntax is represented by these fields, not a second
+shell parser. Installed-runtime errors are shown without adding a fallback.

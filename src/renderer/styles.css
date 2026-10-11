@@ -2447,6 +2447,22 @@ code {
   border: 1px solid var(--line);
   border-radius: 6px;
 }
+.schedule-form .tool-profile-approval {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-profile-approval input {
+  order: -1;
+  width: auto;
+  margin: 0;
+}
+
+.tool-profile-form .secondary-tool {
+  justify-self: start;
+}
+
 .schedule-form textarea {
   resize: vertical;
   min-height: 80px;

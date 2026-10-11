@@ -42,6 +42,7 @@ import type {
 
 function mount(api: NativeApi, root: Document): Promise<void> {
   api.chatNames ??= namesApi();
+  api.reports ??= { read: async () => ({ ok: true, value: { kind: "commands", commands: [] } }) };
   api.drafts ??= {
     load: async () => ({ ok: true, value: [] }),
     save: async () => ({ ok: true, value: "00000000-0000-4000-8000-000000000001" }),
@@ -106,6 +107,173 @@ function namesApi(): NativeApi["chatNames"] {
 }
 
 describe("renderer computer observation", () => {
+  it("discovers session commands and sends only their canonical rendered prompt", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    const commands = [
+      { name: "/summarize", description: "Summarize notes", usage: "/summarize <notes>" },
+    ];
+    api.reports = {
+      read: vi.fn(async (input) =>
+        input.kind === "commands"
+          ? { ok: true as const, value: { kind: "commands" as const, commands } }
+          : {
+              ok: true as const,
+              value: { kind: "command" as const, prompt: "/literal prompt\nKeep  two spaces" },
+            },
+      ),
+    };
+    vi.mocked(api.turns.submit).mockResolvedValue({
+      ok: true,
+      value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/summarize first  second";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+      expect(api.reports.read).toHaveBeenCalledWith({
+        kind: "command",
+        sessionId: "session-1",
+        commandName: "/summarize",
+        arguments: "first  second",
+      });
+      expect(api.turns.submit).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "/literal prompt\nKeep  two spaces" }),
+      );
+      expect(commandMatches("/summ", commands).map((item) => item.name)).toEqual(["/summarize"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps a custom-command draft when Core refuses local expansion", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.reports = {
+      read: vi.fn(async (input) =>
+        input.kind === "commands"
+          ? {
+              ok: true as const,
+              value: {
+                kind: "commands" as const,
+                commands: [{ name: "/local", description: "Local", usage: "/local" }],
+              },
+            }
+          : {
+              ok: false as const,
+              error: {
+                code: "unsupported_custom_command_expansion",
+                message: "This command requires terminal-local file or shell expansion.",
+                retryable: false,
+                retryAfterMs: null,
+              },
+            },
+      ),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/local";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "This command requires terminal-local file or shell expansion.",
+        ),
+      );
+      expect(page.element("composer").value).toBe("/local");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not replace an edited draft with a delayed custom command", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    let finish!: (value: unknown) => void;
+    api.reports = {
+      read: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          value: {
+            kind: "commands",
+            commands: [{ name: "/notes", description: "Notes", usage: "/notes" }],
+          },
+        })
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        ),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/notes";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.reports.read).toHaveBeenCalledTimes(2));
+      page.element("composer").value = "My revised draft";
+      finish({ ok: true, value: { kind: "command", prompt: "Old expanded prompt" } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(page.element("composer").value).toBe("My revised draft");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("opens a scoped tool form with approval unselected and submits only on user action", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.tools = {
+      control: vi.fn().mockResolvedValue({ ok: true, value: { text: "Activated: web (audit-1)" } }),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/tools activate web";
+      page.element("composer-form").dispatch("submit");
+      const form = page
+        .element("command-result")
+        .descendants()
+        .find((item) => item.tagName === "form")!;
+      expect(form).toBeDefined();
+      const approval = form.descendants().find((item) => item.type === "checkbox")!;
+      expect(approval.checked).toBe(false);
+      expect(api.tools.control).not.toHaveBeenCalled();
+      approval.checked = true;
+      form.dispatch("submit");
+      await vi.waitFor(() => expect(api.tools.control).toHaveBeenCalledOnce());
+      expect(api.tools.control).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: "session-1",
+          action: "activate",
+          profileId: "web",
+          approved: true,
+        }),
+      );
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("loads and saves quiet/normal as Desktop presentation preferences", async () => {
     const save = vi.fn<NativeApi["presentation"]["save"]>(async () => ({
       ok: true,
@@ -1614,7 +1782,7 @@ describe("renderer status view", () => {
       expect(page.element("command-result").children[0]?.textContent).not.toContain("old result");
       page.element("composer").value = "/tools enable search";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      expect(page.element("command-title").textContent).toBe("Command arguments");
+      expect(page.element("command-title").textContent).toBe("Tool access");
       expect(read).toHaveBeenCalledTimes(6);
       read.mockImplementationOnce(
         () =>
@@ -1749,7 +1917,9 @@ describe("renderer status view", () => {
       for (const command of ["/files", "/screenshot", "/cancel", "/retry", "/resume"]) {
         page.element("composer").value = command;
         page.element("composer").dispatch("keydown", { key: "Enter" });
-        expect(page.element("command-title").textContent).toBe("Command unavailable");
+        await vi.waitFor(() =>
+          expect(page.element("command-title").textContent).toBe("Command unavailable"),
+        );
       }
       expect(submit).not.toHaveBeenCalled();
       page.element("composer").value = "Preserve during outage";

@@ -388,3 +388,17 @@ local message time, hover and keyboard focus, stable layout at compact and norma
 sizes, and clipboard-error feedback. Preview deliberately denies clipboard
 access; successful copy and message-body selection are covered by renderer tests
 and the real-daemon PyPI campaign. It makes no provider calls.
+
+## Source-runtime command integration
+
+Run `OPENMINION_EXECUTABLE=/absolute/path/to/openminion npm run electron-check:commands`
+against the Core runtime being qualified. The native check creates an isolated
+Desktop home, uses demo setup, and drives production renderer/preload/main with
+real custom discovery/render/submission, expansion refusal, exposure
+activate/status/deactivate, and scoped delegation list. It verifies exact prompt
+text and that commands do not create extra assistant turns. Failed homes remain
+for inspection; success removes them after stopping the owned daemon.
+
+This is provider-free source integration evidence, not provider-live, delegation
+inspection, published-wheel, installer, signing or complete Focus acceptance.
+The managed runtime pin is not changed by this check.
