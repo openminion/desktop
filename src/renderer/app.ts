@@ -4166,6 +4166,41 @@ export function messageTime(createdAt?: string): string {
   });
 }
 
+function createMessageCopyButton(
+  root: Document,
+  text: string,
+  copyText: NativeApi["app"]["copyText"],
+  label: "Copy message" | "Copy code",
+): HTMLButtonElement {
+  const copy = root.createElement("button");
+  copy.type = "button";
+  copy.className = "quiet-button message-copy";
+  copy.textContent = "Copy";
+  copy.title = label;
+  copy.setAttribute("aria-label", label);
+  copy.setAttribute("aria-live", "polite");
+  copy.addEventListener("click", async () => {
+    copy.disabled = true;
+    try {
+      const result = await copyText(text);
+      copy.textContent = result.ok ? "Copied" : "Copy failed";
+    } catch {
+      copy.textContent = "Copy failed";
+    }
+    copy.dataset.copyState = copy.textContent === "Copied" ? "copied" : "error";
+    copy.title = copy.textContent;
+    copy.setAttribute("aria-label", copy.textContent);
+    setTimeout(() => {
+      copy.textContent = "Copy";
+      copy.dataset.copyState = "";
+      copy.title = label;
+      copy.setAttribute("aria-label", label);
+      copy.disabled = false;
+    }, 1500);
+  });
+  return copy;
+}
+
 function renderTimeline(
   root: Document,
   timeline: HTMLElement,
@@ -4237,7 +4272,9 @@ function renderTimeline(
     body.className = "message-body";
     if (message.role === "assistant") {
       body.className += " markdown";
-      renderMarkdown(root, body, bodyText);
+      renderMarkdown(root, body, bodyText, (code) =>
+        createMessageCopyButton(root, code, copyText, "Copy code"),
+      );
     } else body.textContent = bodyText;
     if (message.role === "user") {
       const bubble = root.createElement("div");
@@ -4254,32 +4291,7 @@ function renderTimeline(
     }
     const actions = root.createElement("div");
     actions.className = "message-actions";
-    const copy = root.createElement("button");
-    copy.type = "button";
-    copy.className = "quiet-button message-copy";
-    copy.textContent = "Copy";
-    copy.title = "Copy message";
-    copy.setAttribute("aria-label", "Copy message");
-    copy.setAttribute("aria-live", "polite");
-    copy.addEventListener("click", async () => {
-      copy.disabled = true;
-      try {
-        const result = await copyText(bodyText);
-        copy.textContent = result.ok ? "Copied" : "Copy failed";
-      } catch {
-        copy.textContent = "Copy failed";
-      }
-      copy.dataset.copyState = copy.textContent === "Copied" ? "copied" : "error";
-      copy.title = copy.textContent;
-      copy.setAttribute("aria-label", copy.textContent);
-      setTimeout(() => {
-        copy.textContent = "Copy";
-        copy.dataset.copyState = "";
-        copy.title = "Copy message";
-        copy.setAttribute("aria-label", "Copy message");
-        copy.disabled = false;
-      }, 1500);
-    });
+    const copy = createMessageCopyButton(root, bodyText, copyText, "Copy message");
     const timestamp = root.createElement("time");
     timestamp.className = "message-time";
     timestamp.textContent = messageTime(message.createdAt);

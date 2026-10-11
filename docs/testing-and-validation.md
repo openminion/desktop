@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-10-06
+Last updated: 2026-10-11
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -382,7 +382,8 @@ npm run build
 node_modules/.bin/electron tests/electron/message-actions.mjs
 ```
 
-This runs the real renderer with explicit preview data. It checks the copy icon,
+This runs the real renderer with explicit preview data. It checks code-block
+language headers, keyboard access and Copy feedback, plus the message copy icon,
 local message time, hover and keyboard focus, stable layout at compact and normal
 sizes, and clipboard-error feedback. Preview deliberately denies clipboard
 access; successful copy and message-body selection are covered by renderer tests
