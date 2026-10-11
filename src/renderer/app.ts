@@ -26,6 +26,7 @@ import type {
   SessionEventV1,
   SessionSummaryV1,
   ToolProgressV1,
+  ToolDisplay,
   TurnEventV1,
   TurnSubmitValue,
   TurnUsageDisplay,
@@ -126,7 +127,13 @@ export const DESKTOP_COMMANDS = [
   { name: "/copy", description: "Copy the latest reply or tool output" },
   { name: "/clear", description: "Clear the visible chat; keep saved history" },
   { name: "/quiet", description: "Hide tool activity; keep approvals visible" },
-  { name: "/normal", description: "Show tool activity" },
+  { name: "/normal", description: "Show concise tool output" },
+  { name: "/verbose", description: "Show full available tool output" },
+  {
+    name: "/details",
+    description: "Toggle full tool output",
+    usage: "/details [on|off|quiet|toggle]",
+  },
   { name: "/graph", description: "Show installed OpenMinion graph help" },
   { name: "/editor", description: "Show Desktop composer shortcuts" },
 ] as const;
@@ -813,22 +820,25 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   >();
   let hiddenMessageCount = 0;
-  let quietTools = savedPresentation.ok ? savedPresentation.value.quietTools : false;
+  let toolDisplay: ToolDisplay = savedPresentation.ok
+    ? savedPresentation.value.toolDisplay
+    : "normal";
   const display = required(root, "chat-display") as HTMLSelectElement;
   const displayStatus = required(root, "chat-display-status");
-  display.value = quietTools ? "quiet" : "normal";
-  const saveDisplay = async (next: boolean) => {
+  display.value = toolDisplay;
+  const saveDisplay = async (next: ToolDisplay) => {
+    if (display.disabled) return;
     display.disabled = true;
     displayStatus.textContent = "Saving…";
-    const result = await api.presentation.save({ quietTools: next });
-    if (result.ok) quietTools = next;
-    display.value = quietTools ? "quiet" : "normal";
+    const result = await api.presentation.save({ toolDisplay: next });
+    if (result.ok) toolDisplay = next;
+    display.value = toolDisplay;
     display.disabled = false;
     displayStatus.textContent = result.ok ? "Saved." : result.error.message;
     renderChat();
     return result;
   };
-  display.addEventListener("change", () => void saveDisplay(display.value === "quiet"));
+  display.addEventListener("change", () => void saveDisplay(display.value as ToolDisplay));
   let commandIndex = 0;
   let commandDraft: string | null = null;
   let customCommands: CustomCommand[] = [];
@@ -1865,6 +1875,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       command !== "/skills" &&
       command !== "/learning" &&
       command !== "/identity" &&
+      command !== "/details" &&
       command !== "/help" &&
       !(command === "/new" && args.join(" ") === "session")
     ) {
@@ -2271,10 +2282,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         }
         break;
       case "/quiet":
-      case "/normal": {
-        const next = command === "/quiet";
+      case "/normal":
+      case "/verbose":
+      case "/details": {
+        let next = command.slice(1) as ToolDisplay;
+        if (command === "/details") {
+          const option = args.join(" ").toLowerCase();
+          if (option === "" || option === "toggle")
+            next = toolDisplay === "verbose" ? "normal" : "verbose";
+          else if (["on", "verbose", "full", "details"].includes(option)) next = "verbose";
+          else if (["off", "normal", "concise"].includes(option)) next = "normal";
+          else if (option === "quiet") next = "quiet";
+          else {
+            showCommandResult("Tool display", "Use /details [on|off|quiet|toggle].");
+            break;
+          }
+        }
         const result = await saveDisplay(next);
-        if (!result.ok) showCommandResult("Display preference", result.error.message);
+        if (result && !result.ok) showCommandResult("Display preference", result.error.message);
         break;
       }
     }
@@ -2432,7 +2457,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       selected?.turnUsageDisplay ?? "total",
       (text) => api.app.copyText(text),
       automaticObservation,
-      quietTools ? activity.filter((item) => item.kind === "approval") : activity,
+      toolDisplay === "quiet" ? activity.filter((item) => item.kind === "approval") : activity,
+      toolDisplay,
       deciding,
       approvalErrors,
       chat.stopRequested,
@@ -4326,6 +4352,7 @@ function renderTimeline(
   copyText: NativeApi["app"]["copyText"],
   automaticObservation: ObservationFrameFactV1 | null,
   activity: ActivityItem[],
+  toolDisplay: ToolDisplay,
   deciding: Set<string>,
   approvalErrors: ReadonlyMap<string, ErrorV1>,
   approvalBlocked: boolean,
@@ -4438,6 +4465,11 @@ function renderTimeline(
     ...activity.map((item) => {
       if (item.kind === "tool") {
         const card = cachedTimeline?.tools.get(item) ?? renderToolCard(root, item, copyText);
+        if (card.dataset.toolDisplay !== toolDisplay) {
+          const output = card.querySelector("details");
+          if (output) output.open = toolDisplay === "verbose";
+          card.dataset.toolDisplay = toolDisplay;
+        }
         toolCards.set(item, card);
         return card;
       }
@@ -4494,6 +4526,10 @@ function renderToolCard(
   if (item.truncated) details.textContent += " · Output truncated";
   card.append(heading, details);
   if (item.phase === "completed" && item.content) {
+    const preview = root.createElement("pre");
+    preview.className = "tool-preview";
+    preview.textContent = item.content.split("\n").slice(0, 6).join("\n");
+    card.append(preview);
     const output = root.createElement("details");
     output.className = "tool-output";
     const summary = root.createElement("summary");

@@ -156,7 +156,11 @@ without stale-name resurrection, and reuse of existing runtime paths. It types a
 draft into the real composer while the runtime is unavailable, waits for SQLite
 readback, verifies it after process restart, clears it, and verifies a second
 restart remains empty. It needs
-no provider credentials. The normal Vitest gate covers atomic rollback, invalid
+no provider credentials. It also verifies the Verbose tool-display preference survives
+process restart. Vitest covers schema-five Quiet/Normal migration to the three-mode
+preference while retaining drafts, names and runtime settings. Native tool-output
+smoke checks six-line preview, verbose/details controls, exact copy and disclosure
+focus/scroll retention. The normal Vitest gate covers atomic rollback, invalid
 bridge input, future schemas and corrupt-file preservation.
 
 Disconnected-response tests use a controlled HTTP stream: known trace status,

@@ -132,10 +132,11 @@
           <h3 id="settings-chat-heading">Chat display</h3>
           <label for="chat-display">Tool activity</label>
           <select id="chat-display" aria-describedby="chat-display-note">
-            <option value="normal">Normal — show tool activity</option>
+            <option value="normal">Normal — concise tool output</option>
+            <option value="verbose">Verbose — full available output</option>
             <option value="quiet">Quiet — hide tool activity</option>
           </select>
-          <p id="chat-display-note" class="settings-note">Saved on this device. Quiet mode keeps approval requests visible. Also available with /normal and /quiet.</p>
+          <p id="chat-display-note" class="settings-note">Saved on this device. Quiet mode keeps approval requests visible. Use /normal, /verbose, /quiet, or /details.</p>
           <p id="chat-display-status" class="settings-note" role="status"></p>
           <h3>Keyboard shortcuts</h3>
           <dl class="keyboard-shortcuts">

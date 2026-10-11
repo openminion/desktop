@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
   ChatName,
+  ToolDisplay,
   ClientResult,
   RuntimePin,
   ChatDraft,
@@ -50,7 +51,8 @@ export class DesktopStore {
         version !== 2 &&
         version !== 3 &&
         version !== 4 &&
-        version !== 5
+        version !== 5 &&
+        version !== 6
       ) {
         throw new Error(
           "Desktop data was created by a newer version. Install the newer app to open it.",
@@ -127,6 +129,17 @@ export class DesktopStore {
             local_session TEXT
           );
           PRAGMA user_version = 5;
+          COMMIT;
+        `);
+      }
+      if (version < 6) {
+        this.database.exec(`
+          BEGIN IMMEDIATE;
+          ALTER TABLE presentation ADD COLUMN tool_display TEXT NOT NULL DEFAULT 'normal'
+            CHECK (tool_display IN ('quiet', 'normal', 'verbose'));
+          UPDATE presentation SET tool_display = CASE quiet_tools WHEN 1 THEN 'quiet' ELSE 'normal' END;
+          ALTER TABLE presentation DROP COLUMN quiet_tools;
+          PRAGMA user_version = 6;
           COMMIT;
         `);
       }
@@ -374,10 +387,12 @@ export class DesktopStore {
     }
   }
 
-  loadPresentation(): ClientResult<{ quietTools: boolean }> {
+  loadPresentation(): ClientResult<{ toolDisplay: ToolDisplay }> {
     try {
-      const row = this.database.prepare("SELECT quiet_tools FROM presentation WHERE id = 1").get()!;
-      return { ok: true, value: { quietTools: row.quiet_tools === 1 } };
+      const row = this.database
+        .prepare("SELECT tool_display FROM presentation WHERE id = 1")
+        .get()!;
+      return { ok: true, value: { toolDisplay: row.tool_display as ToolDisplay } };
     } catch {
       return failure("storage_unavailable", "Could not load Desktop preferences.");
     }
@@ -389,14 +404,14 @@ export class DesktopStore {
       typeof input !== "object" ||
       Array.isArray(input) ||
       Object.keys(input).length !== 1 ||
-      typeof (input as Record<string, unknown>).quietTools !== "boolean"
+      !["quiet", "normal", "verbose"].includes((input as { toolDisplay: string }).toolDisplay)
     ) {
       return failure("invalid_input", "Desktop preferences are invalid.");
     }
     try {
       this.database
-        .prepare("UPDATE presentation SET quiet_tools = ? WHERE id = 1")
-        .run((input as { quietTools: boolean }).quietTools ? 1 : 0);
+        .prepare("UPDATE presentation SET tool_display = ? WHERE id = 1")
+        .run((input as { toolDisplay: ToolDisplay }).toolDisplay);
       return { ok: true, value: null };
     } catch {
       return failure("storage_unavailable", "Could not save Desktop preferences.");

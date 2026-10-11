@@ -194,10 +194,10 @@ describe("preload surface", () => {
     });
     expect(Object.keys(api.presentation)).toEqual(["load", "save"]);
     await api.presentation.load();
-    await api.presentation.save({ quietTools: true });
+    await api.presentation.save({ toolDisplay: "quiet" });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.presentationLoad);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.presentationSave, {
-      quietTools: true,
+      toolDisplay: "quiet",
     });
     expect(Object.keys(api.reports)).toEqual(["read"]);
     await api.reports.read({ kind: "tools" });

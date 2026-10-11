@@ -160,7 +160,7 @@ New installations use the same location from source and from a packaged app:
   data/             Core-managed conversations and runtime state
 ```
 
-The database contains presentation metadata (including the quiet/normal tool
+The database contains presentation metadata (including the quiet/normal/verbose tool
 display preference), not copies of conversations or API keys. OpenMinion owns
 the separate `data/` and `agents.json` contents under Desktop's directory;
 the ordinary CLI's data remains separate. SQLite schema versions support
@@ -194,10 +194,11 @@ root focuses the existing app instead of starting another managed daemon.
 
 Click **Settings** above the connection indicator in the sidebar, or press
 **⌘ / Ctrl + ,**. Use **Profiles** for model and tool credentials, **Chat display**
-for Normal/Quiet tool activity and keyboard help, and **Runtime** for status,
+for Normal/Quiet/Verbose tool activity and keyboard help, and **Runtime** for status,
 logs, versions, and update controls. Connection details also has a **Runtime settings**
-shortcut. Quiet hides tool activity but keeps approval requests visible; it shares
-its saved preference with `/quiet` and `/normal`. Display changes apply immediately.
+shortcut. Quiet hides tool activity but keeps approval requests visible; all three modes share
+the saved preference with `/quiet`, `/normal`, `/verbose` and `/details`. Normal previews
+six lines; Verbose expands all supplied output. Runtime-truncated content stays labeled. Display changes apply immediately.
 Profile changes require **Save and apply**. Switching sections keeps unsaved
 profile edits; closing Settings discards them.
 When the default profile is missing a key required by its provider, Desktop also

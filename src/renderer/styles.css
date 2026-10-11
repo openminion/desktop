@@ -1413,6 +1413,7 @@ details[open] > summary .summary-chevron {
   color: var(--muted);
 }
 
+.tool-preview,
 .tool-output pre {
   max-height: 20rem;
   overflow: auto;
@@ -1423,6 +1424,10 @@ details[open] > summary .summary-chevron {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.5;
+}
+
+.tool-card:has(.tool-output[open]) .tool-preview {
+  display: none;
 }
 
 .activity-details,
