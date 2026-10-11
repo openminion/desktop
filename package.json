@@ -40,6 +40,7 @@
     "make": "npm run build && electron-forge make && node scripts/package-contents.mjs --artifacts",
     "electron-check": "npm run build && electron tests/electron/smoke.mjs && electron tests/electron/identity.mjs",
     "electron-check:approval": "npm run build && electron tests/electron/approval.mjs",
+    "electron-check:commands": "npm run build && electron tests/electron/commands.mjs",
     "electron-check:delegation": "npm run build && electron tests/electron/delegation.mjs",
     "preview": "npm run build && electron scripts/preview.mjs"
   },

@@ -198,6 +198,17 @@ const profileSettings = {
 const previewNames = new Map<string, string>();
 let previewQuietTools = false;
 const api: NativeApi = {
+  tools: {
+    control: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Tool access cannot change in previews.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
+  },
   runtime: {
     control: async () => ({
       ok: false,

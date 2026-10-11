@@ -654,6 +654,22 @@ export type RuntimeUpdateStatus = {
     | "unmanaged";
 };
 
+export type ToolProfileInput = {
+  sessionId: string;
+  action: "activate" | "deactivate";
+  profileId: string;
+  targetId?: string;
+  taskId?: string;
+  targetKind?: string;
+  credentialScopes?: string[];
+  dependencies?: string[];
+  approved?: boolean;
+  ttlSeconds?: number;
+  reason?: string;
+  approvedBy?: string;
+  policySource?: string;
+};
+
 export type NativeApi = {
   runtime: {
     status(): Promise<RuntimeUpdateStatus>;
@@ -672,6 +688,9 @@ export type NativeApi = {
   presentation: {
     load(): Promise<ClientResult<{ quietTools: boolean }>>;
     save(input: { quietTools: boolean }): Promise<ClientResult<null>>;
+  };
+  tools: {
+    control(input: ToolProfileInput): Promise<ClientResult<{ text: string }>>;
   };
   reports: {
     read(input: ReportInput): Promise<ClientResult<ReportValue>>;
@@ -773,6 +792,7 @@ export const IPC_CHANNELS = {
   presentationLoad: "desktop:presentation:load",
   presentationSave: "desktop:presentation:save",
   reportsRead: "openminion:reports:read",
+  toolsControl: "openminion:tools:control",
   sessionsExport: "openminion:sessions:export",
   tasksControl: "openminion:tasks:control",
   delegationControl: "openminion:delegation:control",

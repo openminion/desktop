@@ -1,3 +1,4 @@
+import type { CustomCommand } from "../shared/reports.js";
 import type {
   ApprovalDecision,
   ApprovalDecisionV1,
@@ -33,6 +34,7 @@ import type { DelegationControlInput, ScheduleInput, TaskAction } from "../share
 import { renderMarkdown } from "./markdown.js";
 import { mountProfiles } from "./profiles.js";
 import { renderDelegation, renderTasks } from "./tasks.js";
+import { renderToolProfile } from "./tool-profile.js";
 
 declare global {
   interface Window {
@@ -96,8 +98,8 @@ export const DESKTOP_COMMANDS = [
   },
   {
     name: "/tools",
-    description: "Show tool exposure or list available tools",
-    usage: "/tools [status|list]",
+    description: "View tools and manage access profiles",
+    usage: "/tools [status|list|activate <profile>|deactivate <profile>]",
   },
   { name: "/mcp", description: "Show configured and exposed MCP servers" },
   { name: "/skills", description: "List skills or inspect one by ID", usage: "/skills [skill-id]" },
@@ -138,9 +140,9 @@ export const DESKTOP_ALIASES: Record<string, string> = {
   "/tool": "/tools",
 };
 
-export function commandMatches(text: string) {
+export function commandMatches(text: string, customCommands: CustomCommand[] = []) {
   const name = text.trim().split(/\s+/, 1)[0];
-  return DESKTOP_COMMANDS.filter(
+  return [...DESKTOP_COMMANDS, ...customCommands].filter(
     (command) =>
       command.name.startsWith(name) ||
       Object.entries(DESKTOP_ALIASES).some(
@@ -829,6 +831,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   display.addEventListener("change", () => void saveDisplay(display.value === "quiet"));
   let commandIndex = 0;
   let commandDraft: string | null = null;
+  let customCommands: CustomCommand[] = [];
+  let renderingCommand = false;
   let commandsDismissed = false;
   let activity: ActivityItem[] = [];
   const activityBySession = new Map<string, ActivityItem[]>();
@@ -1507,7 +1511,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
 
   const renderCommandMenu = () => {
     const value = elements.composer.value.trim();
-    const matches = commandMatches(value);
+    const matches = commandMatches(value, customCommands);
     if (commandsDismissed || !value.startsWith("/") || !matches.length) {
       elements.commandMenu.hidden = true;
       elements.showCommands.setAttribute("aria-expanded", "false");
@@ -1779,6 +1783,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     return undefined;
   };
 
+  const loadCustomCommands = async () => {
+    const sessionId = selected?.sessionId;
+    const generation = selectionGeneration;
+    if (!sessionId) return;
+    const result = await api.reports.read({ kind: "commands", sessionId });
+    if (generation !== selectionGeneration) return;
+    customCommands = result.ok && result.value.kind === "commands" ? result.value.commands : [];
+    renderCommandMenu();
+    return result;
+  };
+
   const runCommand = async (text: string): Promise<boolean> => {
     const value = text.trim();
     if (!value.startsWith("/") || value.startsWith("//")) return false;
@@ -1786,6 +1801,52 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const command = DESKTOP_ALIASES[name] ?? name;
     if (args.length === 1 && ["--help", "?"].includes(args[0])) {
       return runCommand(`/help ${command}`);
+    }
+    const generation = selectionGeneration;
+    const invocationDraft = elements.composer.value;
+    if (!DESKTOP_COMMANDS.some((item) => item.name === command) && selected) {
+      const discovered = await loadCustomCommands();
+      if (generation !== selectionGeneration || elements.composer.value !== invocationDraft)
+        return true;
+      if (discovered && !discovered.ok) {
+        showCommandResult("Custom commands unavailable", discovered.error.message);
+        return true;
+      }
+    }
+    if (
+      !DESKTOP_COMMANDS.some((item) => item.name === command) &&
+      customCommands.some((item) => item.name === command)
+    ) {
+      if (!selected || renderingCommand || savingSubmission) return true;
+      if (chat.active || conversationLoading) {
+        showCommandResult(
+          "Custom command",
+          "Wait for this conversation to finish loading or responding, then send your command.",
+        );
+        return true;
+      }
+      const sessionId = selected.sessionId;
+      const draft = elements.composer.value;
+      renderingCommand = true;
+      const result = await api.reports.read({
+        kind: "command",
+        sessionId,
+        commandName: command,
+        arguments: value.slice(name.length).trimStart(),
+      });
+      renderingCommand = false;
+      if (generation !== selectionGeneration || elements.composer.value !== draft || chat.active)
+        return true;
+      if (!result.ok) {
+        showCommandResult("Custom command", result.error.message);
+        return true;
+      }
+      if (result.value.kind !== "command") return true;
+      commandDraft = null;
+      hideCommandMenu();
+      elements.composer.value = result.value.prompt;
+      await submitTurn(false, true);
+      return true;
     }
     if (!DESKTOP_COMMANDS.some((item) => item.name === command)) {
       hideCommandMenu();
@@ -1855,14 +1916,47 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           showCommandResult(titles[kind], "No active session.");
           break;
         }
+        if (kind === "tools" && ["activate", "deactivate"].includes(args[0])) {
+          if (!selected || args.length > 2) {
+            showCommandResult(
+              "Tool access",
+              "Choose a saved conversation and use /tools activate <profile> or /tools deactivate <profile>. Set options in the form.",
+            );
+            break;
+          }
+          const sessionId = selected.sessionId;
+          showCommandResult("Tool access", "");
+          renderToolProfile(
+            root,
+            elements.commandResult,
+            {
+              sessionId,
+              action: args[0] as "activate" | "deactivate",
+              profileId: args[1] ?? "",
+            },
+            (input) =>
+              selected?.sessionId === sessionId && !chat.active
+                ? api.tools.control(input)
+                : Promise.resolve({
+                    ok: false,
+                    error: {
+                      code: "session_changed",
+                      message:
+                        "Choose this conversation and finish its turn before changing tool access.",
+                      retryable: false,
+                      retryAfterMs: null,
+                    },
+                  }),
+          );
+          break;
+        }
         if (
           kind === "tools" &&
-          args.length &&
-          (args.length !== 1 || !["status", "list"].includes(args[0]))
+          (args.length > 1 || (args.length === 1 && !["status", "list"].includes(args[0])))
         ) {
           showCommandResult(
-            "Command arguments",
-            "Use /tools, /tools status, or /tools list. Tool activation is not connected yet.",
+            "Tool access",
+            "Use /tools status, list, activate <profile>, or deactivate <profile>.",
           );
           break;
         }
@@ -1875,7 +1969,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             ? { sessionId }
             : {}),
           ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
-          ...(kind === "tools" && args.length ? { toolView: args[0] as "status" | "list" } : {}),
+          ...(kind === "tools" ? { toolView: (args[0] ?? "status") as "status" | "list" } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
           ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
           ...(kind === "learning" && args.length ? { proposalId: args.join(" ") } : {}),
@@ -1899,8 +1993,20 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
               report.tools
                 .map((tool) => `${tool.name}${tool.enabled ? "" : " · disabled"}`)
                 .join("\n") || "No tools.";
-          else text = report.text;
+          else if ("text" in report) text = report.text;
+          else return true;
           showCommandResult(titles[kind], text);
+          if (kind === "tools" && selected) {
+            for (const action of ["activate", "deactivate"] as const) {
+              const button = root.createElement("button");
+              button.type = "button";
+              button.className = "secondary-tool";
+              button.textContent =
+                action === "activate" ? "Activate profile…" : "Deactivate profile…";
+              button.addEventListener("click", () => void runCommand(`/tools ${action}`));
+              elements.commandResult.append(button);
+            }
+          }
         }
         break;
       }
@@ -2034,7 +2140,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           const target = args.join(" ");
           const requested = target.startsWith("/") ? target : `/${target}`;
           const canonical = DESKTOP_ALIASES[requested] ?? requested;
-          const item = DESKTOP_COMMANDS.find((candidate) => candidate.name === canonical);
+          const item = [...DESKTOP_COMMANDS, ...customCommands].find(
+            (candidate) => candidate.name === canonical,
+          );
           showCommandResult(
             "Command help",
             item
@@ -2047,7 +2155,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           "Focus commands — partial integration",
           "Desktop presents OpenMinion Focus. Only the commands below are connected so far; model selection and other Focus operations still require integration. Type / and use ↑ / ↓. Enter runs a command; Tab completes its name. Escape dismisses the menu. Use // for a message beginning with /.",
         );
-        for (const item of DESKTOP_COMMANDS) {
+        for (const item of [...DESKTOP_COMMANDS, ...customCommands]) {
           const button = root.createElement("button");
           button.type = "button";
           button.className = "command-option";
@@ -2545,6 +2653,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     submissionGeneration += 1;
     if (!selected) elements.composer.value = drafts.get(session.sessionId) ?? "";
     selected = session;
+    if (!refreshing) customCommands = [];
     showDraftStatus();
     conversationLoading = true;
     if (!refreshing) {
@@ -3199,9 +3308,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderFiles();
     renderCapture();
   });
-  const submitTurn = async (asGuidance: boolean) => {
+  const submitTurn = async (asGuidance: boolean, renderedCommand = false) => {
     if (connecting && (asGuidance || !isTaskCommand(elements.composer.value))) return;
-    if (!asGuidance && (await runCommand(elements.composer.value))) return;
+    if (!asGuidance && !renderedCommand && (await runCommand(elements.composer.value))) return;
     if (
       !daemonReady ||
       creatingTask ||
@@ -3213,7 +3322,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       return;
     }
     const draft = elements.composer.value;
-    const message = draft.trim().replace(/^\/\//, "/");
+    const message = renderedCommand ? draft : draft.trim().replace(/^\/\//, "/");
     if (!message) {
       return;
     }
@@ -3340,6 +3449,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.askGuidance.addEventListener("click", () => void submitTurn(true));
   elements.composer.addEventListener("input", () => {
     const draft = elements.composer.value.trimStart();
+    if (draft === "/") void loadCustomCommands();
     if (!draft.startsWith("/") || draft.startsWith("//")) commandDraft = null;
     commandIndex = 0;
     commandsDismissed = false;
@@ -3349,6 +3459,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const openCommands = () => {
     if (!elements.composer.value.startsWith("/")) commandDraft = elements.composer.value;
     elements.composer.value = "/";
+    void loadCustomCommands();
     commandsDismissed = false;
     commandIndex = 0;
     elements.composer.focus();
@@ -3367,7 +3478,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   });
   elements.composer.addEventListener("keydown", (event) => {
     if (event.isComposing) return;
-    const matches = commandMatches(elements.composer.value);
+    const matches = commandMatches(elements.composer.value, customCommands);
     if (event.key === "Escape" && elements.commandMenu.hidden && !elements.commandPanel.hidden) {
       event.preventDefault();
       hideCommandResult();

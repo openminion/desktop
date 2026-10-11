@@ -141,6 +141,7 @@ describe("preload surface", () => {
       "drafts",
       "chatNames",
       "presentation",
+      "tools",
       "reports",
       "tasks",
       "delegation",
@@ -157,6 +158,13 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
+    expect(Object.keys(api.tools)).toEqual(["control"]);
+    await api.tools.control({ sessionId: "session-1", action: "deactivate", profileId: "search" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.toolsControl, {
+      sessionId: "session-1",
+      action: "deactivate",
+      profileId: "search",
+    });
     expect(Object.keys(api.runtime)).toEqual(["status", "check", "stage", "control"]);
     await api.runtime.status();
     await api.runtime.check();
