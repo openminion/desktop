@@ -43,7 +43,7 @@ const messages: MessageV1[] = [
     sessionId: sessions[0]!.sessionId,
     role: "assistant",
     createdAt: now(),
-    body: "This is a UI preview. Nothing is sent to a model. Try attachments, screen/window selection, local preview, task outputs, and sending a message. Each sample turn pauses for an approval so you can try Allow once, Deny, or Stop. Changes disappear when this window closes.",
+    body: 'This is a UI preview. Nothing is sent to a model. Try attachments, screen/window selection, local preview, task outputs, and sending a message. Each sample turn pauses for an approval so you can try Allow once, Deny, or Stop. Changes disappear when this window closes.\n\n```python\nmessage = "Code keeps its spacing and can be copied on its own."\nprint(message)\n# Long code lines scroll horizontally without widening the conversation or moving the Copy button out of reach.\n```',
   },
 ];
 let turnListener: (event: TurnEventV1) => void = () => {};

@@ -22,6 +22,7 @@ import {
   waitingTime,
 } from "../../src/renderer/app.js";
 import { renderTasks } from "../../src/renderer/tasks.js";
+import { renderMarkdown } from "../../src/renderer/markdown.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
 import type {
   ArtifactCatalogItemV1,
@@ -508,7 +509,7 @@ describe("renderer status view", () => {
                 role: "user",
               },
               {
-                ...message("reply", "minimax: **Answer**"),
+                ...message("reply", "minimax: **Answer**\n\n```python\nprint('hello')\n```"),
                 profileName: "minimax",
               },
             ],
@@ -530,7 +531,7 @@ describe("renderer status view", () => {
       const buttons = page
         .element("timeline")
         .descendants()
-        .filter((item) => item.className.includes("message-copy"));
+        .filter((item) => item.title === "Copy message");
       expect(buttons).toHaveLength(2);
       const times = page
         .element("timeline")
@@ -547,7 +548,14 @@ describe("renderer status view", () => {
       expect(copyText).toHaveBeenLastCalledWith("First line\nSecond line");
       buttons[1]!.click();
       await vi.waitFor(() => expect(buttons[1]!.textContent).toBe("Copied"));
-      expect(copyText).toHaveBeenLastCalledWith("**Answer**");
+      expect(copyText).toHaveBeenLastCalledWith("**Answer**\n\n```python\nprint('hello')\n```");
+      const codeCopy = page
+        .element("timeline")
+        .descendants()
+        .find((item) => item.title === "Copy code")!;
+      codeCopy.click();
+      await vi.waitFor(() => expect(codeCopy.textContent).toBe("Copied"));
+      expect(copyText).toHaveBeenLastCalledWith("print('hello')\n");
       await vi.waitFor(() => expect(buttons[1]!.disabled).toBe(false), {
         timeout: 2500,
       });
@@ -561,6 +569,32 @@ describe("renderer status view", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("offers exact code separately from Markdown and keeps code and language labels literal", () => {
+    const page = new FixtureDocument();
+    const body = page.createElement("div");
+    const copyCode = vi.fn<(code: string) => HTMLButtonElement>(
+      () => page.createElement("button") as unknown as HTMLButtonElement,
+    );
+    renderMarkdown(
+      page.asDocument(),
+      body as unknown as HTMLElement,
+      '```<img> extra metadata\n  <script>alert("x")</script>\n\n```\n\n    indented code\n\n`inline`',
+      copyCode,
+    );
+    expect(copyCode.mock.calls.map(([code]) => code)).toEqual([
+      '  <script>alert("x")</script>\n\n',
+      "indented code\n",
+    ]);
+    const nodes = body.descendants();
+    expect(nodes.filter((node) => node.tagName === "pre")).toHaveLength(2);
+    expect(nodes.some((node) => node.tagName === "script" || node.tagName === "img")).toBe(false);
+    expect(
+      nodes
+        .filter((node) => node.className === "code-header")
+        .map((node) => node.children[0]!.textContent),
+    ).toEqual(["<img>", "Code"]);
   });
 
   it("clears a sending draft immediately, preserves new typing, and keeps terminal errors after refresh", async () => {
