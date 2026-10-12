@@ -14,6 +14,236 @@ afterEach(async () => {
 });
 
 describe("PyPI CLI client", () => {
+  it("preserves canonical session catalog and detail metadata without inventing missing facts", async () => {
+    let facts: Record<string, unknown> = { channel: "cli", turns: 0, age: "2m" };
+    const run = vi.fn(async (_executable: string, args: readonly string[]) => ({
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        args[1] === "export"
+          ? ""
+          : JSON.stringify(
+              args[1] === "list"
+                ? [{ ...session("saved"), ...facts }]
+                : { ...session("saved"), ...facts },
+            ),
+    }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    expect(await client.list({})).toMatchObject({
+      ok: true,
+      value: {
+        sessions: [
+          {
+            channel: "cli",
+            messageCount: 0,
+            updatedLabel: "2m",
+          },
+        ],
+      },
+    });
+    expect(await client.load({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: {
+        session: {
+          channel: "cli",
+          messageCount: 0,
+          updatedLabel: null,
+          updatedAt: now,
+        },
+      },
+    });
+    facts = {};
+    expect(await client.list({})).toMatchObject({
+      ok: true,
+      value: {
+        sessions: [
+          {
+            channel: null,
+            messageCount: null,
+            updatedLabel: null,
+          },
+        ],
+      },
+    });
+    for (const invalid of ["2", -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      facts = { turns: invalid };
+      expect(await client.list({})).toMatchObject({
+        ok: false,
+        error: { code: "invalid_daemon_response" },
+      });
+    }
+    for (const invalid of [{ channel: 1 }, { age: false }]) {
+      facts = invalid;
+      expect(await client.list({})).toMatchObject({ ok: false });
+    }
+  });
+
+  it("uses authenticated session custom-command routes without exposing private fields", async () => {
+    const requests: {
+      path: string | undefined;
+      token: string | string[] | undefined;
+      body: string;
+    }[] = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        requests.push({ path: req.url, token: req.headers["x-ipc-token"], body });
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify(
+            req.method === "GET"
+              ? {
+                  ok: true,
+                  session_id: "saved",
+                  commands: [
+                    {
+                      name: "/summarize",
+                      description: "Summarize",
+                      usage: "/summarize <text>",
+                      private: "not exposed",
+                    },
+                  ],
+                }
+              : {
+                  ok: true,
+                  session_id: "saved",
+                  name: "/summarize",
+                  prompt: "Summarize first  second",
+                  private: "not exposed",
+                },
+          ),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("No server address");
+    const run = vi.fn(async (_executable: string, args: readonly string[]) => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify(
+        args[0] === "daemon"
+          ? { reachable: true, host: "127.0.0.1", port: address.port }
+          : { runtime: { ipc_token: "private-test-token" } },
+      ),
+    }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    expect(await client.readReport({ kind: "commands", sessionId: "saved" })).toEqual({
+      ok: true,
+      value: {
+        kind: "commands",
+        commands: [{ name: "/summarize", description: "Summarize", usage: "/summarize <text>" }],
+      },
+    });
+    expect(
+      await client.readReport({
+        kind: "command",
+        sessionId: "saved",
+        commandName: "/summarize",
+        arguments: "first  second",
+      }),
+    ).toEqual({ ok: true, value: { kind: "command", prompt: "Summarize first  second" } });
+    expect(requests).toEqual([
+      { path: "/v1/sessions/saved/custom-commands", token: "private-test-token", body: "" },
+      {
+        path: "/v1/sessions/saved/custom-commands/summarize/render",
+        token: "private-test-token",
+        body: JSON.stringify({ arguments: "first  second" }),
+      },
+    ]);
+    for (const invalid of [
+      { kind: "command", sessionId: "saved", commandName: "../private", arguments: "" },
+      { kind: "commands", sessionId: "saved", arguments: "hidden" },
+      { kind: "tokens", sessionId: "saved", commandName: "/hidden" },
+    ])
+      expect(await client.readReport(invalid)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(requests).toHaveLength(2);
+  });
+
+  it("changes tool exposure through scoped authenticated operations without implicit approval", async () => {
+    const fixture = await executableFixture();
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    expect(
+      await client.controlTools({
+        sessionId: "saved",
+        action: "activate",
+        profileId: "web",
+        targetId: "example.com",
+        taskId: "work-1",
+        ttlSeconds: 60,
+        credentialScopes: ["search"],
+        dependencies: ["network"],
+        reason: "Research",
+      }),
+    ).toEqual({ ok: true, value: { text: "Activated: web (audit-1)" } });
+    const activation = fixture.requests.find(
+      (item) => item.path === "/v1/tools/exposure/activate",
+    )!;
+    expect(activation.body).toEqual({
+      session_id: "saved",
+      profile_id: "web",
+      target_id: "example.com",
+      task_id: "work-1",
+      ttl_seconds: 60,
+      credential_scopes: ["search"],
+      dependencies: ["network"],
+      activation_reason: "Research",
+    });
+    expect(activation.token).toBe("test-private-token");
+    expect(
+      await client.controlTools({
+        sessionId: "saved",
+        action: "deactivate",
+        profileId: "web",
+        targetId: "example.com",
+        taskId: "work-1",
+      }),
+    ).toEqual({ ok: true, value: { text: "Deactivated: web" } });
+    const before = fixture.requests.length;
+    for (const input of [
+      { action: "activate", approved: "true" },
+      { action: "activate", credentialScopes: ["search", 42] },
+      { action: "activate", ttlSeconds: -1 },
+      { action: "deactivate", approved: true },
+      { action: "activate", apiKey: "do not forward" },
+    ])
+      expect(
+        await client.controlTools({ sessionId: "saved", profileId: "web", ...input }),
+      ).toMatchObject({ ok: false });
+    expect(fixture.requests).toHaveLength(before);
+  });
+
+  it("does not run delegation commands on a runtime without the scoped contract", async () => {
+    const run = vi.fn().mockResolvedValue({ exitCode: 0, stdout: "--limit --json", stderr: "" });
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("No draft");
+    expect(
+      await client.controlDelegation({ sessionId: created.value.sessionId, action: "list" }),
+    ).toMatchObject({ ok: false, error: { code: "delegation_unavailable" } });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      "openminion",
+      ["agent", "delegate-list", "--help"],
+      30_000,
+    );
+    run.mockClear();
+    expect(
+      await client.controlDelegation({
+        sessionId: created.value.sessionId,
+        action: "resume",
+        taskId: "task-1",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "unsupported_operation" } });
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("reads authenticated inventories and excludes private discovery fields", async () => {
     const fixture = await executableFixture();
     const client = new CliClient(() => ({
@@ -524,7 +754,10 @@ describe("PyPI CLI client", () => {
     const run = vi.fn();
     const client = new CliClient(
       () => ({ executable: "openminion", args: ["--config", "/private/config.json"] }),
-      run,
+      (executable, args, timeout) =>
+        args.at(-1) === "--help"
+          ? Promise.resolve({ exitCode: 0, stderr: "", stdout: "--parent-agent-id --session-id" })
+          : run(executable, args, timeout),
     );
     const created = await client.create({ agentId: "writer" });
     if (!created.ok) throw new Error("Draft not created");
@@ -682,7 +915,13 @@ describe("PyPI CLI client", () => {
     "drops terminal %s child prose from delegation inspection",
     async (state) => {
       const run = vi.fn();
-      const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+      const client = new CliClient(
+        () => ({ executable: "openminion", args: [] }),
+        (executable, args, timeout) =>
+          args.at(-1) === "--help"
+            ? Promise.resolve({ exitCode: 0, stderr: "", stdout: "--parent-agent-id --session-id" })
+            : run(executable, args, timeout),
+      );
       const created = await client.create({ agentId: "writer" });
       if (!created.ok) throw new Error("Draft not created");
       run.mockResolvedValueOnce({
@@ -2240,6 +2479,21 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
           }),
         );
         complete?.(false);
+        return;
+      }
+      if (req.url === "/v1/tools/exposure/activate") {
+        requests.push({ path: req.url, body, token: req.headers["x-ipc-token"] });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            activation: { profile_id: "web", audit_id: "audit-1", private: "not exposed" },
+          }),
+        );
+        return;
+      }
+      if (req.url === "/v1/tools/exposure/deactivate") {
+        requests.push({ path: req.url, body, token: req.headers["x-ipc-token"] });
+        res.end(JSON.stringify({ ok: true, deactivated: true }));
         return;
       }
       expect(req.url).toBe("/v1/turn/stream");

@@ -1,11 +1,17 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-05
+Last updated: 2026-10-11
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+- Add compact language headers and Copy controls to chat code blocks, with
+  keyboard scrolling and the same clipboard feedback as message actions.
+
+- Start Desktop versioning at `0.0.1`, independently of the OpenMinion runtime
+  and Electron. This identifies development builds; it is not a signed release.
 
 - Preserve replacement drafts when leaving command mode, retain command arguments
   during selection, and show usage and contextual help without invoking an action.

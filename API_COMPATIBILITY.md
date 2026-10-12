@@ -197,3 +197,21 @@ shows received text in a native disclosure and copies that exact text. Partial
 output is labeled; metadata-only history does not imply recoverable full output.
 Expansion is a presentation control, not a full implementation of Focus display
 modes or `/expand` block selection. No extra fetch or output store is introduced.
+
+## Scoped command consumers (October 11)
+
+Desktop reads `GET /v1/sessions/{id}/custom-commands` and posts arguments to
+`/v1/sessions/{id}/custom-commands/{name}/render`; responses must match the
+requested session/name. Only the rendered prompt enters ordinary turn submission.
+Core owns templates, collision exclusion and rejection of local file/shell
+expansion. Unmaterialized local drafts return no catalog.
+
+The fixed tool-control bridge uses `POST /v1/tools/exposure/activate` and
+`POST /v1/tools/exposure/deactivate`. Main validates the typed action, selected
+session, profile and optional task/target scope, and rejects raw-key fields.
+Activation carries explicit approval and Core's named access options. Core owns
+policy and lifetime. No generic renderer path or command execution is exposed.
+
+Delegation requires `--parent-agent-id` and `--session-id` in the actual
+operation's CLI help before execution. Source support is not a new minimum
+published version: managed runtime remains 0.0.29 until qualification.

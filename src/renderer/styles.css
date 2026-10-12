@@ -1413,6 +1413,7 @@ details[open] > summary .summary-chevron {
   color: var(--muted);
 }
 
+.tool-preview,
 .tool-output pre {
   max-height: 20rem;
   overflow: auto;
@@ -1423,6 +1424,10 @@ details[open] > summary .summary-chevron {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.5;
+}
+
+.tool-card:has(.tool-output[open]) .tool-preview {
+  display: none;
 }
 
 .activity-details,
@@ -2361,13 +2366,37 @@ code {
 .markdown ol {
   padding-left: 1.6em;
 }
+.code-block {
+  margin: 0.8em 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-deep);
+}
+.code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 10px 4px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.code-header span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .markdown pre {
   max-width: 100%;
   overflow-x: auto;
+  margin: 0;
   padding: 14px;
-  border-radius: 10px;
-  background: var(--bg-deep);
   white-space: pre;
+}
+.markdown pre:focus-visible {
+  outline: 2px solid var(--muted);
+  outline-offset: -2px;
 }
 .markdown code {
   font-family: ui-monospace, monospace;
@@ -2423,6 +2452,22 @@ code {
   border: 1px solid var(--line);
   border-radius: 6px;
 }
+.schedule-form .tool-profile-approval {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-profile-approval input {
+  order: -1;
+  width: auto;
+  margin: 0;
+}
+
+.tool-profile-form .secondary-tool {
+  justify-self: start;
+}
+
 .schedule-form textarea {
   resize: vertical;
   min-height: 80px;
@@ -2551,4 +2596,16 @@ code {
 
 .session-item:has(.session-spinner:not([hidden])) {
   padding-left: 32px;
+}
+
+.session-option {
+  display: grid;
+  gap: 4px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.session-option small {
+  color: var(--muted);
+  font-weight: 400;
 }

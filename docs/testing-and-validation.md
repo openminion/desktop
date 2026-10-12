@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-10-06
+Last updated: 2026-10-11
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -156,7 +156,11 @@ without stale-name resurrection, and reuse of existing runtime paths. It types a
 draft into the real composer while the runtime is unavailable, waits for SQLite
 readback, verifies it after process restart, clears it, and verifies a second
 restart remains empty. It needs
-no provider credentials. The normal Vitest gate covers atomic rollback, invalid
+no provider credentials. It also verifies the Verbose tool-display preference survives
+process restart. Vitest covers schema-five Quiet/Normal migration to the three-mode
+preference while retaining drafts, names and runtime settings. Native tool-output
+smoke checks six-line preview, verbose/details controls, exact copy and disclosure
+focus/scroll retention. The normal Vitest gate covers atomic rollback, invalid
 bridge input, future schemas and corrupt-file preservation.
 
 Disconnected-response tests use a controlled HTTP stream: known trace status,
@@ -382,8 +386,23 @@ npm run build
 node_modules/.bin/electron tests/electron/message-actions.mjs
 ```
 
-This runs the real renderer with explicit preview data. It checks the copy icon,
+This runs the real renderer with explicit preview data. It checks code-block
+language headers, keyboard access and Copy feedback, plus the message copy icon,
 local message time, hover and keyboard focus, stable layout at compact and normal
 sizes, and clipboard-error feedback. Preview deliberately denies clipboard
 access; successful copy and message-body selection are covered by renderer tests
 and the real-daemon PyPI campaign. It makes no provider calls.
+
+## Source-runtime command integration
+
+Run `OPENMINION_EXECUTABLE=/absolute/path/to/openminion npm run electron-check:commands`
+against the Core runtime being qualified. The native check creates an isolated
+Desktop home, uses demo setup, and drives production renderer/preload/main with
+real custom discovery/render/submission, expansion refusal, exposure
+activate/status/deactivate, and scoped delegation list. It verifies exact prompt
+text and that commands do not create extra assistant turns. Failed homes remain
+for inspection; success removes them after stopping the owned daemon.
+
+This is provider-free source integration evidence, not provider-live, delegation
+inspection, published-wheel, installer, signing or complete Focus acceptance.
+The managed runtime pin is not changed by this check.

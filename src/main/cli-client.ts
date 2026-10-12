@@ -419,6 +419,8 @@ export class CliClient {
               "skillId",
               "proposalId",
               "toolView",
+              "commandName",
+              "arguments",
             ].includes(key),
         )
       )
@@ -464,6 +466,61 @@ export class CliClient {
           /[\s\0]/.test(value.agentId))
       )
         throw protocolError("invalid_request", "Choose an exact agent ID.");
+      if (value.kind === "commands" || value.kind === "command") {
+        const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
+        if (
+          Object.keys(value).some(
+            (key) => !["kind", "sessionId", "commandName", "arguments"].includes(key),
+          )
+        )
+          throw protocolError("invalid_request", "Choose a session command.");
+        const path = `/v1/sessions/${encodeURIComponent(sessionId)}/custom-commands`;
+        if (value.kind === "commands") {
+          if (value.commandName !== undefined || value.arguments !== undefined)
+            throw protocolError("invalid_request", "Command discovery takes a conversation only.");
+          if (this.#drafts.has(sessionId)) return { kind: "commands", commands: [] };
+          const payload = await this.#request(path);
+          if (payload.ok !== true || payload.session_id !== sessionId)
+            throw protocolError(
+              "invalid_daemon_response",
+              "OpenMinion did not return this conversation's commands.",
+            );
+          return {
+            kind: "commands",
+            commands: requireArray(payload.commands).map((item) => {
+              const command = requireRecord(item);
+              return {
+                name: requireString(command.name),
+                description: requireString(command.description),
+                usage: requireString(command.usage),
+              };
+            }),
+          };
+        }
+        const name = requireString(value.commandName);
+        const argumentsText = requireString(value.arguments);
+        if (
+          !/^\/[a-z][a-z0-9_-]*$/.test(name) ||
+          name.length > 512 ||
+          argumentsText.length > 32_000 ||
+          argumentsText.includes("\0")
+        )
+          throw protocolError(
+            "invalid_request",
+            "Choose a discovered command and valid arguments.",
+          );
+        const payload = await this.#request(`${path}/${encodeURIComponent(name.slice(1))}/render`, {
+          arguments: argumentsText,
+        });
+        if (payload.ok !== true || payload.session_id !== sessionId || payload.name !== name)
+          throw protocolError(
+            "invalid_daemon_response",
+            "OpenMinion did not render the requested command.",
+          );
+        return { kind: "command", prompt: requireString(payload.prompt) };
+      }
+      if (value.commandName !== undefined || value.arguments !== undefined)
+        throw protocolError("invalid_request", "Command arguments require a custom command.");
       if (value.kind === "agents") {
         const payload = await this.#request("/v1/agents");
         if (payload.ok !== true)
@@ -731,6 +788,115 @@ export class CliClient {
     });
   }
 
+  controlTools(input: unknown): Promise<ClientResult<{ text: string }>> {
+    return this.#control(async () => {
+      const value = requireRecord(input);
+      const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
+      const action = value.action;
+      if (action !== "activate" && action !== "deactivate")
+        throw protocolError("invalid_request", "Choose activate or deactivate.");
+      const fields =
+        action === "activate"
+          ? [
+              "targetKind",
+              "credentialScopes",
+              "dependencies",
+              "approved",
+              "ttlSeconds",
+              "reason",
+              "approvedBy",
+              "policySource",
+            ]
+          : [];
+      if (
+        Object.keys(value).some(
+          (key) =>
+            !["sessionId", "action", "profileId", "targetId", "taskId", ...fields].includes(key),
+        )
+      )
+        throw protocolError("invalid_request", "Use only this tool profile action's fields.");
+      const profileId = requireString(value.profileId).trim();
+      if (!profileId || profileId.length > 512 || /[\s\0]/.test(profileId))
+        throw protocolError("invalid_request", "Choose an exact tool profile ID.");
+      const body: Record<string, unknown> = { session_id: sessionId, profile_id: profileId };
+      for (const [key, field] of [
+        ["targetId", "target_id"],
+        ["taskId", "task_id"],
+        ["targetKind", "target_kind"],
+        ["reason", "activation_reason"],
+        ["approvedBy", "approved_by"],
+        ["policySource", "policy_source"],
+      ]) {
+        if (value[key] === undefined) continue;
+        const text = requireString(value[key]);
+        if (text.length > 4096 || text.includes("\0"))
+          throw protocolError("invalid_request", "Tool profile fields must be valid text.");
+        body[field] = text;
+      }
+      for (const [key, field] of [
+        ["credentialScopes", "credential_scopes"],
+        ["dependencies", "dependencies"],
+      ]) {
+        if (value[key] === undefined) continue;
+        const items = requireArray(value[key]).map(requireString);
+        if (
+          items.length > 100 ||
+          items.some((item) => !item.trim() || item.length > 512 || item.includes("\0"))
+        )
+          throw protocolError("invalid_request", "Choose valid credential and dependency names.");
+        body[field] = items;
+      }
+      if (value.approved !== undefined) {
+        if (typeof value.approved !== "boolean")
+          throw protocolError("invalid_request", "Approval must be an explicit choice.");
+        body.approved = value.approved;
+      }
+      if (value.ttlSeconds !== undefined) {
+        if (
+          typeof value.ttlSeconds !== "number" ||
+          !Number.isFinite(value.ttlSeconds) ||
+          value.ttlSeconds <= 0
+        )
+          throw protocolError("invalid_request", "Expiry must be a positive number of seconds.");
+        body.ttl_seconds = value.ttlSeconds;
+      }
+      if (this.#configuring || this.#taskControls.has(sessionId))
+        throw protocolError("task_control_busy", "Wait for the current operation to finish.");
+      if (this.#active.has(sessionId))
+        throw protocolError(
+          "session_turn_active",
+          "Finish or stop this turn before changing tool access.",
+        );
+      if (this.#drafts.has(sessionId))
+        throw protocolError("session_not_found", "Send a message before changing tool access.");
+      this.#taskControls.add(sessionId);
+      try {
+        const loaded = await this.load({ sessionId, messageLimit: 1 });
+        if (!loaded.ok) throw protocolError(loaded.error.code, loaded.error.message);
+        const payload = await this.#request(`/v1/tools/exposure/${action}`, body);
+        if (payload.ok !== true)
+          throw protocolError("tool_exposure_failed", "OpenMinion could not change tool access.");
+        if (action === "deactivate") {
+          if (typeof payload.deactivated !== "boolean")
+            throw protocolError(
+              "invalid_daemon_response",
+              "OpenMinion did not report whether access changed.",
+            );
+          return { text: `${payload.deactivated ? "Deactivated" : "Not active"}: ${profileId}` };
+        }
+        const activation = requireRecord(payload.activation);
+        if (activation.profile_id !== profileId)
+          throw protocolError(
+            "invalid_daemon_response",
+            "OpenMinion returned a different tool profile.",
+          );
+        return { text: `Activated: ${profileId} (${requireString(activation.audit_id)})` };
+      } finally {
+        this.#taskControls.delete(sessionId);
+      }
+    });
+  }
+
   exportTranscript(input: unknown): Promise<ClientResult<string>> {
     return this.#control(async () => {
       const value = requireRecord(input);
@@ -860,6 +1026,11 @@ export class CliClient {
         )
       )
         throw protocolError("invalid_request", "Choose a supported delegation action.");
+      if (action === "resume")
+        throw protocolError(
+          "unsupported_operation",
+          "OpenMinion does not resume delegated jobs. Start new delegated work instead.",
+        );
       const start = action === "sync" || action === "async";
       const list = action === "list";
       const lifecycle = !start && !list;
@@ -891,7 +1062,7 @@ export class CliClient {
         throw protocolError("invalid_request", "Choose an exact delegated task ID.");
       if (list && (!Number.isSafeInteger(limit) || limit < 1 || limit > 200))
         throw protocolError("invalid_request", "Choose a list limit from 1 to 200.");
-      const mutating = start || action === "cancel" || action === "resume";
+      const mutating = start || action === "cancel";
       if (this.#configuring || this.#taskControls.has(sessionId))
         throw protocolError("task_control_busy", "Wait for the current operation to finish.");
       if (mutating && this.#active.has(sessionId))
@@ -906,6 +1077,22 @@ export class CliClient {
         const parentAgentId = loaded.value.session.activeAgentId;
         if (!parentAgentId)
           throw protocolError("delegation_unavailable", "This conversation has no active agent.");
+        const context = this.#requireContext();
+        const command = start ? "delegate" : `delegate-${action}`;
+        const help = await this.#run(
+          context.executable,
+          [...context.args, "agent", command, "--help"],
+          30_000,
+        );
+        if (
+          help.exitCode !== 0 ||
+          !help.stdout.includes("--parent-agent-id") ||
+          !help.stdout.includes("--session-id")
+        )
+          throw protocolError(
+            "delegation_unavailable",
+            "This OpenMinion runtime does not support this conversation-scoped delegation action. Update the runtime before using it.",
+          );
         const scope = ["--parent-agent-id", parentAgentId, "--session-id", sessionId, "--json"];
         const args = start
           ? [
@@ -1864,6 +2051,12 @@ function summary(row: Record<string, unknown>, detail: boolean): SessionSummaryV
       "invalid_daemon_response",
       "OpenMinion returned an unsupported session state.",
     );
+  const messageCount = row.turns ?? null;
+  if (
+    messageCount !== null &&
+    (typeof messageCount !== "number" || !Number.isSafeInteger(messageCount) || messageCount < 0)
+  )
+    throw protocolError("invalid_daemon_response", "OpenMinion returned an invalid message count.");
   return {
     schemaVersion: 1,
     sessionId: requireString(row.id),
@@ -1875,6 +2068,9 @@ function summary(row: Record<string, unknown>, detail: boolean): SessionSummaryV
     createdAt: detail ? requireString(row.created_at) : "",
     updatedAt: detail ? requireString(row.updated_at) : "",
     activeAgentId: optionalString(row.agent),
+    channel: optionalString(row.channel ?? null),
+    messageCount,
+    updatedLabel: detail ? null : optionalString(row.age ?? null),
     model: { provider: null, modelId: null },
     projectId: null,
     eventCursor: "0",

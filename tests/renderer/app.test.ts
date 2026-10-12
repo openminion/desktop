@@ -22,6 +22,7 @@ import {
   waitingTime,
 } from "../../src/renderer/app.js";
 import { renderTasks } from "../../src/renderer/tasks.js";
+import { renderMarkdown } from "../../src/renderer/markdown.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
 import type {
   ArtifactCatalogItemV1,
@@ -41,12 +42,13 @@ import type {
 
 function mount(api: NativeApi, root: Document): Promise<void> {
   api.chatNames ??= namesApi();
+  api.reports ??= { read: async () => ({ ok: true, value: { kind: "commands", commands: [] } }) };
   api.drafts ??= {
     load: async () => ({ ok: true, value: [] }),
     save: async () => ({ ok: true, value: "00000000-0000-4000-8000-000000000001" }),
   };
   api.presentation ??= {
-    load: async () => ({ ok: true, value: { quietTools: false } }),
+    load: async () => ({ ok: true, value: { toolDisplay: "normal" } }),
     save: async () => ({ ok: true, value: null }),
   };
   api.runtime ??= {
@@ -105,6 +107,173 @@ function namesApi(): NativeApi["chatNames"] {
 }
 
 describe("renderer computer observation", () => {
+  it("discovers session commands and sends only their canonical rendered prompt", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    const commands = [
+      { name: "/summarize", description: "Summarize notes", usage: "/summarize <notes>" },
+    ];
+    api.reports = {
+      read: vi.fn(async (input) =>
+        input.kind === "commands"
+          ? { ok: true as const, value: { kind: "commands" as const, commands } }
+          : {
+              ok: true as const,
+              value: { kind: "command" as const, prompt: "/literal prompt\nKeep  two spaces" },
+            },
+      ),
+    };
+    vi.mocked(api.turns.submit).mockResolvedValue({
+      ok: true,
+      value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/summarize first  second";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+      expect(api.reports.read).toHaveBeenCalledWith({
+        kind: "command",
+        sessionId: "session-1",
+        commandName: "/summarize",
+        arguments: "first  second",
+      });
+      expect(api.turns.submit).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "/literal prompt\nKeep  two spaces" }),
+      );
+      expect(commandMatches("/summ", commands).map((item) => item.name)).toEqual(["/summarize"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps a custom-command draft when Core refuses local expansion", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.reports = {
+      read: vi.fn(async (input) =>
+        input.kind === "commands"
+          ? {
+              ok: true as const,
+              value: {
+                kind: "commands" as const,
+                commands: [{ name: "/local", description: "Local", usage: "/local" }],
+              },
+            }
+          : {
+              ok: false as const,
+              error: {
+                code: "unsupported_custom_command_expansion",
+                message: "This command requires terminal-local file or shell expansion.",
+                retryable: false,
+                retryAfterMs: null,
+              },
+            },
+      ),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/local";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "This command requires terminal-local file or shell expansion.",
+        ),
+      );
+      expect(page.element("composer").value).toBe("/local");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not replace an edited draft with a delayed custom command", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    let finish!: (value: unknown) => void;
+    api.reports = {
+      read: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          value: {
+            kind: "commands",
+            commands: [{ name: "/notes", description: "Notes", usage: "/notes" }],
+          },
+        })
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        ),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/notes";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.reports.read).toHaveBeenCalledTimes(2));
+      page.element("composer").value = "My revised draft";
+      finish({ ok: true, value: { kind: "command", prompt: "Old expanded prompt" } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(page.element("composer").value).toBe("My revised draft");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("opens a scoped tool form with approval unselected and submits only on user action", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.tools = {
+      control: vi.fn().mockResolvedValue({ ok: true, value: { text: "Activated: web (audit-1)" } }),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/tools activate web";
+      page.element("composer-form").dispatch("submit");
+      const form = page
+        .element("command-result")
+        .descendants()
+        .find((item) => item.tagName === "form")!;
+      expect(form).toBeDefined();
+      const approval = form.descendants().find((item) => item.type === "checkbox")!;
+      expect(approval.checked).toBe(false);
+      expect(api.tools.control).not.toHaveBeenCalled();
+      approval.checked = true;
+      form.dispatch("submit");
+      await vi.waitFor(() => expect(api.tools.control).toHaveBeenCalledOnce());
+      expect(api.tools.control).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: "session-1",
+          action: "activate",
+          profileId: "web",
+          approved: true,
+        }),
+      );
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("loads and saves quiet/normal as Desktop presentation preferences", async () => {
     const save = vi.fn<NativeApi["presentation"]["save"]>(async () => ({
       ok: true,
@@ -115,7 +284,7 @@ describe("renderer computer observation", () => {
       daemon: { status: async () => status({ state: "degraded" }) },
       turns: { subscribe: () => () => {} },
       presentation: {
-        load: vi.fn(async () => ({ ok: true, value: { quietTools: true } })),
+        load: vi.fn(async () => ({ ok: true, value: { toolDisplay: "quiet" } })),
         save,
       },
     } as unknown as NativeApi;
@@ -127,11 +296,40 @@ describe("renderer computer observation", () => {
       expect(page.element("chat-display").value).toBe("quiet");
       page.element("composer").value = "/normal";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: false }));
+      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: "normal" }));
       page.element("composer").value = "/quiet";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: true }));
+      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: "quiet" }));
       await vi.waitFor(() => expect(page.element("chat-display").value).toBe("quiet"));
+      for (const [command, expected] of [
+        ["/verbose", "verbose"],
+        ["/details", "normal"],
+        ["/details toggle", "verbose"],
+        ["/details off", "normal"],
+        ["/details on", "verbose"],
+        ["/details quiet", "quiet"],
+        ["/details", "verbose"],
+        ["/details normal", "normal"],
+        ["/details full", "verbose"],
+        ["/details concise", "normal"],
+        ["/details details", "verbose"],
+        ["/details verbose", "verbose"],
+      ]) {
+        save.mockClear();
+        page.element("composer").value = command!;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: expected }));
+        await vi.waitFor(() => expect(page.element("chat-display").disabled).toBe(false));
+        expect(page.element("chat-display").value).toBe(expected);
+      }
+      save.mockClear();
+      for (const command of ["/details never", "/details on off", "/verbose extra"]) {
+        page.element("composer").value = command;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await Promise.resolve();
+        expect(save).not.toHaveBeenCalled();
+        expect(page.element("chat-display").value).toBe("verbose");
+      }
       page.element("chat-display").value = "normal";
       page.element("chat-display").dispatch("change");
       await vi.waitFor(() =>
@@ -508,7 +706,7 @@ describe("renderer status view", () => {
                 role: "user",
               },
               {
-                ...message("reply", "minimax: **Answer**"),
+                ...message("reply", "minimax: **Answer**\n\n```python\nprint('hello')\n```"),
                 profileName: "minimax",
               },
             ],
@@ -530,7 +728,7 @@ describe("renderer status view", () => {
       const buttons = page
         .element("timeline")
         .descendants()
-        .filter((item) => item.className.includes("message-copy"));
+        .filter((item) => item.title === "Copy message");
       expect(buttons).toHaveLength(2);
       const times = page
         .element("timeline")
@@ -547,7 +745,14 @@ describe("renderer status view", () => {
       expect(copyText).toHaveBeenLastCalledWith("First line\nSecond line");
       buttons[1]!.click();
       await vi.waitFor(() => expect(buttons[1]!.textContent).toBe("Copied"));
-      expect(copyText).toHaveBeenLastCalledWith("**Answer**");
+      expect(copyText).toHaveBeenLastCalledWith("**Answer**\n\n```python\nprint('hello')\n```");
+      const codeCopy = page
+        .element("timeline")
+        .descendants()
+        .find((item) => item.title === "Copy code")!;
+      codeCopy.click();
+      await vi.waitFor(() => expect(codeCopy.textContent).toBe("Copied"));
+      expect(copyText).toHaveBeenLastCalledWith("print('hello')\n");
       await vi.waitFor(() => expect(buttons[1]!.disabled).toBe(false), {
         timeout: 2500,
       });
@@ -561,6 +766,32 @@ describe("renderer status view", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("offers exact code separately from Markdown and keeps code and language labels literal", () => {
+    const page = new FixtureDocument();
+    const body = page.createElement("div");
+    const copyCode = vi.fn<(code: string) => HTMLButtonElement>(
+      () => page.createElement("button") as unknown as HTMLButtonElement,
+    );
+    renderMarkdown(
+      page.asDocument(),
+      body as unknown as HTMLElement,
+      '```<img> extra metadata\n  <script>alert("x")</script>\n\n```\n\n    indented code\n\n`inline`',
+      copyCode,
+    );
+    expect(copyCode.mock.calls.map(([code]) => code)).toEqual([
+      '  <script>alert("x")</script>\n\n',
+      "indented code\n",
+    ]);
+    const nodes = body.descendants();
+    expect(nodes.filter((node) => node.tagName === "pre")).toHaveLength(2);
+    expect(nodes.some((node) => node.tagName === "script" || node.tagName === "img")).toBe(false);
+    expect(
+      nodes
+        .filter((node) => node.className === "code-header")
+        .map((node) => node.children[0]!.textContent),
+    ).toEqual(["<img>", "Code"]);
   });
 
   it("clears a sending draft immediately, preserves new typing, and keeps terminal errors after refresh", async () => {
@@ -753,6 +984,138 @@ describe("renderer status view", () => {
       expect(page.element("settings-runtime-button").focus).toHaveBeenCalled();
       expect(result.descendants().some((item) => item.textContent === "Late status")).toBe(false);
       expect(page.element("composer").value).toBe("Keep my draft");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("refreshes the session picker without replacing the chat and ignores failed or stale reads", async () => {
+    const original = sessionSummary();
+    const fresh = {
+      ...original,
+      sessionId: "external-session",
+      title: original.title,
+      channel: "cli",
+      messageCount: 0,
+      updatedLabel: "2m",
+    };
+    const list = vi.fn<NativeApi["sessions"]["list"]>().mockResolvedValue({
+      ok: true,
+      value: { sessions: [original], nextCursor: null, hasMore: false },
+    });
+    const load = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      ok: true,
+      value: {
+        session: sessionId === original.sessionId ? original : fresh,
+        messages: [message("reply", "Saved reply")],
+        nextMessageCursor: null,
+        messagesHasMore: false,
+      },
+    }));
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list,
+        load,
+        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const command = (text: string) => {
+        page.element("composer").value = text;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+      };
+      list.mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [original], nextCursor: "next", hasMore: true },
+      });
+      list.mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [fresh], nextCursor: null, hasMore: false },
+      });
+      command("/sessions");
+      await vi.waitFor(() => expect(page.element("command-result").children).toHaveLength(4));
+      expect(list).toHaveBeenLastCalledWith({ cursor: "next", limit: 100 });
+      expect(page.element("command-result").children[3]!.children[1]!.textContent).toBe(
+        "external-session",
+      );
+      expect(page.element("command-result").children[3]!.children[2]!.textContent).toContain(
+        "Channel: cli · Messages: 0 · Updated: 2m",
+      );
+      expect(page.element("command-result").children[2]!.getAttribute("aria-current")).toBe("true");
+      expect(page.sessionButtons()).toHaveLength(1);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(page.findText()).toContain("Saved reply");
+      const freshButton = page.element("command-result").children[3]!;
+      list.mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [fresh], nextCursor: "next", hasMore: true },
+      });
+      list.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "connection_lost",
+          message: "Catalog unavailable",
+          retryable: true,
+          retryAfterMs: null,
+        },
+      });
+      command("/sessions");
+      await vi.waitFor(() =>
+        expect(page.element("command-title").textContent).toBe("Conversations unavailable"),
+      );
+      expect(page.element("command-result").children).toHaveLength(2);
+      expect(page.sessionButtons()).toHaveLength(1);
+      expect(page.findText()).toContain("Saved reply");
+      expect(load).toHaveBeenCalledTimes(1);
+      for (const supersede of ["dismiss", "command", "selection", "repeat"]) {
+        let finish!: (value: Awaited<ReturnType<NativeApi["sessions"]["list"]>>) => void;
+        list.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+        command("/sessions");
+        if (supersede === "dismiss")
+          page.element("composer").dispatch("keydown", { key: "Escape" });
+        else if (supersede === "command") command("/status");
+        else if (supersede === "selection") freshButton.click();
+        else command("/sessions");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const title = page.element("command-title").textContent;
+        const hidden = page.element("command-panel").hidden;
+        finish({
+          ok: false,
+          error: {
+            code: "connection_lost",
+            message: "Stale failure",
+            retryable: true,
+            retryAfterMs: null,
+          },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(page.element("command-title").textContent).toBe(title);
+        expect(page.element("command-panel").hidden).toBe(hidden);
+        expect(page.element("command-result").children[0]?.textContent).not.toBe("Stale failure");
+      }
+      expect(load).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sessionId: "external-session" }),
+      );
+      expect(page.sessionButtons()).toHaveLength(2);
+      expect(page.sessionButtons()[1]!.className).toContain("selected");
+      command("/status");
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Channel: cli\nMessages: 0",
+      );
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1580,7 +1943,7 @@ describe("renderer status view", () => {
       expect(page.element("command-result").children[0]?.textContent).not.toContain("old result");
       page.element("composer").value = "/tools enable search";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      expect(page.element("command-title").textContent).toBe("Command arguments");
+      expect(page.element("command-title").textContent).toBe("Tool access");
       expect(read).toHaveBeenCalledTimes(6);
       read.mockImplementationOnce(
         () =>
@@ -1715,7 +2078,9 @@ describe("renderer status view", () => {
       for (const command of ["/files", "/screenshot", "/cancel", "/retry", "/resume"]) {
         page.element("composer").value = command;
         page.element("composer").dispatch("keydown", { key: "Enter" });
-        expect(page.element("command-title").textContent).toBe("Command unavailable");
+        await vi.waitFor(() =>
+          expect(page.element("command-title").textContent).toBe("Command unavailable"),
+        );
       }
       expect(submit).not.toHaveBeenCalled();
       page.element("composer").value = "Preserve during outage";
@@ -2492,7 +2857,7 @@ describe("renderer status view", () => {
         durationMs: 10,
         exitCode: 0,
         createdAt: "2026-10-05T00:00:02Z",
-        content: "  output\nsecond line\n",
+        content: "  output\nsecond line\nthird\nfourth\nfifth\nsixth\nseventh\n",
         truncated: true,
       };
       receive(tool);
@@ -2501,6 +2866,21 @@ describe("renderer status view", () => {
         .element("timeline")
         .descendants()
         .find((item) => item.className === "tool-output")!;
+      expect(
+        page
+          .element("timeline")
+          .descendants()
+          .find((item) => item.className === "tool-preview")!.textContent,
+      ).toBe("  output\nsecond line\nthird\nfourth\nfifth\nsixth");
+      for (const [command, expanded] of [
+        ["/verbose", true],
+        ["/details off", false],
+      ] as const) {
+        page.element("composer").value = command;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await vi.waitFor(() => expect(output.open).toBe(expanded));
+        expect(page.element("timeline").descendants()).toContain(output);
+      }
       expect(output.tagName).toBe("details");
       expect(output.open).toBe(false);
       expect(output.children[0]!.tagName).toBe("summary");
@@ -2890,7 +3270,7 @@ describe("renderer status view", () => {
         subscribe: vi.fn().mockReturnValue(vi.fn()),
       },
       presentation: {
-        load: async () => ({ ok: true, value: { quietTools } }),
+        load: async () => ({ ok: true, value: { toolDisplay: quietTools ? "quiet" : "normal" } }),
         save: vi.fn(),
       },
       approvals: { decide },
@@ -5091,6 +5471,10 @@ class FixtureElement {
   private readonly listeners = new Map<string, Array<(event: FixtureEvent) => void>>();
 
   constructor(readonly tagName: string) {}
+
+  querySelector(tag: string): FixtureElement | null {
+    return this.descendants().find((item) => item !== this && item.tagName === tag) ?? null;
+  }
 
   contains(element: FixtureElement | null): boolean {
     return element !== null && this.descendants().includes(element);

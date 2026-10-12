@@ -81,7 +81,9 @@ npm run make
 `npm start` runs the source-development app. `npm run package` builds and
 inspects the native application directory. `npm run make` also creates and
 inspects the native unsigned artifacts: DMG and ZIP on macOS, ZIP on Windows,
-and DEB and ZIP on Linux. These are development artifacts, not public releases.
+and DEB and ZIP on Linux. Reviewed all-platform builds may be published in
+`openminion/runtime` as explicitly unsigned development prereleases; they are
+not stable Desktop releases or automatic-update offers.
 
 ## What OpenMinion Desktop Provides
 

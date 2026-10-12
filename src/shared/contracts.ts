@@ -19,6 +19,8 @@ import type {
   TaskControlInput,
   TaskControlValue,
 } from "./tasks.js";
+export type ToolDisplay = "quiet" | "normal" | "verbose";
+
 export type DaemonState =
   | "idle"
   | "probing"
@@ -67,6 +69,9 @@ export type SessionSummaryV1 = {
   createdAt: string;
   updatedAt: string;
   activeAgentId: string | null;
+  channel?: string | null;
+  messageCount?: number | null;
+  updatedLabel?: string | null;
   model: { provider: string | null; modelId: string | null };
   projectId: string | null;
   eventCursor: string;
@@ -654,6 +659,22 @@ export type RuntimeUpdateStatus = {
     | "unmanaged";
 };
 
+export type ToolProfileInput = {
+  sessionId: string;
+  action: "activate" | "deactivate";
+  profileId: string;
+  targetId?: string;
+  taskId?: string;
+  targetKind?: string;
+  credentialScopes?: string[];
+  dependencies?: string[];
+  approved?: boolean;
+  ttlSeconds?: number;
+  reason?: string;
+  approvedBy?: string;
+  policySource?: string;
+};
+
 export type NativeApi = {
   runtime: {
     status(): Promise<RuntimeUpdateStatus>;
@@ -670,8 +691,11 @@ export type NativeApi = {
     save(input: { sessionId: string; title: string | null }): Promise<ClientResult<null>>;
   };
   presentation: {
-    load(): Promise<ClientResult<{ quietTools: boolean }>>;
-    save(input: { quietTools: boolean }): Promise<ClientResult<null>>;
+    load(): Promise<ClientResult<{ toolDisplay: ToolDisplay }>>;
+    save(input: { toolDisplay: ToolDisplay }): Promise<ClientResult<null>>;
+  };
+  tools: {
+    control(input: ToolProfileInput): Promise<ClientResult<{ text: string }>>;
   };
   reports: {
     read(input: ReportInput): Promise<ClientResult<ReportValue>>;
@@ -773,6 +797,7 @@ export const IPC_CHANNELS = {
   presentationLoad: "desktop:presentation:load",
   presentationSave: "desktop:presentation:save",
   reportsRead: "openminion:reports:read",
+  toolsControl: "openminion:tools:control",
   sessionsExport: "openminion:sessions:export",
   tasksControl: "openminion:tasks:control",
   delegationControl: "openminion:delegation:control",

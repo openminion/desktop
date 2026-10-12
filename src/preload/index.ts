@@ -30,6 +30,7 @@ const api: NativeApi = {
     load: () => ipcRenderer.invoke(IPC_CHANNELS.presentationLoad),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.presentationSave, input),
   },
+  tools: { control: (input) => ipcRenderer.invoke(IPC_CHANNELS.toolsControl, input) },
   reports: { read: (input) => ipcRenderer.invoke(IPC_CHANNELS.reportsRead, input) },
   tasks: {
     control: (input) => ipcRenderer.invoke(IPC_CHANNELS.tasksControl, input),
