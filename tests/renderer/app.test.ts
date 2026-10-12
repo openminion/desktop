@@ -989,6 +989,138 @@ describe("renderer status view", () => {
     }
   });
 
+  it("refreshes the session picker without replacing the chat and ignores failed or stale reads", async () => {
+    const original = sessionSummary();
+    const fresh = {
+      ...original,
+      sessionId: "external-session",
+      title: original.title,
+      channel: "cli",
+      messageCount: 0,
+      updatedLabel: "2m",
+    };
+    const list = vi.fn<NativeApi["sessions"]["list"]>().mockResolvedValue({
+      ok: true,
+      value: { sessions: [original], nextCursor: null, hasMore: false },
+    });
+    const load = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      ok: true,
+      value: {
+        session: sessionId === original.sessionId ? original : fresh,
+        messages: [message("reply", "Saved reply")],
+        nextMessageCursor: null,
+        messagesHasMore: false,
+      },
+    }));
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list,
+        load,
+        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const command = (text: string) => {
+        page.element("composer").value = text;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+      };
+      list.mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [original], nextCursor: "next", hasMore: true },
+      });
+      list.mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [fresh], nextCursor: null, hasMore: false },
+      });
+      command("/sessions");
+      await vi.waitFor(() => expect(page.element("command-result").children).toHaveLength(4));
+      expect(list).toHaveBeenLastCalledWith({ cursor: "next", limit: 100 });
+      expect(page.element("command-result").children[3]!.children[1]!.textContent).toBe(
+        "external-session",
+      );
+      expect(page.element("command-result").children[3]!.children[2]!.textContent).toContain(
+        "Channel: cli · Messages: 0 · Updated: 2m",
+      );
+      expect(page.element("command-result").children[2]!.getAttribute("aria-current")).toBe("true");
+      expect(page.sessionButtons()).toHaveLength(1);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(page.findText()).toContain("Saved reply");
+      const freshButton = page.element("command-result").children[3]!;
+      list.mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [fresh], nextCursor: "next", hasMore: true },
+      });
+      list.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "connection_lost",
+          message: "Catalog unavailable",
+          retryable: true,
+          retryAfterMs: null,
+        },
+      });
+      command("/sessions");
+      await vi.waitFor(() =>
+        expect(page.element("command-title").textContent).toBe("Conversations unavailable"),
+      );
+      expect(page.element("command-result").children).toHaveLength(2);
+      expect(page.sessionButtons()).toHaveLength(1);
+      expect(page.findText()).toContain("Saved reply");
+      expect(load).toHaveBeenCalledTimes(1);
+      for (const supersede of ["dismiss", "command", "selection", "repeat"]) {
+        let finish!: (value: Awaited<ReturnType<NativeApi["sessions"]["list"]>>) => void;
+        list.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+        command("/sessions");
+        if (supersede === "dismiss")
+          page.element("composer").dispatch("keydown", { key: "Escape" });
+        else if (supersede === "command") command("/status");
+        else if (supersede === "selection") freshButton.click();
+        else command("/sessions");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const title = page.element("command-title").textContent;
+        const hidden = page.element("command-panel").hidden;
+        finish({
+          ok: false,
+          error: {
+            code: "connection_lost",
+            message: "Stale failure",
+            retryable: true,
+            retryAfterMs: null,
+          },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(page.element("command-title").textContent).toBe(title);
+        expect(page.element("command-panel").hidden).toBe(hidden);
+        expect(page.element("command-result").children[0]?.textContent).not.toBe("Stale failure");
+      }
+      expect(load).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sessionId: "external-session" }),
+      );
+      expect(page.sessionButtons()).toHaveLength(2);
+      expect(page.sessionButtons()[1]!.className).toContain("selected");
+      command("/status");
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Channel: cli\nMessages: 0",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("filters the paginated task catalog without changing selection or drafts", async () => {
     const sessions = [
       sessionSummary(),

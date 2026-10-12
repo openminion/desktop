@@ -2203,18 +2203,41 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           );
         else elements.closeSession.click();
         break;
-      case "/sessions":
+      case "/sessions": {
+        showCommandResult("Choose a conversation", "Loading conversations…");
+        const request = commandResultGeneration;
+        const generation = selectionGeneration;
+        const catalog = await listSessions(api);
+        if (request !== commandResultGeneration || generation !== selectionGeneration) break;
+        if (!Array.isArray(catalog)) {
+          showCommandResult("Conversations unavailable", catalog.message);
+          break;
+        }
         showCommandResult(
           "Choose a conversation",
-          sessions.length
-            ? "Resume a saved conversation."
-            : "No saved conversations. Connect OpenMinion and create a new conversation.",
+          catalog.length
+            ? "Choose a saved conversation."
+            : "No saved conversations. Create a new conversation to begin.",
         );
-        for (const session of sessions) {
+        for (const session of catalog) {
           const button = root.createElement("button");
           button.type = "button";
-          button.className = "command-option";
-          button.textContent = `${taskName(session)} · ${session.status}`;
+          button.className = "command-option session-option";
+          if (session.sessionId === selected?.sessionId)
+            button.setAttribute("aria-current", "true");
+          const title = root.createElement("strong");
+          title.textContent = taskName(session);
+          const id = root.createElement("span");
+          id.textContent = session.sessionId;
+          const facts = root.createElement("small");
+          facts.textContent = [
+            session.status,
+            `Agent: ${session.activeAgentId ?? "Not reported"}`,
+            `Channel: ${session.channel ?? "Not reported"}`,
+            `Messages: ${session.messageCount ?? "Not reported"}`,
+            `Updated: ${session.updatedLabel ?? "Not reported"}`,
+          ].join(" · ");
+          button.append(title, id, facts);
           button.addEventListener("click", () => {
             hideCommandResult();
             void selectSession(session);
@@ -2222,6 +2245,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           elements.commandResult.append(button);
         }
         break;
+      }
       case "/status":
       case "/model":
         showCommandResult(
@@ -2231,6 +2255,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             `Conversation: ${selected ? taskName(selected) : "No conversation selected"}`,
             `Session: ${selected?.sessionId ?? "None"}`,
             `Agent: ${selected?.activeAgentId ?? "Not reported"}`,
+            ...(command === "/status"
+              ? [
+                  `Channel: ${selected?.channel ?? "Not reported"}`,
+                  `Messages: ${selected?.messageCount ?? "Not reported"}`,
+                  `Updated: ${selected?.updatedAt || selected?.updatedLabel || "Not reported"}`,
+                ]
+              : []),
             `Provider: ${selected?.model.provider ?? "Not reported"}`,
             `Model: ${selected?.model.modelId ?? "Not reported"}`,
             chat.label,
@@ -2727,6 +2758,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       return;
     }
     selected = recovered.session;
+    const index = sessions.findIndex((item) => item.sessionId === recovered.session.sessionId);
+    if (index === -1) sessions.push(recovered.session);
+    else sessions[index] = recovered.session;
     messages = recovered.messages;
     submittedText = null;
     responseText = "";
