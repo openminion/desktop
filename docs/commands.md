@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -62,6 +62,13 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/details [on\|off\|quiet\|toggle]` | Toggle verbose/normal or select a mode. Uses Focus aliases: verbose/full/details → on; normal/concise → off. |
 | `/graph`                | Show the installed OpenMinion CLI's graph help through a fixed read-only invocation. This is guidance, not an embedded graph workflow.                                                                                    |
 | `/editor`               | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.29 runtime.                                                                               |
+
+`/sessions` refreshes the saved conversation list from OpenMinion. Each entry
+shows its friendly name and full session ID, along with the reported agent,
+channel, message count and update age. Selecting an entry opens it and adds it
+to the sidebar if needed. Missing metadata is shown as not reported. `/status`
+includes the selected conversation's loaded channel, message count and update
+time.
 
 Tool display is saved for this Desktop installation and applies across conversations. Manual disclosure changes survive unrelated chat updates; changing the display mode resets disclosures to that mode. Quiet always keeps approvals visible.
 

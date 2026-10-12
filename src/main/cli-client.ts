@@ -2051,6 +2051,12 @@ function summary(row: Record<string, unknown>, detail: boolean): SessionSummaryV
       "invalid_daemon_response",
       "OpenMinion returned an unsupported session state.",
     );
+  const messageCount = row.turns ?? null;
+  if (
+    messageCount !== null &&
+    (typeof messageCount !== "number" || !Number.isSafeInteger(messageCount) || messageCount < 0)
+  )
+    throw protocolError("invalid_daemon_response", "OpenMinion returned an invalid message count.");
   return {
     schemaVersion: 1,
     sessionId: requireString(row.id),
@@ -2062,6 +2068,9 @@ function summary(row: Record<string, unknown>, detail: boolean): SessionSummaryV
     createdAt: detail ? requireString(row.created_at) : "",
     updatedAt: detail ? requireString(row.updated_at) : "",
     activeAgentId: optionalString(row.agent),
+    channel: optionalString(row.channel ?? null),
+    messageCount,
+    updatedLabel: detail ? null : optionalString(row.age ?? null),
     model: { provider: null, modelId: null },
     projectId: null,
     eventCursor: "0",

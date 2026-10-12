@@ -138,6 +138,37 @@ async function check() {
     await waitFor(
       "document.querySelector('#command-title').textContent === 'Delegation' && document.querySelector('#command-result').textContent.includes('Delegation result')",
     );
+    await submit("/sessions");
+    await waitFor("!!document.querySelector('.session-option[aria-current=true]')");
+    const listed = await runCommand(executable, [...args, "sessions", "list", "--json"], 30_000);
+    assert.equal(listed.exitCode, 0, listed.stderr);
+    const catalog = JSON.parse(listed.stdout);
+    const activeId = await evaluate(
+      "document.querySelector('.session-option[aria-current=true] > span').textContent",
+    );
+    const active = catalog.find((item) => item.id === activeId);
+    assert.ok(active);
+    const facts = await evaluate(
+      "document.querySelector('.session-option[aria-current=true] small').textContent",
+    );
+    assert.ok(facts.includes(`Channel: ${active.channel}`));
+    assert.ok(facts.includes(`Messages: ${active.turns}`));
+    assert.ok(facts.includes(`Agent: ${active.agent}`));
+    await evaluate("document.querySelector('.session-option[aria-current=true]').focus()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+    await waitFor(
+      "document.querySelector('#command-panel').hidden && document.querySelector('#timeline').getAttribute('aria-busy') === 'false'",
+    );
+    await submit("/status");
+    assert.ok(
+      (await evaluate("document.querySelector('#command-result').textContent")).includes(
+        `Messages: ${active.turns}`,
+      ),
+    );
+    await submit("/sessions");
+    await waitFor("!!document.querySelector('.session-option[aria-current=true]')");
     assert.equal(await evaluate("document.querySelectorAll('.message.assistant').length"), 2);
     for (const [width, height] of [
       [760, 560],
@@ -147,10 +178,24 @@ async function check() {
       await evaluate(
         "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
       );
+      await evaluate("document.querySelector('.session-option').scrollIntoView({ block: 'end' })");
       assert.equal(await evaluate("document.documentElement.scrollWidth > innerWidth"), false);
+      assert.equal(
+        await evaluate(`(() => {
+        const option = document.querySelector('.session-option').getBoundingClientRect();
+        const composer = document.querySelector('#composer-form').getBoundingClientRect();
+        return option.top >= 0 && option.bottom <= composer.top;
+      })()`),
+        true,
+      );
+      if (process.env.OPENMINION_E2E_ARTIFACTS)
+        await writeFile(
+          join(process.env.OPENMINION_E2E_ARTIFACTS, `sessions-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
     }
     console.log(
-      "PASS: real Core custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, and responsive native UI. Provider-free evidence only.",
+      "PASS: real Core custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, fresh CLI session metadata, keyboard session selection, and responsive native UI. Provider-free evidence only.",
     );
     await finish(0);
   } catch (error) {

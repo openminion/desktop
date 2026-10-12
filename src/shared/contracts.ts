@@ -69,6 +69,9 @@ export type SessionSummaryV1 = {
   createdAt: string;
   updatedAt: string;
   activeAgentId: string | null;
+  channel?: string | null;
+  messageCount?: number | null;
+  updatedLabel?: string | null;
   model: { provider: string | null; modelId: string | null };
   projectId: string | null;
   eventCursor: string;

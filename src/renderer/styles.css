@@ -2597,3 +2597,15 @@ code {
 .session-item:has(.session-spinner:not([hidden])) {
   padding-left: 32px;
 }
+
+.session-option {
+  display: grid;
+  gap: 4px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.session-option small {
+  color: var(--muted);
+  font-weight: 400;
+}

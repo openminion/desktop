@@ -14,6 +14,70 @@ afterEach(async () => {
 });
 
 describe("PyPI CLI client", () => {
+  it("preserves canonical session catalog and detail metadata without inventing missing facts", async () => {
+    let facts: Record<string, unknown> = { channel: "cli", turns: 0, age: "2m" };
+    const run = vi.fn(async (_executable: string, args: readonly string[]) => ({
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        args[1] === "export"
+          ? ""
+          : JSON.stringify(
+              args[1] === "list"
+                ? [{ ...session("saved"), ...facts }]
+                : { ...session("saved"), ...facts },
+            ),
+    }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    expect(await client.list({})).toMatchObject({
+      ok: true,
+      value: {
+        sessions: [
+          {
+            channel: "cli",
+            messageCount: 0,
+            updatedLabel: "2m",
+          },
+        ],
+      },
+    });
+    expect(await client.load({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: {
+        session: {
+          channel: "cli",
+          messageCount: 0,
+          updatedLabel: null,
+          updatedAt: now,
+        },
+      },
+    });
+    facts = {};
+    expect(await client.list({})).toMatchObject({
+      ok: true,
+      value: {
+        sessions: [
+          {
+            channel: null,
+            messageCount: null,
+            updatedLabel: null,
+          },
+        ],
+      },
+    });
+    for (const invalid of ["2", -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      facts = { turns: invalid };
+      expect(await client.list({})).toMatchObject({
+        ok: false,
+        error: { code: "invalid_daemon_response" },
+      });
+    }
+    for (const invalid of [{ channel: 1 }, { age: false }]) {
+      facts = invalid;
+      expect(await client.list({})).toMatchObject({ ok: false });
+    }
+  });
+
   it("uses authenticated session custom-command routes without exposing private fields", async () => {
     const requests: {
       path: string | undefined;
