@@ -67,8 +67,10 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 shows its friendly name and full session ID, along with the reported agent,
 channel, message count and update age. Selecting an entry opens it and adds it
 to the sidebar if needed. Missing metadata is shown as not reported. `/status`
-includes the selected conversation's loaded channel, message count and update
-time.
+reads the selected saved conversation's current state, channel, message count
+and update time from OpenMinion without reloading the chat. Unsent drafts use
+local details. Provider and model remain not reported when unavailable; this
+report does not include Focus's complete live runtime status.
 
 Tool display is saved for this Desktop installation and applies across conversations. Manual disclosure changes survive unrelated chat updates; changing the display mode resets disclosures to that mode. Quiet always keeps approvals visible.
 

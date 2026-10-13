@@ -521,6 +521,22 @@ export class CliClient {
       }
       if (value.commandName !== undefined || value.arguments !== undefined)
         throw protocolError("invalid_request", "Command arguments require a custom command.");
+      if (value.kind === "status") {
+        if (Object.keys(value).some((key) => !["kind", "sessionId"].includes(key)))
+          throw protocolError("invalid_request", "Choose a conversation for status.");
+        const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
+        if (sessionId.startsWith("-") || sessionId.includes("\0"))
+          throw protocolError("invalid_request", "Choose a valid session ID.");
+        const draft = this.#drafts.get(sessionId);
+        if (draft) return { kind: "status", session: draft };
+        const session = summary(
+          requireRecord(await this.#json(["sessions", "show", sessionId, "--json"])),
+          true,
+        );
+        if (session.sessionId !== sessionId)
+          throw protocolError("invalid_daemon_response", "The returned session does not match.");
+        return { kind: "status", session };
+      }
       if (value.kind === "agents") {
         const payload = await this.#request("/v1/agents");
         if (payload.ok !== true)
