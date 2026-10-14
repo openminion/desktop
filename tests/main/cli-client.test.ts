@@ -78,6 +78,65 @@ describe("PyPI CLI client", () => {
     }
   });
 
+  it("reads persisted status without exporting history and keeps draft status local", async () => {
+    let row = { ...session("saved"), channel: "cli", turns: 8, metadata: { secret: "private" } };
+    const run = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: JSON.stringify(row) }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const result = await client.readReport({ kind: "status", sessionId: "saved" });
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        kind: "status",
+        session: {
+          sessionId: "saved",
+          channel: "cli",
+          messageCount: 8,
+          updatedAt: now,
+          model: { provider: null, modelId: null },
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("private");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenLastCalledWith(
+      "openminion",
+      ["sessions", "show", "saved", "--json"],
+      expect.any(Number),
+    );
+    const draft = await client.create({});
+    if (!draft.ok) throw new Error("Draft not created");
+    run.mockClear();
+    expect(
+      await client.readReport({ kind: "status", sessionId: draft.value.sessionId }),
+    ).toMatchObject({ ok: true, value: { kind: "status", session: { isDraft: true } } });
+    for (const input of [
+      { kind: "status" },
+      { kind: "status", sessionId: "--help" },
+      { kind: "status", sessionId: "saved\0" },
+      { kind: "status", sessionId: "saved", toolView: "status" },
+      { kind: "status", sessionId: "saved", agentFilter: undefined },
+    ])
+      expect(await client.readReport(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(run).not.toHaveBeenCalled();
+    row = { ...row, id: "other" };
+    expect(await client.readReport({ kind: "status", sessionId: "saved" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    row = { ...row, id: "saved", turns: -1 };
+    expect(await client.readReport({ kind: "status", sessionId: "saved" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    run.mockResolvedValueOnce({ exitCode: 1, stderr: "Session unavailable", stdout: "" });
+    expect(await client.readReport({ kind: "status", sessionId: "saved" })).toMatchObject({
+      ok: false,
+    });
+  });
+
   it("uses authenticated session custom-command routes without exposing private fields", async () => {
     const requests: {
       path: string | undefined;

@@ -1,8 +1,11 @@
+import type { SessionSummaryV1 } from "./contracts.js";
+
 export type CustomCommand = { name: string; description: string; usage: string };
 
 // Read-only CLI/daemon facts that Desktop may present without runtime authority.
 export type ReportInput = {
   kind:
+    | "status"
     | "agents"
     | "tools"
     | "tokens"
@@ -23,6 +26,7 @@ export type ReportInput = {
 };
 
 export type ReportValue =
+  | { kind: "status"; session: SessionSummaryV1 }
   | { kind: "commands"; commands: CustomCommand[] }
   | { kind: "command"; prompt: string }
   | { kind: "agents"; agents: { id: string; label: string }[] }

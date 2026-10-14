@@ -161,12 +161,27 @@ async function check() {
     await waitFor(
       "document.querySelector('#command-panel').hidden && document.querySelector('#timeline').getAttribute('aria-busy') === 'false'",
     );
-    await submit("/status");
-    assert.ok(
-      (await evaluate("document.querySelector('#command-result').textContent")).includes(
-        `Messages: ${active.turns}`,
-      ),
+    const changed = await runCommand(
+      executable,
+      [...args, "sessions", "set-status", activeId, "paused"],
+      30_000,
     );
+    assert.equal(changed.exitCode, 0, changed.stderr);
+    const detail = await runCommand(
+      executable,
+      [...args, "sessions", "show", activeId, "--json"],
+      30_000,
+    );
+    assert.equal(detail.exitCode, 0, detail.stderr);
+    const persisted = JSON.parse(detail.stdout);
+    await submit("/status");
+    await waitFor(
+      "document.querySelector('#command-result').textContent.includes('State: paused')",
+    );
+    const report = await evaluate("document.querySelector('#command-result').textContent");
+    assert.ok(report.includes(`Messages: ${persisted.turns}`));
+    assert.ok(report.includes(`Updated: ${persisted.updated_at}`));
+    assert.equal(await evaluate("document.querySelectorAll('.message.assistant').length"), 2);
     await submit("/sessions");
     await waitFor("!!document.querySelector('.session-option[aria-current=true]')");
     assert.equal(await evaluate("document.querySelectorAll('.message.assistant').length"), 2);
