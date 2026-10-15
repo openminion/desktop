@@ -1242,6 +1242,19 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("input");
       page.element("composer-form").dispatch("submit");
       await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "graph", text: "Graph readiness during turn" },
+      });
+      command("/graph status");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "Graph readiness during turn",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
+      expect(page.element("chat-status").textContent).toBe("Working…");
+
       let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
       read.mockImplementationOnce(
         () =>
@@ -2207,7 +2220,7 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Command help");
       expect(page.element("command-result").children[0]?.textContent).toContain(
-        "/graph — Show installed OpenMinion graph help",
+        "/graph — Show graph help or check readiness",
       );
       read.mockResolvedValue({
         ok: true,
@@ -2215,13 +2228,67 @@ describe("renderer status view", () => {
       });
       page.element("composer").value = "/graph";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      expect(page.element("command-title").textContent).toBe("Graph viewer");
+      expect(page.element("command-title").textContent).toBe("Graph help");
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe(
           "usage: openminion graph",
         ),
       );
       expect(read).toHaveBeenLastCalledWith({ kind: "graph" });
+      expect(page.element("command-result").children[2]!.textContent).toBe("Check readiness");
+      page.element("composer").value = "Keep this unsent draft";
+      page.element("composer").dispatch("input");
+      read.mockResolvedValue({
+        ok: true,
+        value: { kind: "graph", text: "GraphFakos installed: no\nConfigured graph sources: none" },
+      });
+      page.element("command-result").children[2]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain(
+          "GraphFakos installed: no",
+        ),
+      );
+      expect(page.element("command-title").textContent).toBe("Graph status");
+      expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
+      expect(page.element("composer").value).toBe("Keep this unsent draft");
+      expect(page.element("command-result").children).toHaveLength(2);
+      const graphReads = read.mock.calls.length;
+      for (const text of [
+        "/graph query test",
+        "/graph status extra",
+        "/graph status --provider custom",
+      ]) {
+        page.element("composer").value = text;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        expect(page.element("command-title").textContent).toBe("Graph commands");
+      }
+      expect(read).toHaveBeenCalledTimes(graphReads);
+      read.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "report_unavailable",
+          message: "Graph unavailable",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      page.element("composer").value = "/graph status";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Graph unavailable"),
+      );
+      read.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishReport = resolve;
+          }),
+      );
+      page.element("composer").value = "/graph status";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      page.element("close-command").click();
+      finishReport({ ok: true, value: { kind: "graph", text: "Late readiness" } });
+      await Promise.resolve();
+      expect(page.element("command-panel").hidden).toBe(true);
       page.element("composer").value = "/editor";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Desktop composer");

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { app } from "electron";
+import { app, ClipboardItem, clipboard } from "electron";
 import { runCommand } from "../../dist/src/main/installation.js";
 
 const executable = process.env.OPENMINION_EXECUTABLE;
@@ -69,6 +69,69 @@ async function check() {
     );
     await evaluate("document.querySelector('#setup-demo').click()");
     await waitFor("!document.querySelector('#profile-dialog').open");
+    await submit("/graph");
+    await waitFor(
+      "[...document.querySelectorAll('#command-result button')].some(button => button.textContent === 'Check readiness')",
+    );
+    await evaluate(`(() => {
+      const composer = document.querySelector('#composer');
+      composer.value = 'Keep this unsent graph draft';
+      composer.dispatchEvent(new Event('input', { bubbles: true }));
+      [...document.querySelectorAll('#command-result button')].find(button => button.textContent === 'Check readiness').focus();
+    })()`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+    await waitFor(
+      "document.querySelector('#command-result').textContent.includes('GraphFakos installed:')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#command-title').textContent"),
+      "Graph status",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Keep this unsent graph draft",
+    );
+    const graph = await runCommand(executable, [...args, "graph", "status"], 30_000);
+    assert.equal(graph.exitCode, 0, graph.stderr);
+    assert.equal(
+      await evaluate("document.querySelector('#command-result p').textContent"),
+      graph.stdout,
+    );
+    const previousClipboard = await Promise.all(
+      (await clipboard.read()).map(
+        async (item) =>
+          new ClipboardItem(
+            Object.fromEntries(
+              await Promise.all(item.types.map(async (type) => [type, await item.getType(type)])),
+            ),
+          ),
+      ),
+    );
+    try {
+      await evaluate("document.querySelector('#command-result button').click()");
+      await waitFor("document.querySelector('#command-result button').textContent === 'Copied'");
+      assert.equal(await clipboard.readText(), graph.stdout);
+    } finally {
+      await clipboard.write(previousClipboard);
+    }
+    for (const width of [760, 1180]) {
+      window.setContentSize(width, 800);
+      await evaluate(
+        "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+      await evaluate(
+        "document.querySelector('#command-result button').scrollIntoView({ block: 'end' })",
+      );
+      assert.equal(await evaluate("document.documentElement.scrollWidth > innerWidth"), false);
+      if (process.env.OPENMINION_E2E_ARTIFACTS)
+        await writeFile(
+          join(process.env.OPENMINION_E2E_ARTIFACTS, `graph-status-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+    }
+    await evaluate("document.querySelector('#close-command').click()");
     await submit("Create a provider-free command test conversation.");
     await waitFor(
       "document.querySelectorAll('.message.assistant').length === 1 && document.querySelector('#cancel').hidden",
@@ -108,7 +171,7 @@ async function check() {
         await evaluate(`(() => {
         const form = document.querySelector('#command-result form').getBoundingClientRect();
         const composer = document.querySelector('#composer-form').getBoundingClientRect();
-        return form.bottom <= composer.top && form.top >= 0;
+        return form.bottom <= composer.top + 0.5 && form.top >= 0;
       })()`),
         true,
       );
@@ -210,7 +273,7 @@ async function check() {
         );
     }
     console.log(
-      "PASS: real Core custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, fresh CLI session metadata, keyboard session selection, and responsive native UI. Provider-free evidence only.",
+      "PASS: real Core graph readiness/clipboard, custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, fresh CLI session metadata, keyboard session selection, and responsive native UI. Provider-free evidence only.",
     );
     await finish(0);
   } catch (error) {

@@ -19,6 +19,7 @@ export type ReportInput = {
   commandName?: string;
   arguments?: string;
   toolView?: "status" | "list";
+  graphView?: "status";
   agentFilter?: string;
   agentId?: string;
   skillId?: string;
