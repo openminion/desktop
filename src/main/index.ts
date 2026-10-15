@@ -311,22 +311,29 @@ export function registerIpcHandlers(
       }
     },
   );
-  ipcMain.handle(IPC_CHANNELS.copyText, (event, text: unknown): ClientResult<null> => {
-    if (!isAppInvocation(event)) return forbiddenResult();
-    if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 1024 * 1024) {
-      return {
-        ok: false,
-        error: {
-          code: "invalid_request",
-          message: "Choose up to 1 MB of text to copy.",
-          retryable: false,
-          retryAfterMs: null,
-        },
-      };
-    }
-    clipboard.writeText(text);
-    return { ok: true, value: null };
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.copyText,
+    async (event, text: unknown): Promise<ClientResult<null>> => {
+      if (!isAppInvocation(event)) return forbiddenResult();
+      if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 1024 * 1024) {
+        return {
+          ok: false,
+          error: {
+            code: "invalid_request",
+            message: "Choose up to 1 MB of text to copy.",
+            retryable: false,
+            retryAfterMs: null,
+          },
+        };
+      }
+      try {
+        await clipboard.writeText(text);
+        return { ok: true, value: null };
+      } catch {
+        return failure("clipboard_unavailable", "Could not copy text to the clipboard.");
+      }
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.profilesRead, (event) =>
     isAppInvocation(event) ? supervisor.readProfiles() : forbiddenResult(),
   );

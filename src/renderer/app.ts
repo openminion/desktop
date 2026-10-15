@@ -134,7 +134,11 @@ export const DESKTOP_COMMANDS = [
     description: "Toggle full tool output",
     usage: "/details [on|off|quiet|toggle]",
   },
-  { name: "/graph", description: "Show installed OpenMinion graph help" },
+  {
+    name: "/graph",
+    description: "Show graph help or check readiness",
+    usage: "/graph [status]",
+  },
   { name: "/editor", description: "Show Desktop composer shortcuts" },
 ] as const;
 
@@ -1869,6 +1873,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (
       args.length &&
       command !== "/tools" &&
+      command !== "/graph" &&
       command !== "/tasks" &&
       command !== "/delegate" &&
       command !== "/agents" &&
@@ -1921,7 +1926,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           skills: "Skills",
           learning: "Skill learning",
           mcp: "MCP",
-          graph: "Graph viewer",
+          graph: args[0] === "status" ? "Graph status" : "Graph help",
         };
         if (kind === "tokens" && !selected) {
           showCommandResult(titles[kind], "No active session.");
@@ -1971,6 +1976,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           );
           break;
         }
+        if (kind === "graph" && (args.length > 1 || (args.length === 1 && args[0] !== "status"))) {
+          showCommandResult(
+            "Graph commands",
+            "Use /graph for help or /graph status to check readiness. Other graph operations are not connected in Desktop yet.",
+          );
+          break;
+        }
         const sessionId = selected?.sessionId;
         showCommandResult(titles[kind], "Loading from OpenMinion…");
         const request = commandResultGeneration;
@@ -1980,6 +1992,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             ? { sessionId }
             : {}),
           ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
+          ...(kind === "graph" && args[0] === "status" ? { graphView: "status" as const } : {}),
           ...(kind === "tools" ? { toolView: (args[0] ?? "status") as "status" | "list" } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
           ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
@@ -2007,6 +2020,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           else if ("text" in report) text = report.text;
           else return true;
           showCommandResult(titles[kind], text);
+          if (kind === "graph" && !args.length) {
+            const button = root.createElement("button");
+            button.type = "button";
+            button.className = "secondary-tool";
+            button.textContent = "Check readiness";
+            button.addEventListener("click", () => {
+              commandDraft = elements.composer.value;
+              void runCommand("/graph status");
+            });
+            elements.commandResult.append(button);
+          }
           if (kind === "tools" && selected) {
             for (const action of ["activate", "deactivate"] as const) {
               const button = root.createElement("button");

@@ -419,12 +419,15 @@ export class CliClient {
               "skillId",
               "proposalId",
               "toolView",
+              "graphView",
               "commandName",
               "arguments",
             ].includes(key),
         )
       )
         throw protocolError("invalid_request", "Choose a supported report.");
+      if (value.graphView !== undefined && (value.kind !== "graph" || value.graphView !== "status"))
+        throw protocolError("invalid_request", "Choose graph status.");
       if (this.#configuring)
         throw protocolError("settings_busy", "Wait for Settings to finish applying.");
       if (
@@ -765,16 +768,19 @@ export class CliClient {
         return { kind: "mcp", text: lines.join("\n") };
       }
       if (value.kind === "graph") {
-        if (value.sessionId !== undefined)
-          throw protocolError("invalid_request", "Graph help does not take a session ID.");
+        if (Object.keys(value).some((key) => !["kind", "graphView"].includes(key)))
+          throw protocolError(
+            "invalid_request",
+            "Graph reports use this installation's configuration.",
+          );
         const context = this.#requireContext();
         const result = await this.#run(
           context.executable,
-          [...context.args, "graph", "--help"],
+          [...context.args, "graph", value.graphView === "status" ? "status" : "--help"],
           30_000,
         );
         if (result.exitCode !== 0)
-          throw protocolError("report_unavailable", "Graph help is unavailable.");
+          throw protocolError("report_unavailable", "OpenMinion could not read the graph report.");
         return { kind: "graph", text: result.stdout };
       }
       if (value.kind === "tokens") {

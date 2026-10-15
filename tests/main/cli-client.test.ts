@@ -455,6 +455,47 @@ describe("PyPI CLI client", () => {
     expect(fixture.requests).toHaveLength(3);
   });
 
+  it("reads graph readiness with fixed configuration and rejects unrelated authority", async () => {
+    const run = vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stdout: "GraphFakos installed: no\nNext: install viewer",
+      stderr: "",
+    });
+    const client = new CliClient(
+      () => ({ executable: "openminion", args: ["--config", "/private/config"] }),
+      run,
+    );
+    expect(await client.readReport({ kind: "graph", graphView: "status" })).toEqual({
+      ok: true,
+      value: { kind: "graph", text: "GraphFakos installed: no\nNext: install viewer" },
+    });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      "openminion",
+      ["--config", "/private/config", "graph", "status"],
+      30_000,
+    );
+    for (const input of [
+      { kind: "graph", graphView: "refresh" },
+      { kind: "graph", graphView: ["status"] },
+      { kind: "graph", graphView: "status", sessionId: "session-1" },
+      { kind: "graph", graphView: "status", provider: "custom" },
+      { kind: "graph", graphView: "status", path: "/private" },
+      { kind: "graph", graphView: "status", agentFilter: undefined },
+      { kind: "tokens", graphView: "status", sessionId: "session-1" },
+    ])
+      expect(await client.readReport(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(run).toHaveBeenCalledTimes(1);
+    run.mockResolvedValueOnce({ exitCode: 1, stdout: "", stderr: "Private failure" });
+    expect(await client.readReport({ kind: "graph", graphView: "status" })).toMatchObject({
+      ok: false,
+      error: { code: "report_unavailable", message: "OpenMinion could not read the graph report." },
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
   it("uses canonical token formatting and transcript export without renderer paths", async () => {
     const run = vi.fn().mockResolvedValue({
       exitCode: 0,
