@@ -1613,11 +1613,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const showSkills = async (skillId?: string) => {
-    const title = skillId ? "Skill details" : "Global skill catalog";
+    const title = skillId ? "Skill details" : "Skill catalog";
     const sessionId = selected?.sessionId;
     showCommandResult(title, "Loading from OpenMinion…");
     const request = commandResultGeneration;
-    const result = await api.reports.read({ kind: "skills", ...(skillId ? { skillId } : {}) });
+    const result = await api.reports.read({
+      kind: "skills",
+      ...(skillId ? { skillId } : sessionId ? { sessionId } : {}),
+    });
     if (
       request !== commandResultGeneration ||
       sessionId !== selected?.sessionId ||
@@ -1629,10 +1632,15 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       const report = result.value;
       if ("text" in report) showCommandResult(title, report.text);
       else {
+        const catalogTitle = report.agentId
+          ? `Stored skills for ${report.agentId}`
+          : "Global skill catalog";
         const text = report.skills.length
-          ? `Global skill catalog:\n${report.skills.join("\n")}`
-          : "No global skills have been added.";
-        showCommandResult(title, text);
+          ? `${catalogTitle}:\n${report.skills.join("\n")}`
+          : report.agentId
+            ? "No stored skills for this agent."
+            : "No global skills have been added.";
+        showCommandResult(catalogTitle, text);
         if (report.skills.length) {
           const catalog = elements.commandResult.children[0];
           catalog.className = "skill-catalog";

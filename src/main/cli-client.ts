@@ -527,18 +527,7 @@ export class CliClient {
       if (value.kind === "status") {
         if (Object.keys(value).some((key) => !["kind", "sessionId"].includes(key)))
           throw protocolError("invalid_request", "Choose a conversation for status.");
-        const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
-        if (sessionId.startsWith("-") || sessionId.includes("\0"))
-          throw protocolError("invalid_request", "Choose a valid session ID.");
-        const draft = this.#drafts.get(sessionId);
-        if (draft) return { kind: "status", session: draft };
-        const session = summary(
-          requireRecord(await this.#json(["sessions", "show", sessionId, "--json"])),
-          true,
-        );
-        if (session.sessionId !== sessionId)
-          throw protocolError("invalid_daemon_response", "The returned session does not match.");
-        return { kind: "status", session };
+        return { kind: "status", session: await this.#reportSession(value.sessionId) };
       }
       if (value.kind === "agents") {
         const payload = await this.#request("/v1/agents");
@@ -638,10 +627,13 @@ export class CliClient {
         };
       }
       if (value.kind === "skills") {
-        if (Object.keys(value).some((key) => !["kind", "skillId"].includes(key)))
+        if (
+          Object.keys(value).some((key) => !["kind", "skillId", "sessionId"].includes(key)) ||
+          (value.skillId !== undefined && value.sessionId !== undefined)
+        )
           throw protocolError(
             "invalid_request",
-            "Skill discovery only takes an optional skill ID.",
+            "Choose a conversation catalog or an exact skill ID.",
           );
         if (value.skillId) {
           const payload = await this.#request(`/v1/skills/${encodeURIComponent(value.skillId)}`);
@@ -676,11 +668,19 @@ export class CliClient {
           }
           return { kind: "skills", text: lines.join("\n") };
         }
-        const payload = await this.#request("/v1/skills");
+        let agentId: string | null = null;
+        if (value.sessionId !== undefined) {
+          const session = await this.#reportSession(value.sessionId);
+          agentId = session.activeAgentId ?? (await this.#endpoint()).defaultAgent;
+        }
+        const payload = await this.#request(
+          agentId ? `/v1/skills?agent_id=${encodeURIComponent(agentId)}` : "/v1/skills",
+        );
         if (payload.ok !== true)
           throw protocolError("report_unavailable", "Skill discovery is unavailable.");
         return {
           kind: "skills",
+          agentId,
           skills: requireArray(payload.skills).map((item) =>
             requireString(requireRecord(item).skill_id),
           ),
@@ -1696,6 +1696,21 @@ export class CliClient {
         "OpenMinion could not complete this operation. Check the runtime connection and configuration.",
       );
     }
+  }
+
+  async #reportSession(id: unknown): Promise<SessionSummaryV1> {
+    const { sessionId } = validateLoadInput({ sessionId: id } as SessionLoadInput);
+    if (sessionId.startsWith("-") || sessionId.includes("\0"))
+      throw protocolError("invalid_request", "Choose a valid session ID.");
+    const draft = this.#drafts.get(sessionId);
+    if (draft) return draft;
+    const session = summary(
+      requireRecord(await this.#json(["sessions", "show", sessionId, "--json"])),
+      true,
+    );
+    if (session.sessionId !== sessionId)
+      throw protocolError("invalid_daemon_response", "The returned session does not match.");
+    return session;
   }
 
   async #transcript(sessionId: string, events = false): Promise<TranscriptRecord[]> {

@@ -1124,7 +1124,7 @@ describe("renderer status view", () => {
     }
   });
 
-  it("browses the complete global skill catalog without losing drafts or accepting stale reports", async () => {
+  it("browses the complete stored skill catalog without losing drafts or accepting stale reports", async () => {
     const session = sessionSummary();
     const other = { ...session, sessionId: "other" };
     const read = vi.fn();
@@ -1162,23 +1162,23 @@ describe("renderer status view", () => {
       const page = new FixtureDocument();
       await mount(api, page.asDocument());
       const skills = [...Array.from({ length: 24 }, (_, i) => `skill-${i}`), "--help"];
-      const catalog = { ok: true, value: { kind: "skills", skills } };
+      const catalog = { ok: true, value: { kind: "skills", agentId: "fresh-agent", skills } };
       read.mockResolvedValue(catalog);
       page.element("composer").value = "/skills";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.children).toHaveLength(25),
       );
-      expect(page.element("command-title").textContent).toBe("Global skill catalog");
+      expect(page.element("command-title").textContent).toBe("Stored skills for fresh-agent");
       page.element("conversation").scrollHeight = 1000;
       page.element("conversation").clientHeight = 400;
       page.element("conversation").dispatch("scroll");
       expect(page.element("jump-latest").hidden).toBe(true);
-      expect(read).toHaveBeenLastCalledWith({ kind: "skills" });
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
       page.element("command-result").children[1]!.click();
       await vi.waitFor(() =>
         expect(api.app.copyText).toHaveBeenCalledWith(
-          `Global skill catalog:\n${skills.join("\n")}`,
+          `Stored skills for fresh-agent:\n${skills.join("\n")}`,
         ),
       );
       page.element("composer").value = "Keep my skill draft";
@@ -1215,11 +1215,14 @@ describe("renderer status view", () => {
         expect(page.element("command-result").children[0]?.textContent).toBe("Skill unavailable"),
       );
       expect(page.element("command-result").children[2]?.textContent).toBe("Back to catalog");
-      read.mockResolvedValueOnce({ ok: true, value: { kind: "skills", skills: [] } });
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "skills", agentId: "fresh-agent", skills: [] },
+      });
       page.element("command-result").children[2]!.click();
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe(
-          "No global skills have been added.",
+          "No stored skills for this agent.",
         ),
       );
       expect(page.element("composer").value).toBe("Keep my skill draft");
@@ -1382,14 +1385,17 @@ describe("renderer status view", () => {
       );
       expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
       expect(page.element("chat-status").textContent).toBe("Working…");
-      read.mockResolvedValueOnce({ ok: true, value: { kind: "skills", skills: ["read-only"] } });
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "skills", agentId: "openminion", skills: ["read-only"] },
+      });
       command("/skills");
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.children[0]?.textContent).toBe(
           "read-only",
         ),
       );
-      expect(read).toHaveBeenLastCalledWith({ kind: "skills" });
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
       expect(page.element("chat-status").textContent).toBe("Working…");
 
       let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;

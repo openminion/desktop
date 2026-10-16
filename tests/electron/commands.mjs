@@ -135,11 +135,10 @@ async function check() {
     }
     await evaluate("document.querySelector('#close-command').click()");
     const skillPath = join(root, "SKILL.md");
-    for (let index = 1; index <= 21; index += 1) {
-      const id = `desktop-proof-${String(index).padStart(2, "0")}`;
+    const seedSkill = async (id, agentId) => {
       await writeFile(
         skillPath,
-        `---\nname: ${id}\nid: ${id}\nrisk: low\nverification:\n  - Confirm the catalog entry.\n---\n\n# Procedure\nRead the literal native proof <b>${index}</b>.\n\n# Verification\nConfirm the catalog entry.\n`,
+        `---\nname: ${id}\nid: ${id}\nrisk: low\nverification:\n  - Confirm the catalog entry.\n---\n\n# Procedure\nRead the literal native proof <b>${id}</b>.\n\n# Verification\nConfirm the catalog entry.\n`,
       );
       const ingested = await runCommand(
         executable,
@@ -150,7 +149,8 @@ async function check() {
           "--file",
           skillPath,
           "--scope",
-          "global",
+          agentId ? "agent" : "global",
+          ...(agentId ? ["--agent-id", agentId] : []),
           "--config",
           join(root, "agents.json"),
         ],
@@ -181,7 +181,9 @@ async function check() {
         30_000,
       );
       assert.equal(admitted.exitCode, 0, admitted.stderr || admitted.stdout);
-    }
+    };
+    for (let index = 1; index <= 21; index += 1)
+      await seedSkill(`desktop-proof-${String(index).padStart(2, "0")}`);
     const skills = await runCommand(
       executable,
       [...args, "skill", "list", "--json", "--config", join(root, "agents.json")],
@@ -404,6 +406,81 @@ async function check() {
     await waitFor(
       "document.querySelector('#command-panel').hidden && document.querySelector('#timeline').getAttribute('aria-busy') === 'false'",
     );
+    await seedSkill("desktop-scoped-matching", active.agent);
+    await seedSkill("desktop-scoped-other", `${active.agent}-other`);
+    const scopedSkills = await runCommand(
+      executable,
+      [
+        ...args,
+        "skill",
+        "list",
+        "--agent-id",
+        active.agent,
+        "--json",
+        "--config",
+        join(root, "agents.json"),
+      ],
+      30_000,
+    );
+    assert.equal(scopedSkills.exitCode, 0, scopedSkills.stderr);
+    const scopedIds = JSON.parse(scopedSkills.stdout).skills.map((skill) => skill.skill_id);
+    assert.equal(scopedIds.length, 22);
+    assert.ok(scopedIds.includes("desktop-scoped-matching"));
+    assert.equal(scopedIds.includes("desktop-scoped-other"), false);
+    await submit("/skills");
+    await waitFor("document.querySelectorAll('.skill-catalog button').length === 22");
+    assert.equal(
+      await evaluate("document.querySelector('#command-title').textContent"),
+      `Stored skills for ${active.agent}`,
+    );
+    assert.deepEqual(
+      await evaluate(
+        "[...document.querySelectorAll('.skill-catalog button')].map(button => button.textContent)",
+      ),
+      scopedIds,
+    );
+    await evaluate(`(() => {
+      const composer = document.querySelector('#composer');
+      composer.value = 'Keep this unsent scoped skills draft';
+      composer.dispatchEvent(new Event('input', { bubbles: true }));
+      [...document.querySelectorAll('.skill-catalog button')].find(button => button.textContent === 'desktop-scoped-matching').click();
+    })()`);
+    await waitFor(
+      "document.querySelector('#command-result p')?.textContent.includes('id       desktop-scoped-matching')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#command-title').textContent"),
+      "Skill details",
+    );
+    assert.ok(
+      (await evaluate("document.querySelector('#command-result p').textContent")).includes(
+        "scope    agent",
+      ),
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Keep this unsent scoped skills draft",
+    );
+    await evaluate(
+      "[...document.querySelectorAll('#command-result button')].find(button => button.textContent === 'Back to catalog').click()",
+    );
+    await waitFor("document.querySelectorAll('.skill-catalog button').length === 22");
+    assert.equal(
+      await evaluate("document.querySelector('#command-title').textContent"),
+      `Stored skills for ${active.agent}`,
+    );
+    assert.deepEqual(
+      await evaluate(
+        "[...document.querySelectorAll('.skill-catalog button')].map(button => button.textContent)",
+      ),
+      scopedIds,
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Keep this unsent scoped skills draft",
+    );
+    assert.equal(await evaluate("document.querySelectorAll('.message.assistant').length"), 2);
+    await evaluate("document.querySelector('#close-command').click()");
     const changed = await runCommand(
       executable,
       [...args, "sessions", "set-status", activeId, "paused"],
@@ -453,7 +530,7 @@ async function check() {
         );
     }
     console.log(
-      "PASS: real Core graph readiness/clipboard, complete 21-skill global catalog/detail/back/copy with keyboard selection and draft preservation, custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, fresh CLI session metadata, keyboard session selection, and responsive native UI. Provider-free evidence only.",
+      "PASS: real Core graph readiness/clipboard, complete 21-skill global catalog/detail/back/copy with keyboard selection and draft preservation, selected-agent stored skills with other-agent exclusion and detail/back draft preservation, custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, fresh CLI session metadata, keyboard session selection, and responsive native UI. Provider-free evidence only.",
     );
     await finish(0);
   } catch (error) {
