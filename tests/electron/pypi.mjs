@@ -451,11 +451,18 @@ async function check() {
     const cliSkills = await runCommand(executable, [...args, "skill", "list", "--json"], 30_000);
     assert.equal(cliSkills.exitCode, 0);
     const skillIds = JSON.parse(cliSkills.stdout).skills.map((skill) => skill.skill_id);
-    const skillText = await reportCommand("/skills", "Skills");
+    const skillText = await reportCommand("/skills", "Global skill catalog");
+    assert.deepEqual(
+      await evaluate(
+        "[...document.querySelectorAll('.skill-catalog button')].map(button => button.textContent)",
+      ),
+      skillIds,
+    );
     if (skillIds.length) {
-      assert.ok(skillText.includes(skillIds[0]));
-      assert.ok((await reportCommand(`/skills ${skillIds[0]}`, "Skills")).includes(skillIds[0]));
-    } else assert.equal(skillText, "(no skills)");
+      assert.ok(
+        (await reportCommand(`/skills ${skillIds[0]}`, "Skill details")).includes(skillIds[0]),
+      );
+    } else assert.equal(skillText, "No global skills have been added.");
     assert.ok((await reportCommand("/learning", "Skill learning")).startsWith("Skill learning:"));
     const mcpText = await reportCommand("/mcp", "MCP");
     assert.ok(mcpText.startsWith("MCP:\n"));

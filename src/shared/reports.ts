@@ -34,6 +34,7 @@ export type ReportValue =
   | { kind: "tools"; tools: { name: string; enabled: boolean }[] }
   | { kind: "tools"; text: string }
   | { kind: "tokens"; text: string }
+  | { kind: "skills"; skills: string[] }
   | { kind: "skills"; text: string }
   | { kind: "learning"; text: string }
   | { kind: "mcp"; text: string }
