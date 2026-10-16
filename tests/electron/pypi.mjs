@@ -487,6 +487,7 @@ async function check() {
     assert.ok((await reportCommand("/learning", "Skill learning")).startsWith("Skill learning:"));
     const mcpText = await reportCommand("/mcp", "MCP");
     assert.ok(mcpText.startsWith("MCP:\n"));
+    assert.ok(mcpText.includes(`  agent       ${skillAgent}\n`));
     assert.ok(mcpText.includes("configured"));
     assert.ok(mcpText.includes("registered"));
     const graphHelp = await runCommand(executable, [...args, "graph", "--help"], 30_000);

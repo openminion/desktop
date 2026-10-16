@@ -2046,8 +2046,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const request = commandResultGeneration;
         const result = await api.reports.read({
           kind,
-          ...(sessionId && !["learning", "mcp", "graph"].includes(kind) ? { sessionId } : {}),
-          ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
+          ...(sessionId && !["learning", "graph"].includes(kind) ? { sessionId } : {}),
           ...(kind === "graph" && args[0] === "status" ? { graphView: "status" as const } : {}),
           ...(kind === "tools" ? { toolView: (args[0] ?? "status") as "status" | "list" } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
@@ -2064,7 +2063,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
               report.agents
                 .map(
                   (agent) =>
-                    `${agent.id === selected?.activeAgentId ? "● " : ""}${agent.id}${agent.label !== agent.id ? ` — ${agent.label}` : ""}`,
+                    `${agent.id === report.activeAgentId ? "● " : ""}${agent.id}${agent.label !== agent.id ? ` — ${agent.label}` : ""}`,
                 )
                 .join("\n") || "No matching agents.";
           else if (report.kind === "tools" && "tools" in report)

@@ -69,6 +69,49 @@ async function check() {
     );
     await evaluate("document.querySelector('#setup-demo').click()");
     await waitFor("!document.querySelector('#profile-dialog').open");
+    const configured = await runCommand(executable, [...args, "config", "show"], 30_000);
+    assert.equal(configured.exitCode, 0, configured.stderr);
+    const agentIds = Object.keys(JSON.parse(configured.stdout).agents);
+    assert.equal(agentIds.length, 1);
+    const defaultAgent = agentIds[0];
+    await submit("/agents");
+    await waitFor(
+      "document.querySelector('#command-title').textContent === 'Agents' && !document.querySelector('#command-result p').textContent.includes('Loading from OpenMinion')",
+    );
+    const unselectedAgents = await evaluate(
+      "document.querySelector('#command-result p').textContent",
+    );
+    assert.equal(unselectedAgents.includes("●"), false);
+    assert.deepEqual(
+      unselectedAgents.split("\n").map((line) => line.split(" — ")[0]),
+      agentIds,
+    );
+    const capabilities = await runCommand(
+      executable,
+      [...args, "status", "capabilities", "--runtime-source", "daemon", "--json"],
+      30_000,
+    );
+    assert.equal(capabilities.exitCode, 0, capabilities.stderr);
+    const capabilityReport = JSON.parse(capabilities.stdout);
+    assert.equal(capabilityReport.source, "daemon");
+    const exposure = capabilityReport.capabilities.tools.mcp_exposure;
+    assert.deepEqual(exposure.configured_servers, []);
+    assert.deepEqual(exposure.exposed_servers, []);
+    assert.deepEqual(capabilityReport.capabilities.mcp.failed_servers, {});
+    const mcpFacts = [
+      "  configured  (none)",
+      "  exposed     (none)",
+      `  tools       ${exposure.exposed_runtime_tool_count} exposed · ${exposure.registered_runtime_tool_count} registered`,
+    ];
+    await submit("/mcp");
+    await waitFor(
+      "document.querySelector('#command-title').textContent === 'MCP' && document.querySelector('#command-result p').textContent.startsWith('MCP:')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#command-result p').textContent"),
+      ["MCP:", ...mcpFacts].join("\n"),
+    );
+    assert.equal(await evaluate("document.querySelectorAll('.message.assistant').length"), 0);
     await submit("/graph");
     await waitFor(
       "[...document.querySelectorAll('#command-result button')].some(button => button.textContent === 'Check readiness')",
@@ -406,6 +449,24 @@ async function check() {
     await waitFor(
       "document.querySelector('#command-panel').hidden && document.querySelector('#timeline').getAttribute('aria-busy') === 'false'",
     );
+    assert.equal(active.agent, defaultAgent);
+    await submit("/agents");
+    await waitFor(
+      "document.querySelector('#command-title').textContent === 'Agents' && !document.querySelector('#command-result p').textContent.includes('Loading from OpenMinion')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#command-result p').textContent"),
+      `● ${unselectedAgents}`,
+    );
+    await submit("/mcp");
+    await waitFor(
+      "document.querySelector('#command-title').textContent === 'MCP' && document.querySelector('#command-result p').textContent.startsWith('MCP:')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#command-result p').textContent"),
+      ["MCP:", `  agent       ${active.agent}`, ...mcpFacts].join("\n"),
+    );
+    assert.equal(await evaluate("document.querySelectorAll('.message.assistant').length"), 2);
     await seedSkill("desktop-scoped-matching", active.agent);
     await seedSkill("desktop-scoped-other", `${active.agent}-other`);
     const scopedSkills = await runCommand(
@@ -530,7 +591,7 @@ async function check() {
         );
     }
     console.log(
-      "PASS: real Core graph readiness/clipboard, complete 21-skill global catalog/detail/back/copy with keyboard selection and draft preservation, selected-agent stored skills with other-agent exclusion and detail/back draft preservation, custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, fresh CLI session metadata, keyboard session selection, and responsive native UI. Provider-free evidence only.",
+      "PASS: real Core default-agent marker and no-server MCP inventory with CLI readback, graph readiness/clipboard, complete 21-skill global catalog/detail/back/copy with keyboard selection and draft preservation, selected-agent stored skills with other-agent exclusion and detail/back draft preservation, custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, fresh CLI session metadata, keyboard session selection, and responsive native UI. Provider-free evidence only; no nondefault live MCP exposure proof.",
     );
     await finish(0);
   } catch (error) {

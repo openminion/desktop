@@ -415,7 +415,6 @@ export class CliClient {
               "kind",
               "sessionId",
               "agentFilter",
-              "agentId",
               "skillId",
               "proposalId",
               "toolView",
@@ -460,15 +459,6 @@ export class CliClient {
           /[\s\0/]/.test(value.proposalId))
       )
         throw protocolError("invalid_request", "Choose an exact proposal ID.");
-      if (
-        value.agentId !== undefined &&
-        (value.kind !== "mcp" ||
-          typeof value.agentId !== "string" ||
-          !value.agentId.trim() ||
-          value.agentId.length > 512 ||
-          /[\s\0]/.test(value.agentId))
-      )
-        throw protocolError("invalid_request", "Choose an exact agent ID.");
       if (value.kind === "commands" || value.kind === "command") {
         const { sessionId } = validateLoadInput({ sessionId: value.sessionId } as SessionLoadInput);
         if (
@@ -530,6 +520,13 @@ export class CliClient {
         return { kind: "status", session: await this.#reportSession(value.sessionId) };
       }
       if (value.kind === "agents") {
+        if (Object.keys(value).some((key) => !["kind", "sessionId", "agentFilter"].includes(key)))
+          throw protocolError("invalid_request", "Choose an agent report or exact filter.");
+        let activeAgentId: string | null = null;
+        if (value.sessionId !== undefined) {
+          const session = await this.#reportSession(value.sessionId);
+          activeAgentId = session.activeAgentId ?? (await this.#endpoint()).defaultAgent;
+        }
         const payload = await this.#request("/v1/agents");
         if (payload.ok !== true)
           throw protocolError("report_unavailable", "Agent discovery is unavailable.");
@@ -540,6 +537,7 @@ export class CliClient {
         });
         return {
           kind: "agents",
+          activeAgentId,
           agents: agents.filter(
             (agent) =>
               !value.agentFilter ||
@@ -745,9 +743,14 @@ export class CliClient {
         return { kind: "learning", text: lines.join("\n") };
       }
       if (value.kind === "mcp") {
-        if (value.sessionId !== undefined)
-          throw protocolError("invalid_request", "MCP status does not take a session ID.");
-        const query = value.agentId ? `?agent_id=${encodeURIComponent(value.agentId)}` : "";
+        if (Object.keys(value).some((key) => !["kind", "sessionId"].includes(key)))
+          throw protocolError("invalid_request", "Choose a conversation for MCP status.");
+        let agentId: string | null = null;
+        if (value.sessionId !== undefined) {
+          const session = await this.#reportSession(value.sessionId);
+          agentId = session.activeAgentId ?? (await this.#endpoint()).defaultAgent;
+        }
+        const query = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
         const payload = await this.#request(`/v1/runtime/capabilities${query}`);
         if (payload.ok !== true)
           throw protocolError("report_unavailable", "MCP status is unavailable.");
@@ -764,6 +767,7 @@ export class CliClient {
           throw protocolError("invalid_daemon_response", "Expected MCP tool counts.");
         const lines = [
           "MCP:",
+          ...(agentId ? [`  agent       ${agentId}`] : []),
           `  configured  ${configured.join(", ") || "(none)"}`,
           `  exposed     ${exposed.join(", ") || "(none)"}`,
           `  tools       ${exposedCount} exposed · ${registeredCount} registered`,

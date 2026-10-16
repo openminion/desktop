@@ -392,6 +392,88 @@ describe("PyPI CLI client", () => {
     expect(run.mock.calls.some(([, args]) => args.includes("export"))).toBe(false);
   });
 
+  it.each(["agents", "mcp"])(
+    "reads fresh %s scope without trusting renderer agent IDs",
+    async (kind) => {
+      const fixture = await executableFixture();
+      let row = session("saved");
+      let failed = false;
+      const run = vi.fn(async (executable: string, args: readonly string[], timeout: number) => {
+        if (args[1] === "sessions")
+          return failed
+            ? { exitCode: 1, stderr: "Session unavailable", stdout: "" }
+            : { exitCode: 0, stderr: "", stdout: JSON.stringify(row) };
+        return runCommand(executable, args, timeout);
+      });
+      const client = new CliClient(
+        () => ({ executable: fixture.executable, args: fixture.args }),
+        run,
+      );
+      for (const agent of ["writer", "reviewer+notes&scope=other"]) {
+        row = { ...row, agent };
+        const result = await client.readReport({ kind, sessionId: "saved" });
+        expect(result).toMatchObject({
+          ok: true,
+          value:
+            kind === "agents"
+              ? { activeAgentId: agent }
+              : { text: expect.stringContaining(`  agent       ${agent}`) },
+        });
+        expect(fixture.requests.at(-1)).toMatchObject({
+          path:
+            kind === "agents"
+              ? "/v1/agents"
+              : `/v1/runtime/capabilities?agent_id=${encodeURIComponent(agent)}`,
+          token: "test-private-token",
+        });
+      }
+      for (const agentId of [undefined, "draft-agent"]) {
+        const draft = await client.create(agentId ? { agentId } : {});
+        if (!draft.ok) throw new Error("Draft not created");
+        run.mockClear();
+        const result = await client.readReport({ kind, sessionId: draft.value.sessionId });
+        expect(result).toMatchObject({
+          ok: true,
+          value:
+            kind === "agents"
+              ? { activeAgentId: agentId ?? "writer" }
+              : { text: expect.stringContaining(`  agent       ${agentId ?? "writer"}`) },
+        });
+        expect(run.mock.calls.some(([, args]) => args[1] === "sessions")).toBe(false);
+      }
+      expect(await client.readReport({ kind })).toMatchObject({
+        ok: true,
+        value:
+          kind === "agents"
+            ? { activeAgentId: null }
+            : { text: expect.not.stringContaining("  agent ") },
+      });
+      expect(fixture.requests.at(-1)?.path).toBe(
+        kind === "agents" ? "/v1/agents" : "/v1/runtime/capabilities",
+      );
+      const reads = fixture.requests.length;
+      for (const extra of [
+        { sessionId: "--help" },
+        { sessionId: "saved\0" },
+        { agentId: "writer" },
+        { proposalId: "proposal" },
+      ])
+        expect(await client.readReport({ kind, ...extra })).toMatchObject({
+          ok: false,
+          error: { code: "invalid_request" },
+        });
+      row = { ...row, id: "different" };
+      expect(await client.readReport({ kind, sessionId: "saved" })).toMatchObject({
+        ok: false,
+        error: { code: "invalid_daemon_response" },
+      });
+      failed = true;
+      expect(await client.readReport({ kind, sessionId: "saved" })).toMatchObject({ ok: false });
+      expect(fixture.requests).toHaveLength(reads);
+      expect(run.mock.calls.some(([, args]) => args.includes("export"))).toBe(false);
+    },
+  );
+
   it("rejects a different skill identity and unrelated skill report inputs", async () => {
     const fixture = await executableFixture(
       "normal",
@@ -427,7 +509,7 @@ describe("PyPI CLI client", () => {
     }));
     expect(await client.readReport({ kind: "agents" })).toEqual({
       ok: true,
-      value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
+      value: { kind: "agents", activeAgentId: null, agents: [{ id: "writer", label: "Writer" }] },
     });
     expect(await client.readReport({ kind: "agents", agentFilter: "Writer" })).toMatchObject({
       ok: true,
@@ -505,12 +587,13 @@ describe("PyPI CLI client", () => {
       ok: false,
       error: { code: "invalid_request" },
     });
-    expect(await client.readReport({ kind: "mcp", agentId: "writer" })).toEqual({
+    expect(await client.readReport({ kind: "mcp", sessionId: "saved" })).toEqual({
       ok: true,
       value: {
         kind: "mcp",
         text: [
           "MCP:",
+          "  agent       writer",
           "  configured  local",
           "  exposed     local",
           "  tools       2 exposed · 3 registered",
@@ -2533,7 +2616,8 @@ async function executableFixture(
                   },
                 ],
               }
-            : req.url === "/v1/runtime/capabilities?agent_id=writer"
+            : req.url === "/v1/runtime/capabilities" ||
+                req.url?.startsWith("/v1/runtime/capabilities?")
               ? {
                   ok: true,
                   capabilities: {
