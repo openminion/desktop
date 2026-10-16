@@ -1124,6 +1124,134 @@ describe("renderer status view", () => {
     }
   });
 
+  it("browses the complete global skill catalog without losing drafts or accepting stale reports", async () => {
+    const session = sessionSummary();
+    const other = { ...session, sessionId: "other" };
+    const read = vi.fn();
+    const api = {
+      app: {
+        info: async () => ({ shellVersion: "test" }),
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+      },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list: async () => ({
+          ok: true,
+          value: { sessions: [session, other], nextCursor: null, hasMore: false },
+        }),
+        load: async ({ sessionId }: { sessionId: string }) => ({
+          ok: true,
+          value: {
+            session: sessionId === other.sessionId ? other : session,
+            messages: [],
+            nextMessageCursor: null,
+            messagesHasMore: false,
+          },
+        }),
+        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      },
+      reports: { read },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    read.mockResolvedValue({ ok: true, value: { kind: "commands", commands: [] } });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const skills = [...Array.from({ length: 24 }, (_, i) => `skill-${i}`), "--help"];
+      const catalog = { ok: true, value: { kind: "skills", skills } };
+      read.mockResolvedValue(catalog);
+      page.element("composer").value = "/skills";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.children).toHaveLength(25),
+      );
+      expect(page.element("command-title").textContent).toBe("Global skill catalog");
+      page.element("conversation").scrollHeight = 1000;
+      page.element("conversation").clientHeight = 400;
+      page.element("conversation").dispatch("scroll");
+      expect(page.element("jump-latest").hidden).toBe(true);
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills" });
+      page.element("command-result").children[1]!.click();
+      await vi.waitFor(() =>
+        expect(api.app.copyText).toHaveBeenCalledWith(
+          `Global skill catalog:\n${skills.join("\n")}`,
+        ),
+      );
+      page.element("composer").value = "Keep my skill draft";
+      page.element("composer").dispatch("input");
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "skills", text: "Skill: Help reference" },
+      });
+      page.element("command-result").children[0]!.children[24]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "Skill: Help reference",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "--help" });
+      expect(page.element("composer").value).toBe("Keep my skill draft");
+      expect(page.element("command-title").textContent).toBe("Skill details");
+      page.element("command-result").children[2]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.children).toHaveLength(25),
+      );
+      expect(page.element("composer").value).toBe("Keep my skill draft");
+      read.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "report_unavailable",
+          message: "Skill unavailable",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      page.element("command-result").children[0]!.children[24]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Skill unavailable"),
+      );
+      expect(page.element("command-result").children[2]?.textContent).toBe("Back to catalog");
+      read.mockResolvedValueOnce({ ok: true, value: { kind: "skills", skills: [] } });
+      page.element("command-result").children[2]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "No global skills have been added.",
+        ),
+      );
+      expect(page.element("composer").value).toBe("Keep my skill draft");
+      let finishSkills!: (value: unknown) => void;
+      for (const action of ["dismiss", "replace", "selection"]) {
+        read.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishSkills = resolve;
+            }),
+        );
+        page.element("composer").value = "/skills";
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        if (action === "dismiss") {
+          page.element("close-command").click();
+          expect(page.element("jump-latest").hidden).toBe(false);
+        } else if (action === "replace") {
+          page.element("composer").value = "/help";
+          page.element("composer").dispatch("keydown", { key: "Enter" });
+        } else {
+          page.sessionButtons()[1]!.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        finishSkills(catalog);
+        await Promise.resolve();
+        expect(page.element("command-result").children[0]?.children).toHaveLength(0);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("reads fresh status without replacing chat and settles across same-session turn completion", async () => {
     const session = sessionSummary();
     const other = { ...session, sessionId: "other", title: "Other" };
@@ -1253,6 +1381,15 @@ describe("renderer status view", () => {
         ),
       );
       expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
+      expect(page.element("chat-status").textContent).toBe("Working…");
+      read.mockResolvedValueOnce({ ok: true, value: { kind: "skills", skills: ["read-only"] } });
+      command("/skills");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.children[0]?.textContent).toBe(
+          "read-only",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills" });
       expect(page.element("chat-status").textContent).toBe("Working…");
 
       let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
@@ -2040,20 +2177,13 @@ describe("renderer status view", () => {
       page.element("composer").value = "/identity unknown";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Identity command");
-      read.mockResolvedValue({
-        ok: true,
-        value: { kind: "skills", text: "Skill: Example" },
-      });
+      read.mockResolvedValueOnce({ ok: true, value: { kind: "skills", text: "Skill: Example" } });
       page.element("composer").value = "/skills example";
-      page.element("composer").dispatch("input");
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe("Skill: Example"),
       );
-      expect(read).toHaveBeenLastCalledWith({
-        kind: "skills",
-        skillId: "example",
-      });
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "example" });
       read.mockResolvedValue({
         ok: true,
         value: {

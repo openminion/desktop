@@ -1654,6 +1654,21 @@ details[open] > summary .summary-chevron {
   line-height: 1.6;
 }
 
+.skill-catalog {
+  display: grid;
+  gap: 4px;
+}
+
+.skill-catalog button {
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 .runtime-task {
   border-top: 1px solid var(--line-strong);
   padding-block: 12px;

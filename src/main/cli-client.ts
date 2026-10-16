@@ -638,13 +638,21 @@ export class CliClient {
         };
       }
       if (value.kind === "skills") {
-        if (value.sessionId !== undefined)
-          throw protocolError("invalid_request", "Skill discovery does not take a session ID.");
+        if (Object.keys(value).some((key) => !["kind", "skillId"].includes(key)))
+          throw protocolError(
+            "invalid_request",
+            "Skill discovery only takes an optional skill ID.",
+          );
         if (value.skillId) {
           const payload = await this.#request(`/v1/skills/${encodeURIComponent(value.skillId)}`);
           if (payload.ok !== true)
             throw protocolError("report_unavailable", "Skill details are unavailable.");
           const skill = requireRecord(payload.skill);
+          if (requireString(skill.skill_id) !== value.skillId)
+            throw protocolError(
+              "invalid_daemon_response",
+              "OpenMinion returned a different skill.",
+            );
           const sections = requireRecord(skill.sections ?? {});
           const lines = [
             `Skill: ${optionalString(skill.display_name ?? null) || requireString(skill.name)}`,
@@ -671,14 +679,11 @@ export class CliClient {
         const payload = await this.#request("/v1/skills");
         if (payload.ok !== true)
           throw protocolError("report_unavailable", "Skill discovery is unavailable.");
-        const skills = requireArray(payload.skills)
-          .map((item) => requireString(requireRecord(item).skill_id))
-          .slice(0, 20);
         return {
           kind: "skills",
-          text: skills.length
-            ? `Skills:\n${skills.map((id) => `  - ${id} · catalog`).join("\n")}\nUse /skills <skill-id> to view details.`
-            : "(no skills)",
+          skills: requireArray(payload.skills).map((item) =>
+            requireString(requireRecord(item).skill_id),
+          ),
         };
       }
       if (value.kind === "learning") {

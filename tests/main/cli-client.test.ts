@@ -303,6 +303,63 @@ describe("PyPI CLI client", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      label: "all 25 skills",
+      payload: {
+        ok: true,
+        skills: Array.from({ length: 25 }, (_, i) => ({
+          skill_id: `skill-${i}`,
+          private: "hidden",
+        })),
+      },
+      expected: {
+        ok: true,
+        value: { kind: "skills", skills: Array.from({ length: 25 }, (_, i) => `skill-${i}`) },
+      },
+    },
+    {
+      label: "empty catalog",
+      payload: { ok: true, skills: [] },
+      expected: { ok: true, value: { kind: "skills", skills: [] } },
+    },
+    {
+      label: "unavailable catalog",
+      payload: { ok: false },
+      expected: { ok: false, error: { code: "report_unavailable" } },
+    },
+    {
+      label: "malformed skill",
+      payload: { ok: true, skills: [{ skill_id: 7 }] },
+      expected: { ok: false, error: { code: "invalid_daemon_response" } },
+    },
+  ])("reads $label without truncating or inventing records", async ({ payload, expected }) => {
+    const fixture = await executableFixture("normal", {}, { list: payload });
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    expect(await client.readReport({ kind: "skills" })).toMatchObject(expected);
+  });
+
+  it("rejects a different skill identity and unrelated skill report inputs", async () => {
+    const fixture = await executableFixture(
+      "normal",
+      {},
+      { detail: { ok: true, skill: { skill_id: "other" } } },
+    );
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    expect(await client.readReport({ kind: "skills", skillId: "example" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    const reads = fixture.requests.length;
+    for (const extra of [{ sessionId: "session" }, { agentId: "writer" }, { arguments: "extra" }]) {
+      expect(await client.readReport({ kind: "skills", ...extra })).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    }
+    expect(fixture.requests).toHaveLength(reads);
+  });
+
   it("reads authenticated inventories and excludes private discovery fields", async () => {
     const fixture = await executableFixture();
     const client = new CliClient(() => ({
@@ -335,7 +392,7 @@ describe("PyPI CLI client", () => {
       ok: true,
       value: {
         kind: "skills",
-        text: "Skills:\n  - example · catalog\nUse /skills <skill-id> to view details.",
+        skills: ["example"],
       },
     });
     expect(await client.readReport({ kind: "skills", skillId: "example" })).toMatchObject({
@@ -2243,7 +2300,11 @@ function session(id: string) {
   };
 }
 
-async function executableFixture(mode = "normal", toolOutput: Record<string, unknown> = {}) {
+async function executableFixture(
+  mode = "normal",
+  toolOutput: Record<string, unknown> = {},
+  skillResponses: { list?: unknown; detail?: unknown } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "desktop-cli-test-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const requests: Array<{
@@ -2428,12 +2489,12 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
                   },
                 }
               : req.url === "/v1/skills"
-                ? {
+                ? (skillResponses.list ?? {
                     ok: true,
                     skills: [{ skill_id: "example", private: "private" }],
-                  }
+                  })
                 : req.url === "/v1/skills/example"
-                  ? {
+                  ? (skillResponses.detail ?? {
                       ok: true,
                       skill: {
                         skill_id: "example",
@@ -2447,7 +2508,7 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
                         sections: { instructions: "Use the approved tool." },
                         private: "private",
                       },
-                    }
+                    })
                   : req.url === "/v1/skills/suggestions/status"
                     ? {
                         ok: true,

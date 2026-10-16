@@ -1574,6 +1574,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const hideCommandResult = () => {
     commandResultGeneration += 1;
     elements.commandPanel.hidden = true;
+    renderJumpToLatest();
   };
   elements.closeCommand.addEventListener("click", () => {
     hideCommandResult();
@@ -1607,7 +1608,55 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     });
     elements.commandResult.replaceChildren(paragraph, copy);
     elements.commandPanel.hidden = false;
+    renderJumpToLatest();
     elements.commandPanel.scrollIntoView({ block: "start" });
+  };
+
+  const showSkills = async (skillId?: string) => {
+    const title = skillId ? "Skill details" : "Global skill catalog";
+    const sessionId = selected?.sessionId;
+    showCommandResult(title, "Loading from OpenMinion…");
+    const request = commandResultGeneration;
+    const result = await api.reports.read({ kind: "skills", ...(skillId ? { skillId } : {}) });
+    if (
+      request !== commandResultGeneration ||
+      sessionId !== selected?.sessionId ||
+      elements.commandPanel.hidden
+    )
+      return;
+    if (!result.ok) showCommandResult(title, result.error.message);
+    else if (result.value.kind === "skills") {
+      const report = result.value;
+      if ("text" in report) showCommandResult(title, report.text);
+      else {
+        const text = report.skills.length
+          ? `Global skill catalog:\n${report.skills.join("\n")}`
+          : "No global skills have been added.";
+        showCommandResult(title, text);
+        if (report.skills.length) {
+          const catalog = elements.commandResult.children[0];
+          catalog.className = "skill-catalog";
+          catalog.replaceChildren(
+            ...report.skills.map((id) => {
+              const button = root.createElement("button");
+              button.type = "button";
+              button.className = "quiet-button";
+              button.textContent = id;
+              button.addEventListener("click", () => void showSkills(id));
+              return button;
+            }),
+          );
+        }
+      }
+    }
+    if (skillId) {
+      const back = root.createElement("button");
+      back.type = "button";
+      back.className = "quiet-button";
+      back.textContent = "Back to catalog";
+      back.addEventListener("click", () => void showSkills());
+      elements.commandResult.append(back);
+    }
   };
 
   let diagnosticsGeneration = 0;
@@ -1897,10 +1946,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     void saveDraft(selected?.sessionId ?? "", elements.composer.value);
     elements.composer.focus();
     switch (command) {
+      case "/skills":
+        if (args.length > 1) showCommandResult("Skills", "Use /skills or /skills <skill-id>.");
+        else await showSkills(args[0]);
+        break;
       case "/agents":
       case "/tools":
       case "/tokens":
-      case "/skills":
       case "/learning":
       case "/mcp":
       case "/graph": {
@@ -1915,7 +1967,6 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           | "agents"
           | "tools"
           | "tokens"
-          | "skills"
           | "learning"
           | "mcp"
           | "graph";
@@ -1923,7 +1974,6 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           agents: "Agents",
           tools: "Tools",
           tokens: "Token usage",
-          skills: "Skills",
           learning: "Skill learning",
           mcp: "MCP",
           graph: args[0] === "status" ? "Graph status" : "Graph help",
@@ -1988,14 +2038,11 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const request = commandResultGeneration;
         const result = await api.reports.read({
           kind,
-          ...(sessionId && !["skills", "learning", "mcp", "graph"].includes(kind)
-            ? { sessionId }
-            : {}),
+          ...(sessionId && !["learning", "mcp", "graph"].includes(kind) ? { sessionId } : {}),
           ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
           ...(kind === "graph" && args[0] === "status" ? { graphView: "status" as const } : {}),
           ...(kind === "tools" ? { toolView: (args[0] ?? "status") as "status" | "list" } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
-          ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
           ...(kind === "learning" && args.length ? { proposalId: args.join(" ") } : {}),
         });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
@@ -2398,7 +2445,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const renderJumpToLatest = () => {
     const { scrollHeight, clientHeight, scrollTop } = elements.conversation;
     elements.jumpLatest.hidden =
-      scrollHeight - clientHeight - scrollTop <= 48 || !elements.commandMenu.hidden;
+      scrollHeight - clientHeight - scrollTop <= 48 ||
+      !elements.commandMenu.hidden ||
+      !elements.commandPanel.hidden;
   };
   elements.conversation.addEventListener("scroll", renderJumpToLatest);
   window.addEventListener("resize", renderJumpToLatest);

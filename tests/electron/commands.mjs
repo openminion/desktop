@@ -34,7 +34,7 @@ let finishing = false;
 const timeout = setTimeout(() => {
   console.error("Command Electron check timed out");
   void finish(1);
-}, 180_000);
+}, 300_000);
 await import("../../dist/src/main/bootstrap.js");
 void check();
 
@@ -99,16 +99,18 @@ async function check() {
       await evaluate("document.querySelector('#command-result p').textContent"),
       graph.stdout,
     );
-    const previousClipboard = await Promise.all(
-      (await clipboard.read()).map(
-        async (item) =>
-          new ClipboardItem(
-            Object.fromEntries(
-              await Promise.all(item.types.map(async (type) => [type, await item.getType(type)])),
+    const snapshotClipboard = async () =>
+      Promise.all(
+        (await clipboard.read()).map(
+          async (item) =>
+            new ClipboardItem(
+              Object.fromEntries(
+                await Promise.all(item.types.map(async (type) => [type, await item.getType(type)])),
+              ),
             ),
-          ),
-      ),
-    );
+        ),
+      );
+    const previousClipboard = await snapshotClipboard();
     try {
       await evaluate("document.querySelector('#command-result button').click()");
       await waitFor("document.querySelector('#command-result button').textContent === 'Copied'");
@@ -130,6 +132,184 @@ async function check() {
           join(process.env.OPENMINION_E2E_ARTIFACTS, `graph-status-${width}.png`),
           (await window.webContents.capturePage()).toPNG(),
         );
+    }
+    await evaluate("document.querySelector('#close-command').click()");
+    const skillPath = join(root, "SKILL.md");
+    for (let index = 1; index <= 21; index += 1) {
+      const id = `desktop-proof-${String(index).padStart(2, "0")}`;
+      await writeFile(
+        skillPath,
+        `---\nname: ${id}\nid: ${id}\nrisk: low\nverification:\n  - Confirm the catalog entry.\n---\n\n# Procedure\nRead the literal native proof <b>${index}</b>.\n\n# Verification\nConfirm the catalog entry.\n`,
+      );
+      const ingested = await runCommand(
+        executable,
+        [
+          ...args,
+          "skill",
+          "ingest",
+          "--file",
+          skillPath,
+          "--scope",
+          "global",
+          "--config",
+          join(root, "agents.json"),
+        ],
+        30_000,
+      );
+      assert.equal(ingested.exitCode, 0, ingested.stderr || ingested.stdout);
+      const staged = JSON.parse(ingested.stdout);
+      assert.equal(staged.skill_id, id);
+      const admitted = await runCommand(
+        executable,
+        [
+          ...args,
+          "skill",
+          "admit",
+          "--skill-id",
+          id,
+          "--version-hash",
+          staged.version_hash,
+          "--expected-active-version-hash",
+          "none",
+          "--target-status",
+          "verified",
+          "--reason",
+          "Native catalog fixture",
+          "--config",
+          join(root, "agents.json"),
+        ],
+        30_000,
+      );
+      assert.equal(admitted.exitCode, 0, admitted.stderr || admitted.stdout);
+    }
+    const skills = await runCommand(
+      executable,
+      [...args, "skill", "list", "--json", "--config", join(root, "agents.json")],
+      30_000,
+    );
+    assert.equal(skills.exitCode, 0, skills.stderr);
+    const skillIds = JSON.parse(skills.stdout).skills.map((skill) => skill.skill_id);
+    assert.equal(skillIds.length, 21);
+    await submit("/skills");
+    await waitFor("document.querySelectorAll('.skill-catalog button').length === 21");
+    assert.equal(
+      await evaluate("document.querySelector('#command-title').textContent"),
+      "Global skill catalog",
+    );
+    assert.deepEqual(
+      await evaluate(
+        "[...document.querySelectorAll('.skill-catalog button')].map(button => button.textContent)",
+      ),
+      skillIds,
+    );
+    const catalogText = `Global skill catalog:\n${skillIds.join("\n")}`;
+    const skillsClipboard = await snapshotClipboard();
+    try {
+      await evaluate("document.querySelector('[aria-label=\"Copy command result\"]').click()");
+      await waitFor(
+        "document.querySelector('[aria-label=\"Copy command result\"]').textContent === 'Copied'",
+      );
+      assert.equal(await clipboard.readText(), catalogText);
+      for (const [width, height] of [
+        [760, 560],
+        [1180, 800],
+      ]) {
+        window.setContentSize(width, height);
+        await evaluate(
+          "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+        );
+        await evaluate(
+          "document.querySelector('.skill-catalog button:last-child').scrollIntoView({ block: 'end' })",
+        );
+        assert.equal(await evaluate("document.querySelector('#jump-latest').hidden"), true);
+        assert.equal(await evaluate("document.documentElement.scrollWidth > innerWidth"), false);
+        assert.equal(
+          await evaluate(`(() => {
+          const last = document.querySelector('.skill-catalog button:last-child').getBoundingClientRect();
+          const composer = document.querySelector('#composer-form').getBoundingClientRect();
+          return last.top >= 0 && last.bottom <= composer.top + 0.5;
+        })()`),
+          true,
+        );
+        if (process.env.OPENMINION_E2E_ARTIFACTS)
+          await writeFile(
+            join(process.env.OPENMINION_E2E_ARTIFACTS, `skills-catalog-${width}.png`),
+            (await window.webContents.capturePage()).toPNG(),
+          );
+      }
+      await evaluate(`(() => {
+        const composer = document.querySelector('#composer');
+        composer.value = 'Keep this unsent skills draft';
+        composer.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('.skill-catalog button:nth-last-child(2)').focus();
+      })()`);
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Tab" });
+      await waitFor(
+        "document.activeElement === document.querySelector('.skill-catalog button:last-child')",
+      );
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+      window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+      await waitFor(
+        "[...document.querySelectorAll('#command-result button')].some(button => button.textContent === 'Back to catalog')",
+      );
+      assert.equal(
+        await evaluate("document.querySelector('#command-title').textContent"),
+        "Skill details",
+      );
+      const skillDetail = await runCommand(
+        executable,
+        [...args, "skill", "show", skillIds[20], "--config", join(root, "agents.json")],
+        30_000,
+      );
+      assert.equal(skillDetail.exitCode, 0, skillDetail.stderr);
+      const skill = JSON.parse(skillDetail.stdout).skill;
+      const detailText = await evaluate("document.querySelector('#command-result p').textContent");
+      assert.equal(
+        detailText,
+        [
+          `Skill: ${skill.name}`,
+          `  id       ${skill.skill_id}`,
+          `  status   ${skill.status}`,
+          `  scope    ${skill.scope}`,
+          `  risk     ${skill.risk_class}`,
+          `  version  ${skill.version_hash}`,
+          "",
+          "Procedure:",
+          skill.sections.procedure.trim(),
+          "",
+          "Verification:",
+          skill.sections.verification.trim(),
+        ].join("\n"),
+      );
+      assert.equal(await evaluate("document.querySelector('#command-result b') === null"), true);
+      assert.equal(
+        await evaluate("document.querySelector('#composer').value"),
+        "Keep this unsent skills draft",
+      );
+      await evaluate("document.querySelector('[aria-label=\"Copy command result\"]').click()");
+      await waitFor(
+        "document.querySelector('[aria-label=\"Copy command result\"]').textContent === 'Copied'",
+      );
+      assert.equal(await clipboard.readText(), detailText);
+      await evaluate(
+        "[...document.querySelectorAll('#command-result button')].find(button => button.textContent === 'Back to catalog').click()",
+      );
+      await waitFor("document.querySelectorAll('.skill-catalog button').length === 21");
+      assert.deepEqual(
+        await evaluate(
+          "[...document.querySelectorAll('.skill-catalog button')].map(button => button.textContent)",
+        ),
+        skillIds,
+      );
+      assert.equal(
+        await evaluate("document.querySelector('#composer').value"),
+        "Keep this unsent skills draft",
+      );
+      assert.equal(await evaluate("document.querySelectorAll('.message.assistant').length"), 0);
+    } finally {
+      await clipboard.write(skillsClipboard);
     }
     await evaluate("document.querySelector('#close-command').click()");
     await submit("Create a provider-free command test conversation.");
@@ -273,7 +453,7 @@ async function check() {
         );
     }
     console.log(
-      "PASS: real Core graph readiness/clipboard, custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, fresh CLI session metadata, keyboard session selection, and responsive native UI. Provider-free evidence only.",
+      "PASS: real Core graph readiness/clipboard, complete 21-skill global catalog/detail/back/copy with keyboard selection and draft preservation, custom-command discovery/render/send, expansion refusal, tool activation/status/deactivation, scoped delegation list, fresh CLI session metadata, keyboard session selection, and responsive native UI. Provider-free evidence only.",
     );
     await finish(0);
   } catch (error) {
