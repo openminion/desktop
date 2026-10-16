@@ -2149,13 +2149,18 @@ describe("renderer status view", () => {
       });
       read.mockResolvedValue({
         ok: true,
-        value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
+        value: {
+          kind: "agents",
+          activeAgentId: "writer",
+          agents: [{ id: "writer", label: "Writer" }],
+        },
       });
       page.element("composer").value = "/agent Writer";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toContain("Writer"),
       );
+      expect(page.element("command-result").children[0]?.textContent).toBe("● writer — Writer");
       expect(read).toHaveBeenLastCalledWith({
         kind: "agents",
         agentFilter: "Writer",
@@ -2217,7 +2222,7 @@ describe("renderer status view", () => {
       );
       expect(read).toHaveBeenLastCalledWith({
         kind: "mcp",
-        agentId: session.activeAgentId,
+        sessionId: session.sessionId,
       });
       let finishReport!: (value: unknown) => void;
       read.mockImplementationOnce(
