@@ -47,7 +47,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/agents`, `/agent`     | Read the daemon's agent discovery list. An exact ID or display name filters the list; this does not change the session's agent.                                                                                           |
 | `/tools`, `/tool`       | Show exposure status for the selected session, matching Focus. `list` shows the tool inventory. `activate [profile]` and `deactivate [profile]` open scoped forms backed by Core tool exposure operations.                                                                                                                           |
 | `/mcp`                  | Show configured and exposed MCP servers plus registered/exposed MCP tool counts from the daemon's capability report.                                                                                                      |
-| `/skills`               | Browse all global stored skills returned by OpenMinion; select an entry or use `/skills <skill-id>` to inspect it. Skill admission and mutation are not connected.                                                                            |
+| `/skills`               | Browse stored global and selected-agent skills from OpenMinion (global only without a conversation); select an entry or use `/skills <skill-id>` to inspect it. Skill admission and mutation are not connected.                                                                            |
 | `/learning`             | Show the skill-learning suggestion summary or inspect one exact proposal ID through the public daemon API. Review and apply remain operator CLI actions.                                                                  |
 | `/identity`             | Show the selected conversation agent's canonical identity. Add `verify` to inspect source/render status or `reload` to restart the app-owned daemon and refresh cached identity policy.                                  |
 | `/tokens`               | Request the selected session's canonical durable token report. Pinned PyPI may report daemon-created sessions unavailable; no usage is fabricated.                                                                        |
@@ -123,6 +123,8 @@ literal text; embedded images do not load automatically. Clicking an HTTP(S)
 link explicitly opens the system browser. Other URL schemes are unavailable.
 Unchanged message elements stay mounted during status updates so text selection
 and reading position can be retained.
+
+The skill catalog follows the conversation’s current agent, including its configured default. It lists stored records; Focus configured-only entries and eligibility filtering are not yet represented.
 
 Except for task and delegation commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, `/tools activate [profile]`, `/tools deactivate [profile]`, `/graph status`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help/status, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.

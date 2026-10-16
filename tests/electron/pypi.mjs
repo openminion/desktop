@@ -448,10 +448,31 @@ async function check() {
     console.log(
       "PASS: native /tools status and /tool list match the pinned daemon's public exposure and inventory without sending a turn.",
     );
-    const cliSkills = await runCommand(executable, [...args, "skill", "list", "--json"], 30_000);
+    const skillSession = await runCommand(
+      executable,
+      [...args, "sessions", "show", sessionId, "--json"],
+      30_000,
+    );
+    assert.equal(skillSession.exitCode, 0);
+    const skillAgent = JSON.parse(skillSession.stdout).agent;
+    assert.ok(skillAgent);
+    const cliSkills = await runCommand(
+      executable,
+      [
+        ...args,
+        "skill",
+        "list",
+        "--agent-id",
+        skillAgent,
+        "--json",
+        "--config",
+        join(root, "agents.json"),
+      ],
+      30_000,
+    );
     assert.equal(cliSkills.exitCode, 0);
     const skillIds = JSON.parse(cliSkills.stdout).skills.map((skill) => skill.skill_id);
-    const skillText = await reportCommand("/skills", "Global skill catalog");
+    const skillText = await reportCommand("/skills", `Stored skills for ${skillAgent}`);
     assert.deepEqual(
       await evaluate(
         "[...document.querySelectorAll('.skill-catalog button')].map(button => button.textContent)",
@@ -462,7 +483,7 @@ async function check() {
       assert.ok(
         (await reportCommand(`/skills ${skillIds[0]}`, "Skill details")).includes(skillIds[0]),
       );
-    } else assert.equal(skillText, "No global skills have been added.");
+    } else assert.equal(skillText, "No stored skills for this agent.");
     assert.ok((await reportCommand("/learning", "Skill learning")).startsWith("Skill learning:"));
     const mcpText = await reportCommand("/mcp", "MCP");
     assert.ok(mcpText.startsWith("MCP:\n"));

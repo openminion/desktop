@@ -339,6 +339,59 @@ describe("PyPI CLI client", () => {
     expect(await client.readReport({ kind: "skills" })).toMatchObject(expected);
   });
 
+  it("scopes stored skills to fresh session facts and the same draft default as chat", async () => {
+    const fixture = await executableFixture();
+    let row = session("saved");
+    let failed = false;
+    const run = vi.fn(async (executable: string, args: readonly string[], timeout: number) => {
+      if (args[1] === "sessions")
+        return failed
+          ? { exitCode: 1, stderr: "Session unavailable", stdout: "" }
+          : { exitCode: 0, stderr: "", stdout: JSON.stringify(row) };
+      return runCommand(executable, args, timeout);
+    });
+    const client = new CliClient(
+      () => ({ executable: fixture.executable, args: fixture.args }),
+      run,
+    );
+    for (const agent of ["writer", "reviewer+notes&scope=other"]) {
+      row = { ...row, agent };
+      expect(await client.readReport({ kind: "skills", sessionId: "saved" })).toMatchObject({
+        ok: true,
+        value: { kind: "skills", agentId: agent, skills: ["example"] },
+      });
+      expect(fixture.requests.at(-1)).toMatchObject({
+        path: `/v1/skills?agent_id=${encodeURIComponent(agent)}`,
+        token: "test-private-token",
+      });
+    }
+    for (const agentId of [undefined, "draft-agent"]) {
+      const draft = await client.create(agentId ? { agentId } : {});
+      if (!draft.ok) throw new Error("Draft not created");
+      run.mockClear();
+      expect(
+        await client.readReport({ kind: "skills", sessionId: draft.value.sessionId }),
+      ).toMatchObject({
+        ok: true,
+        value: { agentId: agentId ?? "writer" },
+      });
+      expect(run.mock.calls.some(([, args]) => args[1] === "sessions")).toBe(false);
+      expect(fixture.requests.at(-1)?.path).toBe(`/v1/skills?agent_id=${agentId ?? "writer"}`);
+    }
+    row = { ...row, id: "different" };
+    const reads = fixture.requests.length;
+    expect(await client.readReport({ kind: "skills", sessionId: "saved" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    failed = true;
+    expect(await client.readReport({ kind: "skills", sessionId: "saved" })).toMatchObject({
+      ok: false,
+    });
+    expect(fixture.requests).toHaveLength(reads);
+    expect(run.mock.calls.some(([, args]) => args.includes("export"))).toBe(false);
+  });
+
   it("rejects a different skill identity and unrelated skill report inputs", async () => {
     const fixture = await executableFixture(
       "normal",
@@ -351,7 +404,13 @@ describe("PyPI CLI client", () => {
       error: { code: "invalid_daemon_response" },
     });
     const reads = fixture.requests.length;
-    for (const extra of [{ sessionId: "session" }, { agentId: "writer" }, { arguments: "extra" }]) {
+    for (const extra of [
+      { sessionId: "session", skillId: "example" },
+      { sessionId: "--help" },
+      { sessionId: "saved\0" },
+      { agentId: "writer" },
+      { arguments: "extra" },
+    ]) {
       expect(await client.readReport({ kind: "skills", ...extra })).toMatchObject({
         ok: false,
         error: { code: "invalid_request" },
@@ -392,6 +451,7 @@ describe("PyPI CLI client", () => {
       ok: true,
       value: {
         kind: "skills",
+        agentId: null,
         skills: ["example"],
       },
     });
@@ -2488,7 +2548,7 @@ async function executableFixture(
                     mcp: { failed_servers: {} },
                   },
                 }
-              : req.url === "/v1/skills"
+              : req.url === "/v1/skills" || req.url?.startsWith("/v1/skills?")
                 ? (skillResponses.list ?? {
                     ok: true,
                     skills: [{ skill_id: "example", private: "private" }],
