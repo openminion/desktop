@@ -68,7 +68,8 @@ and should be treated as a scam.
 
 [Download the unsigned 0.0.1 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.2)
 from the official runtime repository. The release includes checksums and a
-manifest identifying its exact source revision. Development packages can lag
+manifest identifying its exact source revision. Follow
+[download verification](SUPPORT.md#verify-a-development-download) before installing. Development packages can lag
 this repository's `dev` branch; use source development to test newer changes.
 
 These packages are unsigned and macOS packages are not notarized. They do not

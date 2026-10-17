@@ -8,6 +8,9 @@ const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageMetadata = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
 const requiredFiles = [
   ".github/dependabot.yml",
+  ".github/ISSUE_TEMPLATE/bug-report.md",
+  ".github/ISSUE_TEMPLATE/feature-request.md",
+  ".github/ISSUE_TEMPLATE/config.yml",
   ".github/pull_request_template.md",
   ".github/workflows/ci.yml",
   ".githooks/commit-msg",

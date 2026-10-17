@@ -45,8 +45,10 @@ Do not commit `node_modules/`, `dist/`, `out/`, captured media, credentials, or
 `.openminion` runtime state.
 
 Package only built runtime files, license notices, and runtime metadata. Never
-copy source, tests, hooks, CI, docs, development dependencies, credentials, or
-local state into the application archive.
+copy source, tests, hooks, CI, docs, dependency directories, credentials, or
+local state into the application archive. Selected runtime dependencies are
+bundled into the reviewed build output; their presence in `devDependencies`
+does not mean they are absent from the shipped JavaScript.
 
 ## 5. Keep changes focused
 
