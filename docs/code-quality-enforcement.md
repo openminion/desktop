@@ -46,8 +46,8 @@ the packaged-file boundary changes.
 | OpenMinion integration | package-specific: pinned-package lifecycle test; transport acceptance remains separate |
 | Python Make, pre-commit, and validators | not applicable: this is a Node/TypeScript application |
 | Numeric debt baselines | not applicable: current TypeScript and Biome gates are clean |
-| Release publishing | not applicable until signing, notarization, update, and rollback are implemented |
-| Windows and Linux packaging | not applicable until those platforms are accepted and certified |
+| Release publishing | package-specific: unsigned development staging; stable distribution still requires signing and certification |
+| Windows and Linux packaging | package-specific: unsigned maker targets; native runtime certification remains separate |
 
 ## Enforcement Layers
 

@@ -23,10 +23,10 @@
 </p>
 
 OpenMinion Desktop is the local graphical client for the OpenMinion agent
-runtime. It provides text chat and session history; source-development pairing
-with a compatible OpenMinion checkout also supports request-bound tool approvals.
+runtime. It provides text chat, session history, and request-bound tool approvals
+through compatible public OpenMinion interfaces.
 Attachments, artifacts, and screen context remain preview UI, while agent execution,
-credentials, policy, and durable session truth in the OpenMinion daemon.
+credentials, policy, and durable session truth remain in the OpenMinion daemon.
 
 The application is a development alpha. On first launch it creates an isolated
 Python environment in the application data directory, installs the pinned
@@ -239,3 +239,5 @@ The license grants rights to use, modify, and redistribute the code. It does
 not grant rights to present a fork, clone, token, website, or social account as
 the official OpenMinion project or imply affiliation or endorsement. See
 [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+For maintainers preparing source visibility, see [Public Source Readiness](docs/public-readiness.md).

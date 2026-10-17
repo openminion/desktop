@@ -1,7 +1,7 @@
 # OpenMinion Desktop Certification Readiness Matrix
 
 Status: active
-Last updated: 2026-10-03
+Last updated: 2026-10-17
 
 Purpose: summarize the current proof posture for the standalone Desktop
 application.
@@ -13,7 +13,7 @@ application.
 | Provider-free code quality | format, lint, type, public-surface, tests, and build | ready for pull-request use |
 | Public repository surface | required-file, local-link, portable-path, heading, lifecycle-metadata, and documented-command validation | aligned and enforced |
 | GitHub Actions definitions | actionlint plus successful hosted execution | aligned and enforced |
-| Development dependency audit | known Electron Forge transitive findings; no `node_modules` shipped | monitored through Dependabot; not a clean full audit |
+| Development dependency audit | Forge 8.0.1 reduces 37 findings to 4 high reports in one DMG build chain (`appdmg` → `image-size`) | upstream fix/disposition required; not a clean full audit |
 | Linux source compatibility | provider-free CI | supported as a CI host, not a packaged product |
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |
 | macOS native capture | opt-in permissioned test | requires acceptance on an authorized host |
@@ -28,9 +28,11 @@ application.
 | Signed and notarized macOS app | no evidence | not ready |
 | Desktop SQLite name migration and restart | fresh native legacy-browser import, saved/reset names and preserved runtime paths | verified for this bounded migration |
 | Full runtime update, rollback, restore and uninstall | no complete end-to-end evidence | not ready |
-| Windows and Linux packages | no evidence | not ready |
+| Windows and Linux packages | unsigned package targets and development distribution workflow exist | runtime certification and current build acceptance remain separate |
 | Remote daemon operation | out of the current local profile | not ready |
-| Public release | release workflow intentionally absent | not ready |
+| Public source repository | contribution workflow and launch checklist | private; [public-source gates](public-readiness.md) remain open |
+| Public development distribution | unsigned prerelease process in `openminion/runtime` | development evidence only |
+| Stable public release | signing and platform certification incomplete | not ready |
 
 ## Remaining Alpha Caveats
 

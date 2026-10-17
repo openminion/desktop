@@ -33,6 +33,7 @@ const requiredFiles = [
   "docs/code-quality-enforcement.md",
   "docs/engineering-patterns.md",
   "docs/getting-started.md",
+  "docs/public-readiness.md",
   "docs/source-tree-owner-map.md",
   "docs/testing-and-validation.md",
 ];
