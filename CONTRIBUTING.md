@@ -22,6 +22,9 @@ presentation and interaction state.
 
 Use Node.js 24 and npm 11.
 
+Fork the repository, then clone your fork. Maintainers can clone the upstream
+repository directly. Create a focused branch from the latest `dev` before editing.
+
 ```bash
 npm ci
 npm run hooks:install
@@ -59,8 +62,23 @@ Validation
 
 ## Git workflow
 
-Develop on `dev` or a focused branch based on `dev`. Merge reviewed and
-validated changes into `main`.
+1. Start from current upstream `dev` in an isolated worktree on a local feature
+   branch. Keep unrelated work intact.
+2. Publish a purpose-named `feat/*`, `fix/*`, `docs/*`, `refactor/*`, `test/*`,
+   or `build/*` branch to your fork (or the upstream repository for maintainers).
+   Do not publish `codex/*` branches.
+3. Open the pull request against `dev`. Reconcile with current upstream `dev`,
+   rerun the affected checks, and request review before merging.
+4. Wait for both **Quality (ubuntu-latest)** and **Quality (macos-latest)** and
+   any other configured checks to pass. Record skipped or external evidence
+   honestly; a green provider-free check does not prove live provider behavior.
+5. After merge, verify the delivered commit is in upstream `dev`, then remove
+   the feature branch and its worktree.
+
+Normal feature PRs do not target `main`. Maintainers promote reviewed `dev` to
+`main` through [Releasing](RELEASING.md); runtime-certification evidence follows
+its separate, documented release review. This is the same feature-to-`dev`,
+reviewed-promotion boundary used by OpenMinion CLI.
 
 Commit subjects use:
 

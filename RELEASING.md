@@ -1,7 +1,7 @@
 # OpenMinion Desktop Releasing
 
 Status: unsigned development distribution enabled; stable distribution not enabled
-Last updated: 2026-10-09
+Last updated: 2026-10-17
 
 Purpose: define the unsigned development-package process and the additional
 proof required before OpenMinion Desktop can enable stable distribution.
@@ -21,6 +21,24 @@ The separate `Runtime qualification` workflow is not a Desktop distribution
 release. It builds a real-version packaged Desktop on all supported hosts to
 qualify exact immutable OpenMinion runtime bytes, then opens a reviewed evidence
 PR. It never publishes the Desktop packages or changes the runtime feed.
+
+## Source visibility and promotion
+
+Opening the source repository is a separate maintainer decision from publishing
+binaries. Complete [Public Source Readiness](docs/public-readiness.md) before
+changing visibility; source changes alone do not authorize that change.
+
+For a planned promotion, reconcile `dev` with current `main`, open a `dev` →
+`main` PR, and review the complete diff and exact validation evidence. Require
+both hosted Quality jobs and every other configured check before merging.
+Record the merge revision; dispatch packaging only from that reviewed `main`
+revision. Do not use a normal feature PR to bypass promotion. The generated
+runtime-certification evidence PR below is a release-only exception targeting
+`main`, and still requires review and passing checks.
+
+Manual package staging and runtime qualification run only in the canonical
+repository on `main`. A draft release hides its assets, but workflow logs can
+be public once the source repository is public. Never put secrets in logs.
 
 ## Desktop version
 
@@ -54,7 +72,7 @@ Before treating a revision as a release candidate:
 
 ## Distribution activation
 
-Before enabling public distribution:
+Before enabling stable distribution:
 
 1. add and validate signing and notarization,
 2. prove clean-machine Python discovery, managed installation, and first launch,
