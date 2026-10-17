@@ -161,13 +161,15 @@ New installations use the same location from source and from a packaged app:
   logs/             Application logs
   runtime/          Managed Python environment
   agents.json       Core-managed agent profiles and credentials
+  agents.json.backup Previous config retained when profiles are updated
   data/             Core-managed conversations and runtime state
 ```
 
 The database contains local draft identities, unsent text, and presentation
-metadata such as the quiet/normal/verbose tool display preference. It does not contain
-canonical conversation transcripts or API keys. OpenMinion owns
-the separate `data/` and `agents.json` contents under Desktop's directory;
+metadata such as the quiet/normal/verbose tool display preference. Configured
+provider credentials and canonical conversation transcripts are stored separately;
+unsent drafts contain the text you type, which can itself include sensitive data.
+OpenMinion owns the separate `data/` and `agents.json` contents under Desktop's directory;
 the ordinary CLI's data remains separate. SQLite schema versions support
 ordered migrations. An app that finds a newer schema refuses to open it and
 asks for a compatible version; it never resets existing data. Replacing the
@@ -188,13 +190,38 @@ and, for an adopted installation, its previous application-data directory as
 well. Restore them to their original locations on the same machine. Removing
 just the application leaves user data intact; deleting these data directories
 also removes saved profiles and conversations. Database-only backups contain
-chat labels, preferences and unsent drafts, not canonical conversations or keys.
+chat labels, preferences and unsent drafts, not canonical conversations or
+configured provider credentials.
 
 For an isolated development or test installation, set `OPENMINION_DESKTOP_HOME`
 to an absolute directory. This overrides the root and skips automatic adoption
 of the normal installation. `OPENMINION_EXECUTABLE` selects the executable only;
 it does not select the data directory. A second launch using the same Desktop
 root focuses the existing app instead of starting another managed daemon.
+
+## Privacy and Connections
+
+Desktop communicates with its daemon on an authenticated local endpoint. The
+runtime can still contact external services:
+
+| Action | Connection and data boundary |
+| --- | --- |
+| Install the managed runtime | Python's package installer downloads OpenMinion and dependencies; its configured package index applies. |
+| Check runtime updates | Desktop requests public release metadata from GitHub at startup, every 24 hours, and when you choose **Check updates**. These requests do not include your chat or profile contents. |
+| Prepare an update | Desktop downloads the selected eligible runtime artifacts. **Pause upgrades** blocks preparation and activation, but does not disable metadata checks. |
+| Test a provider or send a message | OpenMinion uses the selected profile and tools. Configured providers and external tools may receive prompts, conversation context, queries, and tool inputs. Their data handling and charges apply. |
+| Open a link in a reply | The link opens in your system browser, which contacts the destination site. |
+
+The echo demo does not call a model, but runtime installation and update checks
+can still use the network. Screen preview stays local in the current app; see
+[Screen Context](screen-context.md) for its permission and integration limits.
+
+Desktop does not encrypt its SQLite database or profile files, or put saved
+profile keys in an operating-system credential vault. File permissions limit
+access where supported. Both `agents.json` and its `.backup` can contain keys;
+removing a key from the active profile does not erase earlier backups or copies.
+Protect the whole data directory and any backups as sensitive files. See
+[Desktop Data](#desktop-data) for locations and backup scope.
 
 ## Agent Profiles and Keys
 
@@ -288,6 +315,9 @@ An accepted message clears only its saved draft revision, preserving text typed
 while it was sending. Rejected submissions retain the draft. After sending,
 your message remains visible while OpenMinion works, then the conversation
 refreshes from canonical saved history. Closing a conversation clears its draft.
+For a saved conversation, it also marks the session closed without erasing the
+canonical transcript. Desktop does not provide a per-chat permanent-delete
+control.
 
 Write your first message and send it to create a task automatically. Use
 **New conversation** in the sidebar to start another conversation. Use the send
@@ -375,6 +405,16 @@ does not change the session ID, history, agent, or the CLI's saved session data;
 continue using the original ID when resuming through the CLI. Names can also be
 changed while a reply is running. Clearing Desktop's local application data removes
 these local names.
+
+## Export a conversation
+
+Open a saved conversation, run `/export` from the composer or command menu,
+then choose where to save the Markdown file. It contains messages already saved
+by OpenMinion, not the unsent draft or an unfinished answer that has not been saved.
+It is a separate readable copy, not a full installation backup. Review it before
+sharing: it may include private prompts, responses, message metadata, and
+session information.
+Closing the chat or removing Desktop does not remove copies saved elsewhere.
 
 ## Daemon Status And Logs
 

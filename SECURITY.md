@@ -33,6 +33,21 @@ Captured media, attachment bytes, daemon credentials, native paths, raw tool
 arguments, and tool results must not be exposed to the renderer unless a
 reviewed contract explicitly requires and bounds that data.
 
+## Local data and external services
+
+Process isolation is separate from protection of saved files. Desktop's SQLite
+database, OpenMinion profile JSON and previous-config backup are not encrypted
+by Desktop. Saved profile credentials remain in the config; draft text and
+transcripts may also contain sensitive information. Protect these files and
+backups with your operating system's access and disk-protection controls.
+
+A local daemon can call configured model providers and external tools. Managed
+installation and runtime update checks also use the network. See
+[Privacy and Connections](docs/getting-started.md#privacy-and-connections) for
+these boundaries and [Desktop Data](docs/getting-started.md#desktop-data) for
+storage and backup scope. Logs and exported transcripts must be reviewed before
+being attached to a report.
+
 ## Dependency and integration note
 
 Call out whether an issue depends on a specific OpenMinion revision, Electron

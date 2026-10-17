@@ -174,7 +174,10 @@ Privileged operations stay in Electron main behind fixed typed methods.
 Stored credentials remain outside the renderer; newly entered keys are
 write-only inputs. Diagnostics may display CLI-reported paths, so review logs
 before sharing them. Screen observation begins only after explicit selection.
-Read [SECURITY.md](SECURITY.md) for the full boundary and private reporting route.
+Local storage does not make configured providers or tools offline. See
+[Privacy and Connections](docs/getting-started.md#privacy-and-connections) for
+saved-key, backup, and network behavior. Read [SECURITY.md](SECURITY.md) for the
+full boundary and private reporting route.
 
 ## Development
 

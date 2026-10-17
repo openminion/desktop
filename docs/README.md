@@ -14,6 +14,8 @@ OpenMinion Desktop repository.
 | Manage profiles, model keys, and search-tool keys | [Agent Profiles and Keys](getting-started.md#agent-profiles-and-keys) |
 | Find, name, or resume a conversation | [Workspace Basics](getting-started.md#workspace-basics) and [Name a chat](getting-started.md#name-a-chat) |
 | Use connected slash commands | [Desktop Commands](commands.md) |
+| Understand saved credentials and external connections | [Privacy and Connections](getting-started.md#privacy-and-connections) |
+| Export a saved conversation | [Export a conversation](getting-started.md#export-a-conversation) |
 | Back up names, drafts, profiles, and conversation data | [Desktop Data](getting-started.md#desktop-data) |
 | Inspect a stopped daemon or a disconnected response | [Support and Troubleshooting](../SUPPORT.md#troubleshooting) |
 | Preview a screen/window and understand capture limits | [Screen Context](screen-context.md) |
