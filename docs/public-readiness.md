@@ -19,7 +19,10 @@ packaging target. See [Focus parity](focus-parity.md) and
 - Keep `package.json`'s `private: true`: it prevents accidental npm publication;
   it does not control GitHub visibility or restrict the Apache-2.0 source license.
 - Use [Support](../SUPPORT.md) for bug reports and [Security](../SECURITY.md)
-  for private vulnerability reporting. Do not attach credentials, unredacted
+  for private vulnerability reporting. Bug and feature templates collect scoped
+  reproduction/parity details without requiring paid-provider tests. GitHub
+  activates templates from the default branch; changes staged only on `dev`
+  still require reviewed promotion. Do not attach credentials, unredacted
   logs, private prompts, or personal file paths to public reports.
 
 ## Before changing visibility
@@ -65,9 +68,13 @@ At the approved switch:
 3. Verify [Actions fork settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository),
    including first-time contributor approval and no secret or write-token access
    for untrusted PR jobs. Keep package publishing restricted to canonical `main`.
-4. From an unauthenticated environment, clone the public default branch, install
+4. Check the public issue chooser on the promoted default branch: bug and
+   feature templates render, blank issues remain available, and support/security
+   links reach the documented routes. A template link does not establish that
+   private vulnerability reporting is enabled.
+5. From an unauthenticated environment, clone the public default branch, install
    the lockfile, run the documented checks, and verify public documentation links.
-5. Submit a real fork PR to `dev` without secrets. Confirm that the approved
+6. Submit a real fork PR to `dev` without secrets. Confirm that the approved
    workflow runs, validates its commit range, and passes both Quality jobs.
    Record the PR and workflow receipts; do not substitute a same-repo PR.
 
