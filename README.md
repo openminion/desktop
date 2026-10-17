@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://www.openminion.com/brand/openminion-logo-transparent-v1.png" alt="OpenMinion logo" width="128" />
+  <img src="assets/icon.png" alt="OpenMinion logo" width="128" />
 </p>
 
 <h1 align="center">OpenMinion Desktop</h1>
@@ -22,28 +22,25 @@
   <img alt="Status" src="https://img.shields.io/badge/status-alpha-6B7280">
 </p>
 
-OpenMinion Desktop is the local graphical client for the OpenMinion agent
-runtime. It provides text chat, session history, and request-bound tool approvals
-through compatible public OpenMinion interfaces.
-Attachments, artifacts, and screen context remain preview UI, while agent execution,
-credentials, policy, and durable session truth remain in the OpenMinion daemon.
+OpenMinion Desktop is a local graphical workspace for the
+[OpenMinion runtime](https://github.com/openminion/openminion). Chat with an
+agent, reopen conversations, manage profiles, review tool approvals, and inspect
+the local daemon without using a terminal. Execution, credentials, policies,
+and saved conversation history remain owned by OpenMinion.
 
-The application is a development alpha. On first launch it creates an isolated
-Python environment in the application data directory, installs the pinned
-OpenMinion release from PyPI, creates a local demo config, and starts the
-ordinary OpenMinion daemon. Saved conversations use its existing public CLI; text turns and cancellation
-use its authenticated local API. Signed distribution, Desktop self-updates, remote daemon operation, and
-native input control are not available yet.
+Desktop is an **early development alpha**. The current application version is
+**0.0.1**, separate from the managed runtime version, **0.0.29**. Unsigned
+development packages are available; signed stable releases and full Focus/CLI
+parity are still in progress.
 
 ## Read This First
 
-1. Read [At a Glance](#at-a-glance) for the current product boundary.
-2. Follow [Requirements](#requirements) and [Quick Start](#quick-start) to run
-   the development app.
-3. Read [How It Fits](#how-it-fits) to understand what stays in OpenMinion.
-4. Read [Security Model](#security-model) before changing a process boundary.
-5. Use the [package documentation](docs/README.md) for development and
-   validation details.
+1. [Install](#install) a development package or [run from source](#run-from-source).
+2. Follow [First Launch](#first-launch) to choose a provider and start chatting.
+3. Check [At a Glance](#at-a-glance) and [Current Capabilities](#current-capabilities)
+   for supported behavior and remaining gaps.
+4. Use the [documentation map](docs/README.md) for profiles, commands, data,
+   troubleshooting, contribution, and release guidance.
 
 ## Trust and Brand Safety
 
@@ -59,135 +56,143 @@ and should be treated as a scam.
 
 | | |
 | --- | --- |
-| Application | OpenMinion Desktop |
-| Current line | Development alpha |
-| Current runtime profile | macOS development |
-| Native package targets | macOS, Windows, and Linux |
-| Runtime | Node.js 24, npm 11, and Electron |
-| Managed core | Pinned `openminion==0.0.29` from PyPI |
-| Best fit | Local chat, saved sessions, task controls, and visible-context preview |
-| Not the claim | Signed release, remote operation, or autonomous native control |
+| Application | OpenMinion Desktop 0.0.1 · development alpha |
+| Managed runtime | Pinned `openminion==0.0.29` from PyPI |
+| Current runtime acceptance | macOS; Windows and Linux runtime certification remains open |
+| Unsigned package formats | macOS DMG/ZIP, Windows ZIP, Linux DEB/ZIP |
+| Source prerequisites | Node.js 24, npm 11, Python 3.11 |
+| Best fit | Local text chat, saved conversations, profiles, and task controls |
+| Remaining boundaries | Full Focus parity, media/artifact integration, remote daemons, signed stable distribution |
 
-## Common Commands
+## Install
 
-```bash
-npm start
-npm run ci-check
-npm run hooks:run
-npm run package
-npm run make
-```
+[Download the unsigned 0.0.1 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.2)
+from the official runtime repository. The release includes checksums and a
+manifest identifying its exact source revision. Development packages can lag
+this repository's `dev` branch; use source development to test newer changes.
 
-`npm start` runs the source-development app. `npm run package` builds and
-inspects the native application directory. `npm run make` also creates and
-inspects the native unsigned artifacts: DMG and ZIP on macOS, ZIP on Windows,
-and DEB and ZIP on Linux. Reviewed all-platform builds may be published in
-`openminion/runtime` as explicitly unsigned development prereleases; they are
-not stable Desktop releases or automatic-update offers.
+These packages are unsigned and macOS packages are not notarized. They do not
+establish stable-release or Windows/Linux runtime certification. Python 3.11
+and network access are needed for the first managed-runtime installation.
+Desktop does not currently update its own application bundle. See
+[Support](SUPPORT.md) for the supported environment and
+[Releasing](RELEASING.md) for package verification and release boundaries.
 
-## What OpenMinion Desktop Provides
+## Run From Source
 
-- browse, reopen, and close local OpenMinion sessions; create them with a first message
-- chat with streaming progress and typed terminal outcomes
-- expand and copy tool output supplied by the runtime; partial or unavailable output is labeled
-- inspect OpenMinion work with `/tasks` and pause, resume, or cancel it through core controls
-- cancel active turns and recover completed history after renderer reload or daemon restart
-- review and allow once or deny policy-gated tool calls when paired with a compatible source runtime
-- preview attachments, artifacts, and screen context in the UI fixture
-- select a screen or window for local preview when native permission is available
-- install, version-check, start, monitor, and stop an app-owned OpenMinion daemon
-- check compatible runtime metadata and explicitly prepare a verified PyPI or
-  paired-binary runtime for startup-only activation; public binary publication
-  and compatibility certification remain pending
-
-## What OpenMinion Desktop Does Not Provide
-
-- a second agent runtime, session store, policy engine, or provider layer
-- direct model-provider configuration or credential storage in the renderer
-- arbitrary renderer access to Node.js, the filesystem, shell, IPC, or network
-- hidden screen capture, always-on observation, or unrestricted native input
-- remote daemon attachment, hosted synchronization, or multi-device control
-- signed, notarized, automatically updating public releases
-- full Focus slash-command parity, attachment sending, or artifact browsing
-- reattachment to an active turn after quitting the application
-
-## Requirements
-
-- macOS for the current runnable application profile
-- Node.js 24
-- npm 11
-- Python 3.11 for the temporary PyPI-based runtime installation path
-- network access on first launch or when the pinned OpenMinion version changes
-
-Native packaging can produce unsigned artifacts on macOS, Windows, and Linux.
-Windows and Linux runtime behavior is not yet certified.
-
-## Quick Start
-
-Install dependencies and run the provider-free checks:
+Use Node.js 24, npm 11, and Python 3.11. The current runnable development profile
+is macOS. Repository access is required while the source remains private.
 
 ```bash
+git clone --branch dev https://github.com/openminion/desktop.git
+cd desktop
 npm ci
-npm run hooks:install
-npm run ci-check
-```
-
-Start the development app:
-
-```bash
 npm start
 ```
 
-The first launch installs `openminion==0.0.29` under `~/.openminion/desktop`,
-creates a private initial config, and starts an isolated daemon. A setup screen
-offers OpenMinion's provider choices, including MiniMax, model and API-key fields,
-profile import, or an explicit echo demo. Setup uses the ordinary CLI setup
-command and restarts the daemon with the saved profile. By default, setup sends
-one provider request and reports whether the connection was verified. Clear
-**Test connection before continuing** to save without making that request.
-Later launches reuse the environment when its installed version matches the pin.
-Desktop chat names and unsent text drafts live in SQLite; existing installations retain their recorded
-runtime locations. See [Desktop data](docs/getting-started.md#desktop-data) for
-storage, migration, and backup behavior.
+To explore sample UI interactions without a daemon or provider, use
+`npm run preview`. The window is labeled **UI preview**; its sample results do
+not prove that the corresponding runtime integrations are available.
 
-For source development, bypass the managed PyPI installation with an explicit
-executable:
+For an existing source-installed runtime, use an isolated Desktop data directory:
 
 ```bash
-OPENMINION_EXECUTABLE=/path/to/openminion npm start
+OPENMINION_DESKTOP_HOME=/absolute/path/to/desktop-dev \
+  OPENMINION_EXECUTABLE=/absolute/path/to/venv/bin/openminion npm start
 ```
 
-The override must provide the ordinary `config init` and `daemon
-start/status/stop` commands. Desktop does not require a Desktop-specific command
-inside OpenMinion.
+The executable needs a sibling `openminiond` entrypoint. This override is
+unmanaged; Desktop does not upgrade it. See
+[Getting Started](docs/getting-started.md) for lifecycle and Windows shell details.
 
-macOS may request Screen Recording permission when observation is used. Denying
-that permission keeps chat available and observation unavailable.
+## First Launch
+
+Desktop installs the pinned runtime under `~/.openminion/desktop`, initializes
+a private local config, and starts its daemon. Later launches reuse that
+installation. In **Welcome to OpenMinion**:
+
+1. Choose a provider and enter its model and API key, or import an existing profile.
+2. Choose **Set up and start**. **Test connection before continuing** sends one
+   provider request by default; clear it to save without testing.
+3. Write your first message and press **Enter**. Use **Shift+Enter** for a new line.
+
+**Try echo demo** lets you explore text chat without a model credential. Setup
+uses OpenMinion's ordinary CLI provider catalog and setup flow. You can manage
+model and search-tool credentials later in **Settings → Models & credentials**.
+
+Conversation names, unsent drafts, and display preferences persist in Desktop's
+SQLite database. Canonical transcripts and credentials remain in OpenMinion's
+own files. See [Desktop Data](docs/getting-started.md#desktop-data) before backing
+up or removing an installation.
+
+## Current Capabilities
+
+| Area | Available today |
+| --- | --- |
+| Conversations | Create with a first message, search loaded names/IDs, rename, reopen, close, and export saved transcripts |
+| Chat | Markdown replies, copy, reported duration/usage, live progress, cancellation, and durable unsent text drafts |
+| Recovery | Switch conversations during a turn; reconnect a known response without resending; reload saved history |
+| Profiles | CLI-backed setup, profile import/add/edit, model and search-tool keys, and identity inspection/editing |
+| Tools | Received output disclosure, saved display modes, request-bound allow-once/deny approvals, and supported exposure controls |
+| Commands | Connected session, agent/tool/skill reports, task controls, and other commands listed in [Desktop Commands](docs/commands.md) |
+| Runtime | Managed install/start/stop, status/log dialogs, version checks, and explicit preparation of eligible runtime updates |
+
+Each operation depends on the installed runtime's public capability. The
+[readiness matrix](docs/certification-readiness-matrix.md) separates deterministic,
+native, managed-runtime, and published evidence. The
+[Focus parity contract](docs/focus-parity.md) records remaining integration work;
+a visible command or preview control is not proof of full CLI parity.
+
+Attachment sending, artifact browsing, and automatic watch are not connected.
+Screen/window selection provides an explicit local preview; macOS may request
+Screen Recording permission. Denying it leaves chat usable. Restart discovery
+of active turns, remote daemon attachment, and unrestricted native input are
+also outside the current supported behavior.
+
+Runtime update controls apply to the managed OpenMinion installation, not the
+Desktop app. Only verified, explicitly compatible feed records can be prepared;
+activation occurs on a later startup. An empty or uncertified feed offers no
+update. See [Runtime Updates](API_COMPATIBILITY.md#runtime-updates).
 
 ## How It Fits
 
 | Component | Responsibility |
 | --- | --- |
-| OpenMinion | Agent execution, sessions, messages, tools, policy, credentials, artifacts, and durable state |
-| Desktop main process | Desktop metadata, daemon lifecycle, authenticated local communication, file grants, capture, and operating-system access |
-| Desktop preload | Small typed bridge exposing fixed application operations |
-| Desktop renderer | Chat, session navigation, task controls, and local capture preview |
+| OpenMinion | Agent execution, canonical sessions, tools, policy, credentials, and durable runtime state |
+| Electron main | Desktop metadata, daemon lifecycle, authenticated communication, file grants, capture, and operating-system access |
+| Preload | Narrow typed bridge exposing fixed application operations |
+| Renderer | Chat, conversation navigation, settings, task controls, and local preview |
 
-Desktop manages an isolated OpenMinion installation and daemon through the
-ordinary CLI lifecycle commands. The daemon remains authoritative. A main-only
-command context is available for the pending transport adapter without exposing
-the executable, roots, config, or credentials to the renderer.
+Desktop uses the ordinary public CLI and authenticated local API. It does not
+add another agent runtime or a Desktop-specific command to OpenMinion.
 
 ## Security Model
 
-The renderer is treated as untrusted. It does not receive daemon credentials,
-native file paths, attachment bytes, raw IPC, shell access, or a generic
-network client. Electron main owns privileged operations and exposes only
-fixed-purpose typed methods through preload.
+The renderer has no generic shell, filesystem, IPC, or network authority.
+Privileged operations stay in Electron main behind fixed typed methods.
+Stored credentials remain outside the renderer; newly entered keys are
+write-only inputs. Diagnostics may display CLI-reported paths, so review logs
+before sharing them. Screen observation begins only after explicit selection.
+Read [SECURITY.md](SECURITY.md) for the full boundary and private reporting route.
 
-Screen or window observation begins only after an explicit source selection.
-Native input execution and remote operation remain outside the current product
-boundary. See [SECURITY.md](SECURITY.md) for reporting and boundary details.
+## Development
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_QUALITY.md](CODE_QUALITY.md)
+before changing the application. Ordinary pull requests target `dev`; promoting
+to `main` follows the separate release process.
+
+| Command | Purpose |
+| --- | --- |
+| `npm run hooks:install` | Install the local repository hooks |
+| `npm run ci-check` | Formatting, lint, types, public documentation, tests, and build |
+| `npm run hooks:run` | Check hook parity and the current commit message |
+| `npm run electron-check` | Provider-free native Electron smoke on macOS |
+| `npm run package` | Build and inspect the native application directory |
+| `npm run make` | Build and inspect this host's unsigned distribution artifacts |
+
+Use focused tests during development and `npm run ci-check` before opening a
+PR. Consult [Testing And Validation](docs/testing-and-validation.md) for
+integration prerequisites and the separate native, provider, and release gates.
 
 ## Repository Map
 
@@ -201,34 +206,17 @@ scripts/        Build and repository validation commands
 docs/           Package documentation
 ```
 
-For owner-by-owner detail, read
-[docs/source-tree-owner-map.md](docs/source-tree-owner-map.md).
-
-## Development
-
-Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md) and
-[CODE_QUALITY.md](CODE_QUALITY.md).
-
-```bash
-npm ci
-npm run hooks:install
-npm run ci-check
-```
-
-Use focused tests while iterating. Run `npm run ci-check` before opening a pull
-request. That command also verifies the required public repository files,
-local links, portable paths, and documented npm commands. Use `npm run make`
-for the native unsigned packaging gate.
+The [source tree owner map](docs/source-tree-owner-map.md) identifies existing
+owners for changes.
 
 ## Docs and Release
 
-- [docs/README.md](docs/README.md): package documentation map
-- [docs/getting-started.md](docs/getting-started.md): development setup
-- [docs/testing-and-validation.md](docs/testing-and-validation.md): validation inventory
-- [docs/certification-readiness-matrix.md](docs/certification-readiness-matrix.md): current proof coverage
-- [API_COMPATIBILITY.md](API_COMPATIBILITY.md): supported compatibility boundary
-- [RELEASING.md](RELEASING.md): deferred release requirements
-- [SUPPORT.md](SUPPORT.md): current support scope
+- [Documentation](docs/README.md): task-oriented guide to using and contributing
+- [Support](SUPPORT.md): supported environments, troubleshooting, and bug reports
+- [API Compatibility](API_COMPATIBILITY.md): application/runtime contracts
+- [Changelog](CHANGELOG.md): versioned changes
+- [Releasing](RELEASING.md): unsigned builds, versioning, and stable release gates
+- [Public Source Readiness](docs/public-readiness.md): remaining source-publication decisions
 
 ## License and Brand-use Boundary
 
@@ -239,5 +227,3 @@ The license grants rights to use, modify, and redistribute the code. It does
 not grant rights to present a fork, clone, token, website, or social account as
 the official OpenMinion project or imply affiliation or endorsement. See
 [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-For maintainers preparing source visibility, see [Public Source Readiness](docs/public-readiness.md).

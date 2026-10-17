@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-10-06
+Last updated: 2026-10-17
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -41,8 +41,9 @@ differ.
 This is a source assessment, not end-to-end parity certification. The current
 Desktop installs and runs ordinary OpenMinion and connects text turns, saved
 history, skill catalog/detail reads, and skill-learning proposal reads through
-its public CLI/API. The broader Focus command surface, approvals,
-media, and artifacts still require Desktop integration.
+its public CLI/API. Request-bound allow-once/deny approvals are connected;
+broader approval workflows, the remaining Focus command surface, media, and
+artifacts still require integration.
 
 | Surface                  | Current Desktop gap                                                                                                               | Required outcome                                                                                                    |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -55,7 +56,7 @@ media, and artifacts still require Desktop integration.
 | `/clear`, `/copy`        | Visible chat clearing and newest assistant/runtime-supplied tool copying exist; missing raw tool content is not reconstructed                                      | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback          |
 | Tool presentation        | `/quiet`, `/normal`, `/verbose` and `/details` share the saved tool display mode                                                                                       | Normal previews six supplied lines; verbose expands supplied output. `/expand` numbering and missing cold-history output remain open                        |
 | Type-ahead               | Drafts remain unsent during a turn                                                                                                | Match Focus queue admission, inspection, and control through the runtime owner                                      |
-| Recovery                 | Running turns survive task switches in one app                                                                                    | Reattach to the same running turn and pending approvals after restart                                               |
+| Recovery                 | Running turns survive conversation switches; known traces support explicit reconnect without resubmission                                                                                    | Reattach to the same running turn and pending approvals after restart                                               |
 
 The GUI's Context/files panel is not Focus's context-budget report. Screen
 capture remains a GUI input method. Files, screenshots, cancellation, task
@@ -219,7 +220,7 @@ effects while presenting friendly labels and controls; an instruction to switch
 to CLI does not complete a Desktop-supported workflow.
 
 The 2026-09-12 assessment recorded 44 CLI command families and 243 leaf paths.
-The paired 0.0.29 runtime has 56 built-in Focus commands. Desktop advertises 23
+The paired 0.0.29 runtime has 56 built-in Focus commands. Desktop currently advertises 24
 built-ins with partial semantics.
 Bundled/user/project custom commands and shell intent add separate qualification
 requirements. These counts are a dated source inventory, not execution proof.

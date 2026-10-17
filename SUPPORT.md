@@ -17,7 +17,7 @@ Current development support is limited to:
 The following surfaces are not supported yet:
 
 1. signed or notarized distribution,
-2. automatic updates, migration, rollback, or uninstall guarantees,
+2. Desktop self-updates, general data rollback, or uninstall guarantees,
 3. remote daemon attachment or hosted synchronization,
 4. certified Windows or Linux desktop runtime behavior,
 5. unrestricted native input control, and
@@ -38,5 +38,22 @@ For a non-security bug, use the repository
 
 Report security issues through [SECURITY.md](SECURITY.md), not a public issue.
 
-Rich chat/session transport is not part of the current lifecycle support claim.
-It remains a Desktop-side adaptation to existing public OpenMinion interfaces.
+## Troubleshooting
+
+- **First launch is still installing:** verify Python 3.11 and network access.
+  Open **Settings → Runtime** for status; use **Daemon status** and **View logs**
+  for the installed runtime’s diagnostics.
+- **A provider or search tool rejects a key:** open **Settings → Models & credentials**.
+  Model keys and search-tool keys are separate. A saved key is not proof of
+  authentication or quota; see [Agent Profiles and Keys](docs/getting-started.md#agent-profiles-and-keys).
+- **A response disconnects:** use **Reconnect response** when offered. This
+  attaches the known response without resending your message. Restart discovery
+  remains unsupported; see [Workspace Basics](docs/getting-started.md#workspace-basics).
+- **No runtime update is offered:** only explicitly compatible records qualify.
+  An empty feed is not permission to install an arbitrary runtime. See
+  [Runtime Updates](docs/getting-started.md#runtime-updates).
+
+Review diagnostic output before sharing it; omit keys, tokens, private prompts,
+and personal paths. Use [Desktop Data](docs/getting-started.md#desktop-data) for
+backup and migration behavior. The [readiness matrix](docs/certification-readiness-matrix.md)
+separates tested chat/approval behavior from remaining integration and release gates.
