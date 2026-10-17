@@ -126,7 +126,8 @@ and reading position can be retained.
 
 The skill catalog follows the conversation’s current agent, including its configured default. It lists stored records; Focus configured-only entries and eligibility filtering are not yet represented.
 
-Except for task and delegation commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, `/tools activate [profile]`, `/tools deactivate [profile]`, `/graph status`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help/status, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
+Except for task and delegation commands, `/identity verify`, `/identity reload`,
+`/details [on|off|quiet|toggle]`, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, `/tools activate [profile]`, `/tools deactivate [profile]`, `/graph status`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help/status, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
 The composer remains editable during a turn so you can write a draft or run a
@@ -146,7 +147,8 @@ while preserving the conversation and stop control. Completion clears the live
 status. Completed tool cards offer Copy output when the runtime supplies content
 and identify reported truncation. Missing output is not recovered from assistant
 text or invented after restart. Tool activity and request-bound approval cards
-use the same live turn stream; richer expansion remains a separate gap.
+use the same live turn stream. Received output expands inline; Focus `/expand`
+block selection and unavailable historical output remain separate gaps.
 
 ## Remaining Focus Parity
 
@@ -154,14 +156,15 @@ Focus's canonical command catalog is owned by OpenMinion's CLI presentation
 layer. Its handlers operate on the CLI runtime. Desktop's CLI-backed client
 connects text turns, saved sessions, task inventory/lifecycle controls,
 agent/tool/skill inventories, skill-learning proposal reads, token reports, and
-transcript export. A compatible source runtime also connects request-bound tool
-approvals; media, artifacts, and
+transcript export. Compatible runtimes also connect request-bound tool
+approvals; see the [readiness matrix](certification-readiness-matrix.md) for
+managed-runtime evidence. Media, artifacts, and
 broader Focus commands remain pending.
 
 | Focus command family                                                                                    | Required Desktop adaptation before it is connected                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Model changes, `/effort`                                                                                | Present configured model choices and explicitly update an admitted session's model/effort. Return the effective settings; keep credentials daemon-owned.                                                                                                     |
-| Tool exposure changes, MCP lifecycle/browse/authentication, skill admission/mutation                    | Expose canonical tool-policy changes, richer live MCP status and operations, and skill lifecycle controls. Bare `/tools`, `/mcp`, skill list/detail, and learning proposal reads are connected slices; proposal review and apply remain in the operator CLI. |
+| Richer tool policy, MCP lifecycle/browse/authentication, skill admission/mutation                    | Expose canonical tool-policy changes, richer live MCP status and operations, and skill lifecycle controls. `/tools` reports and exposure activation/deactivation, `/mcp`, skill list/detail, and learning proposal reads are connected slices; proposal review and apply remain in the operator CLI. |
 | `/permissions`, `/readonly`                                                                             | Read and update session policy with canonical validation and visible effective policy.                                                                                                                                                                       |
 | `/context`, `/context-review`, `/compact`                                                               | Query the context owner and request supported session compaction. The files panel is not a substitute for context-budget inspection.                                                                                                                         |
 | `/cost`                                                                                                 | Return live session usage and supported cost accounting. `/tokens` is connected to durable CLI accounting; it is not a live-cost substitute.                                                                                                                 |

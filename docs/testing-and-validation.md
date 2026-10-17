@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-10-11
+Last updated: 2026-10-17
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -44,7 +44,8 @@ automation uses the same command. It does not prove signing, notarization,
 installation, updating, rollback, runtime certification, or release readiness.
 
 The manual `CI` workflow accepts `packages: true` to run `npm run make` on
-native macOS, Windows, and Linux runners. It stages the outputs in a private
+native macOS, Windows, and Linux runners when dispatched on the official
+repository’s `main` branch. Other refs run quality checks only. It stages the outputs in a private
 draft release for verification or transfer. That draft is not a public release
 and should be deleted after its outputs are handled.
 
@@ -68,8 +69,6 @@ managed PyPI first-install/reuse/owned-quit check separately after building:
 ```bash
 node tests/electron/managed-install.mjs
 node tests/electron/runtime-update.mjs
-node tests/electron/runtime-update.mjs --testpypi-final 0.0.21
-node tests/electron/runtime-update.mjs --pypi-final 0.0.21
 ```
 
 The supervisor suite also advances a test clock through the 24-hour check
@@ -81,23 +80,26 @@ Desktop's managed runtime checks use the GitHub manifest. Neither installs an
 update automatically.
 
 The private update harness uses main-only test fixtures and isolated roots to
-stage official PyPI 0.0.20 beside 0.0.19, keep the old daemon usable, activate on
+stage its target beside the current managed installer pin, keep the old daemon usable, activate on
 the next startup, retain an echo conversation and refuse interrupted-intent
 restart. Its fixture bounds are not published compatibility certification;
-it does not qualify a public feed or a packaged application.
+it does not qualify a public feed or a packaged application. The default target
+is the historical 0.0.20 fixture, not a current upgrade candidate. For a newer
+release rehearsal, supply the exact authorized version through one of the
+index flags below.
 
 The optional `--testpypi-final` mode rehearses an exact final TestPyPI wheel
 against the managed installer pin in isolated roots, resolving ordinary pip
 dependencies from production PyPI. It uses a fixed TestPyPI metadata origin
 and checks its wheel host; it never routes a TestPyPI record through the public
 reader or publishes compatibility bounds. All seven private lifecycle phases
-still run. Replace the example version with the final version under test;
+still run. Pass `--testpypi-final VERSION` with the exact final version under test;
 public upgrade acceptance must later use the official production record and
 exact shipped Desktop revision.
 
-Use `--pypi-final` only after the target production version exists to replay
+Use `--pypi-final VERSION` only after the target production version exists to replay
 the same private phases against its official wheel. The two index flags are
-mutually exclusive. Set `TMPDIR` to an umbrella workspace scratch directory
+mutually exclusive. Set `TMPDIR` to an absolute test scratch directory you own
 so isolated native state and retained failure evidence remain there.
 
 The seven phases are stage, hold, activate, reuse, controls, intent and recovery.
@@ -120,13 +122,14 @@ Build the application first. Supply its actual executable and shipped Desktop
 version, not the Electron runner version:
 
 ```bash
-node tests/electron/packaged-runtime.mjs /absolute/path/to/packaged/OpenMinion 0.0.0
-node tests/electron/packaged-runtime.mjs /absolute/path/to/packaged/OpenMinion 0.0.0 0.0.21
+node tests/electron/packaged-runtime.mjs /absolute/path/to/packaged/OpenMinion 0.0.1
 ```
 
 Use the native `.app/Contents/MacOS/OpenMinion` executable on macOS or packaged
 `OpenMinion.exe` on Windows. Replace the example versions with the exact package
-and runtime under acceptance. Set `TMPDIR` to workspace scratch before running.
+under acceptance. To test an update, append the exact target runtime version
+as the third argument. It must be a newer, explicitly compatible public-feed
+offer. Set `TMPDIR` to an absolute test scratch directory before running.
 The harness launches an unmodified package, records its version and ASAR digest,
 uses an isolated Desktop home, and removes executable overrides. It drives the
 real UI through Electron's [main-process inspector](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process),
@@ -320,6 +323,16 @@ Run the actual sandboxed application startup check on macOS:
 npm run electron-check
 ```
 
+This launches built Electron main, both CommonJS preload bundles, and the
+renderer through the real local protocol. It checks bridge availability,
+sandbox settings, disconnected draft entry, popovers, and fluid composer
+widths. It also checks that slash suggestions stay inside the composer without
+covering conversation messages or text input at all three window sizes, and
+that the labeled chat actions do not overlap the title. It deliberately uses a missing daemon executable and never requests
+native capture. Hosted macOS CI runs this in addition to the normal package
+gate; importing TypeScript under a mocked Electron module cannot prove that
+Electron can load the distributed preloads.
+
 Run the request-bound approval proof against an OpenMinion source checkout:
 
 ```bash
@@ -332,16 +345,6 @@ This starts an isolated daemon and controlled local provider, waits for the
 approval card in built Electron, selects **Allow once**, verifies the exact
 `file.write` result reaches the provider, and removes the temporary runtime on
 success. It uses no paid provider or user profile.
-
-This launches built Electron main, both CommonJS preload bundles, and the
-renderer through the real local protocol. It checks bridge availability,
-sandbox settings, disconnected draft entry, popovers, and fluid composer
-widths. It also checks that slash suggestions stay inside the composer without
-covering conversation messages or text input at all three window sizes, and
-that the labeled chat actions do not overlap the title. It deliberately uses a missing daemon executable and never requests
-native capture. Hosted macOS CI runs this in addition to the normal package
-gate; importing TypeScript under a mocked Electron module cannot prove that
-Electron can load the distributed preloads.
 
 Use `npm run preview` for interactive component acceptance with explicit
 sample data. The fixture exercises the same renderer, including task actions,
