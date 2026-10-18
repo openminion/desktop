@@ -1545,6 +1545,55 @@ details[open] > summary .summary-chevron {
   border-color: rgb(255 255 255 / 28%);
 }
 
+.turn-queue {
+  margin: 0 var(--conversation-gutter) 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+
+.turn-queue header,
+.turn-queue li,
+.turn-queue-actions {
+  display: flex;
+  align-items: center;
+}
+
+.turn-queue header,
+.turn-queue li {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.turn-queue ol {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.turn-queue-text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-queue-actions {
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.turn-queue-actions button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 3px 7px;
+}
+
 .jump-latest {
   position: absolute;
   bottom: calc(100% + 12px);

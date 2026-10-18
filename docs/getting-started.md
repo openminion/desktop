@@ -336,8 +336,10 @@ Progress uses a subtle working indicator, while
 successful completion leaves the composer quiet. Stop requests and errors remain
 visible; a stop request is not treated as confirmed cancellation.
 While a reply is running, its status, details and elapsed time appear directly
-beneath your request and scroll with the conversation. Stop replaces the send
-arrow, and you can keep drafting. Stop stays pending until OpenMinion reports
+beneath your request and scroll with the conversation. Enter sends ordinary
+text to OpenMinion's shared **Up next** queue; Shift+Enter keeps editing. Queued
+prompts can be moved, removed, or started immediately with **Stop and run next**.
+Attachments stay out of the queue. Stop stays pending until OpenMinion reports
 the outcome. Successful completion hides the progress row; errors remain visible
 with the request. The composer stays in place, and history refreshes without
 clearing the conversation.

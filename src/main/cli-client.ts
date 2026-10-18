@@ -28,6 +28,13 @@ import type {
   TurnCancelInput,
   TurnCancellationValue,
   TurnEventV1,
+  TurnInputDropInput,
+  TurnInputEnqueueInput,
+  TurnInputListInput,
+  TurnInputMoveInput,
+  TurnInputQueueEntry,
+  TurnInputQueueStatus,
+  TurnInputRunNextInput,
   TurnSubmitInput,
   TurnSubmitValue,
 } from "../shared/contracts.js";
@@ -84,6 +91,45 @@ type ActiveTurn = {
   outcome: "complete" | "error" | "cancelled";
   emit: (event: TurnEventV1) => void;
 };
+
+const TURN_INPUT_QUEUE_STATUSES = new Set<TurnInputQueueStatus>([
+  "queued",
+  "reserved",
+  "running",
+  "completed",
+  "cancelled",
+  "failed",
+  "dropped",
+  "steer_deferred",
+]);
+
+function turnInputQueueEntry(value: unknown): TurnInputQueueEntry {
+  const row = requireRecord(value);
+  const status = requireString(row.status) as TurnInputQueueStatus;
+  if (
+    !TURN_INPUT_QUEUE_STATUSES.has(status) ||
+    !Number.isSafeInteger(row.status_version) ||
+    Number(row.status_version) < 1
+  )
+    throw protocolError("invalid_daemon_response", "OpenMinion returned an invalid queued prompt.");
+  return {
+    queueId: requireString(row.queue_id),
+    sessionId: requireString(row.session_id),
+    agentId: requireString(row.agent_id),
+    text: requireString(row.text),
+    status,
+    statusVersion: Number(row.status_version),
+    createdAt: requireString(row.created_at),
+    traceId: optionalString(row.trace_id ?? null),
+  };
+}
+
+function queueIdentifier(value: unknown, label: string): string {
+  const identifier = requireString(value).trim();
+  if (!identifier || identifier.length > 512 || /\s|\0/.test(identifier))
+    throw protocolError("invalid_request", `Choose a valid ${label}.`);
+  return identifier;
+}
 
 function toolProgressEvent(
   chunk: Record<string, unknown>,
@@ -1571,6 +1617,197 @@ export class CliClient {
     });
   }
 
+  listTurnInputs(input: TurnInputListInput): Promise<ClientResult<TurnInputQueueEntry[]>> {
+    return this.#control(async () => {
+      const value = requireRecord(input);
+      if (Object.keys(value).some((key) => key !== "sessionId"))
+        throw protocolError("invalid_request", "Choose a conversation to view its queue.");
+      const sessionId = queueIdentifier(value.sessionId, "session ID");
+      const payload = await this.#request(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/turn-inputs?status=queued&status=steer_deferred`,
+      );
+      return requireArray(payload.entries).map((entry) => {
+        const queued = turnInputQueueEntry(entry);
+        if (queued.sessionId !== sessionId)
+          throw protocolError(
+            "invalid_daemon_response",
+            "OpenMinion returned a queued prompt for another conversation.",
+          );
+        return queued;
+      });
+    });
+  }
+
+  enqueueTurnInput(input: TurnInputEnqueueInput): Promise<ClientResult<TurnInputQueueEntry>> {
+    return this.#control(async () => {
+      const value = requireRecord(input);
+      if (Object.keys(value).some((key) => !["sessionId", "agentId", "text"].includes(key)))
+        throw protocolError("invalid_request", "Queue only the message shown in the composer.");
+      const sessionId = queueIdentifier(value.sessionId, "session ID");
+      const agentId = queueIdentifier(value.agentId, "agent ID");
+      const text = requireString(value.text).trim();
+      if (!text || text.length > 250_000 || text.includes("\0"))
+        throw protocolError("invalid_request", "Enter a message before queueing it.");
+      const payload = await this.#request(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/turn-inputs`,
+        {
+          agent_id: agentId,
+          text,
+          intent: "queue_next",
+          source_client: "desktop",
+          idempotency_key: randomUUID(),
+        },
+        "POST",
+        202,
+      );
+      return turnInputQueueEntry(payload.entry);
+    });
+  }
+
+  dropTurnInput(input: TurnInputDropInput): Promise<ClientResult<TurnInputQueueEntry>> {
+    return this.#control(async () => {
+      const value = requireRecord(input);
+      if (
+        Object.keys(value).some(
+          (key) => !["sessionId", "queueId", "statusVersion"].includes(key),
+        ) ||
+        !Number.isSafeInteger(value.statusVersion) ||
+        Number(value.statusVersion) < 1
+      )
+        throw protocolError("invalid_request", "Choose a current queued prompt to remove.");
+      const sessionId = queueIdentifier(value.sessionId, "session ID");
+      const queueId = queueIdentifier(value.queueId, "queue ID");
+      const payload = await this.#request(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/turn-inputs/${encodeURIComponent(queueId)}`,
+        { status_version: Number(value.statusVersion) },
+        "DELETE",
+      );
+      return turnInputQueueEntry(payload.entry);
+    });
+  }
+
+  moveTurnInput(input: TurnInputMoveInput): Promise<ClientResult<TurnInputQueueEntry>> {
+    return this.#control(async () => {
+      const value = requireRecord(input);
+      if (
+        Object.keys(value).some(
+          (key) =>
+            !["sessionId", "queueId", "statusVersion", "beforeQueueId", "afterQueueId"].includes(
+              key,
+            ),
+        ) ||
+        !Number.isSafeInteger(value.statusVersion) ||
+        Number(value.statusVersion) < 1 ||
+        (value.beforeQueueId === undefined) === (value.afterQueueId === undefined)
+      )
+        throw protocolError("invalid_request", "Choose one new position for this prompt.");
+      const sessionId = queueIdentifier(value.sessionId, "session ID");
+      const queueId = queueIdentifier(value.queueId, "queue ID");
+      const body: Record<string, unknown> = {
+        status_version: Number(value.statusVersion),
+      };
+      if (value.beforeQueueId !== undefined)
+        body.before_queue_id = queueIdentifier(value.beforeQueueId, "queue position");
+      if (value.afterQueueId !== undefined)
+        body.after_queue_id = queueIdentifier(value.afterQueueId, "queue position");
+      const payload = await this.#request(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/turn-inputs/${encodeURIComponent(queueId)}/move`,
+        body,
+      );
+      return turnInputQueueEntry(payload.entry);
+    });
+  }
+
+  async cancelAndRunNext(
+    input: TurnInputRunNextInput,
+    emit: (event: TurnEventV1) => void,
+  ): Promise<ClientResult<TurnSubmitValue>> {
+    let pending: ActiveTurn | null = null;
+    let sessionId = "";
+    try {
+      const value = requireRecord(input);
+      if (
+        Object.keys(value).some(
+          (key) => !["sessionId", "traceId", "agentId", "expectedQueueId"].includes(key),
+        )
+      )
+        throw protocolError("invalid_request", "Choose the current turn and next prompt.");
+      sessionId = queueIdentifier(value.sessionId, "session ID");
+      const traceId = queueIdentifier(value.traceId, "trace ID");
+      const agentId = queueIdentifier(value.agentId, "agent ID");
+      const expectedQueueId = queueIdentifier(value.expectedQueueId, "queue ID");
+      const current = this.#active.get(sessionId);
+      if (current?.identity?.traceId !== traceId)
+        throw protocolError("trace_not_found", "This turn is not active in Desktop.");
+      const payload = await this.#request(
+        `/v1/turn/${encodeURIComponent(traceId)}/cancel-and-run-next`,
+        {
+          session_id: sessionId,
+          agent_id: agentId,
+          expected_queue_id: expectedQueueId,
+        },
+        "POST",
+        202,
+      );
+      const nextTraceId = queueIdentifier(payload.next_trace_id, "next trace ID");
+      const entry = turnInputQueueEntry(payload.entry);
+      if (
+        payload.ok !== true ||
+        payload.cancelled !== true ||
+        payload.trace_id !== traceId ||
+        entry.queueId !== expectedQueueId ||
+        entry.status !== "running" ||
+        entry.traceId !== nextTraceId
+      )
+        throw protocolError(
+          "invalid_daemon_response",
+          "OpenMinion did not start the expected queued prompt.",
+        );
+      pending = {
+        identity: null,
+        disconnected: false,
+        replaySupported: false,
+        lastSequence: 0,
+        receivedResponse: false,
+        outcome: "complete",
+        emit,
+      };
+      this.#active.set(sessionId, pending);
+      const endpoint = await this.#endpoint();
+      const response = await new Promise<IncomingMessage>((resolve, reject) => {
+        const req = request(
+          {
+            hostname: endpoint.host,
+            port: endpoint.port,
+            path: `/v1/turn/${encodeURIComponent(nextTraceId)}/stream?after_sequence=0`,
+            method: "GET",
+            headers: { "X-IPC-Token": endpoint.token, Accept: "text/event-stream" },
+          },
+          resolve,
+        );
+        req.setTimeout(30_000, () => req.destroy(new Error("daemon_timeout")));
+        req.on("error", reject);
+        req.end();
+      });
+      if (
+        response.statusCode !== 200 ||
+        !response.headers["content-type"]?.startsWith("text/event-stream")
+      ) {
+        response.destroy();
+        throw protocolError(
+          "stream_reconnect_failed",
+          "OpenMinion started the queued prompt, but Desktop could not attach its response.",
+          true,
+        );
+      }
+      response.setTimeout(0);
+      return await this.#stream(response, pending, sessionId, nextTraceId, emit);
+    } catch (error) {
+      if (pending && this.#active.get(sessionId) === pending) this.#active.delete(sessionId);
+      return failureFrom(error);
+    }
+  }
+
   validateTurnSubmission(
     input: TurnSubmitInput,
   ): ClientResult<{ sessionId: string; input: TurnSubmitInput }> {
@@ -1762,7 +1999,12 @@ export class CliClient {
     };
   }
 
-  async #request(path: string, body?: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async #request(
+    path: string,
+    body?: Record<string, unknown>,
+    method: "GET" | "POST" | "DELETE" = body === undefined ? "GET" : "POST",
+    acceptedStatus = 200,
+  ): Promise<Record<string, unknown>> {
     const endpoint = await this.#endpoint();
     return new Promise((resolve, reject) => {
       const encoded = body === undefined ? "" : JSON.stringify(body);
@@ -1771,7 +2013,7 @@ export class CliClient {
           hostname: endpoint.host,
           port: endpoint.port,
           path,
-          method: body === undefined ? "GET" : "POST",
+          method,
           headers: {
             "Content-Type": "application/json",
             "Content-Length": Buffer.byteLength(encoded),
@@ -1792,7 +2034,7 @@ export class CliClient {
           response.on("end", () => {
             try {
               const payload = requireRecord(JSON.parse(text));
-              if (response.statusCode !== 200) {
+              if (response.statusCode !== acceptedStatus) {
                 const error = errorValue(payload.error);
                 throw protocolError(error.code, error.message, error.retryable, error.retryAfterMs);
               }
@@ -1850,7 +2092,7 @@ export class CliClient {
           response.destroy();
           return;
         }
-        this.#active.delete(sessionId);
+        if (this.#active.get(sessionId) === active) this.#active.delete(sessionId);
         const result = failure(
           "daemon_stream_failed",
           "The OpenMinion stream ended unexpectedly. Reload the conversation before sending again.",
@@ -2053,7 +2295,7 @@ export class CliClient {
                   terminal = true;
                   response.destroy();
                   clearTimeout(startupTimer);
-                  this.#active.delete(sessionId);
+                  if (this.#active.get(sessionId) === active) this.#active.delete(sessionId);
                   emit({
                     schemaVersion: 1,
                     kind: "done",

@@ -322,6 +322,14 @@
               Write a message to start. You can also preview a screen or window locally.
             </p>
           </div>
+          <section id="turn-queue" class="turn-queue" aria-labelledby="turn-queue-title" hidden>
+            <header>
+              <strong id="turn-queue-title">Up next</strong>
+              <button id="run-next" class="quiet-button" type="button" hidden>Stop and run next</button>
+            </header>
+            <p id="turn-queue-status" class="composer-hint" role="status" hidden></p>
+            <ol id="turn-queue-list"></ol>
+          </section>
           <p id="draft-status" class="composer-hint" role="status" hidden></p>
           <form id="composer-form" class="composer">
             <button id="jump-latest" class="jump-latest quiet-button" type="button" hidden>↓ Jump to latest</button>

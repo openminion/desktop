@@ -253,6 +253,7 @@ The Electron test drives production main, preload, and renderer and covers:
 - active turn status and elapsed time directly below the request, with the composer stationary and completed progress hidden;
 - command results inside the conversation scroll area at narrow and wide sizes, with long results scrolling with messages and leaving the composer in place;
 - command names and aliases checked against the installed Focus catalog, with every canonical command tracked in the parity contract;
+- native published-runtime queue list, enqueue, reorder, and removal through the production main/preload bridge, plus renderer coverage for queueing during a turn and stop-and-run-next;
 - agent/tool reports, canonical CLI token output, and native Markdown export/cancel without model turns;
 - schedule creation through the GUI with canonical CLI readback, plus task creation through the public CLI, Desktop task inventory, pause,
   resume and cancellation, and independent CLI verification of durable state;

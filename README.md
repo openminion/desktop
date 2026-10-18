@@ -131,7 +131,7 @@ up or removing an installation.
 | Area | Available today |
 | --- | --- |
 | Conversations | Create with a first message, search loaded names/IDs, rename, reopen, close, and export saved transcripts |
-| Chat | Markdown replies, copy, reported duration/usage, live progress, cancellation, and durable unsent text drafts |
+| Chat | Markdown replies, copy, reported duration/usage, live progress, cancellation, durable drafts, and Core-backed queued follow-ups during a turn |
 | Recovery | Switch conversations during a turn; reconnect a known response without resending; reload saved history |
 | Profiles | CLI-backed setup, profile import/add/edit, model and search-tool keys, and identity inspection/editing |
 | Tools | Received output disclosure, saved display modes, request-bound allow-once/deny approvals, and supported exposure controls |

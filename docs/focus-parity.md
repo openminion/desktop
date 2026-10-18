@@ -55,7 +55,7 @@ artifacts still require integration.
 | `/status`                | Reports connection and partial session metadata                                                                                   | Include canonical agent, model, session, and working-directory facts                                                |
 | `/clear`, `/copy`        | Visible chat clearing and newest assistant/runtime-supplied tool copying exist; missing raw tool content is not reconstructed                                      | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback          |
 | Tool presentation        | `/quiet`, `/normal`, `/verbose` and `/details` share the saved tool display mode                                                                                       | Normal previews six supplied lines; verbose expands supplied output. `/expand` numbering and missing cold-history output remain open                        |
-| Type-ahead               | Drafts remain unsent during a turn                                                                                                | Match Focus queue admission, inspection, and control through the runtime owner                                      |
+| Type-ahead               | Ordinary text can enter the shared Core queue during a turn, then be reordered, removed, or started next; attachments remain drafts | Add remaining restart/effect acceptance and optional `/queue` presentation without duplicating the Core queue       |
 | Recovery                 | Running turns survive conversation switches; known traces support explicit reconnect without resubmission                                                                                    | Reattach to the same running turn and pending approvals after restart                                               |
 
 The GUI's Context/files panel is not Focus's context-budget report. Screen
@@ -191,16 +191,18 @@ Detailed status events now reach the renderer. The UI displays the runtime label
 detail, elapsed turn time, and time since the last event after a quiet interval.
 It does not infer tool execution, model thinking, or progress percentages.
 
-Focus model/effort selection, permissions, rooms, prompt queues, and live context
+Focus model/effort selection, permissions, rooms, and live context
 operate on interactive-runtime state. The pinned public CLI/daemon surface does
 not provide a general Focus command dispatcher. Separate CLI reports or config
 changes cannot stand in for those session operations.
 
-The pinned 0.0.29 package contains public session turn-input queue,
+The published 0.1.7 package contains the shared session turn-input queue,
 approval-resume, trace stream attachment, and runtime capability routes. Desktop
-now qualifies and consumes the request-bound approval semantics in source-runtime
-proof. Known-trace response recovery uses status and replay attachment in the
-current Desktop process, with explicit user action and no prompt resubmission.
+now consumes queue list/enqueue/move/drop and cancel-and-run-next through fixed
+typed operations, without a Desktop queue store. It also consumes request-bound
+approval semantics. Known-trace response recovery uses status and replay
+attachment in the current Desktop process, with explicit user action and no
+prompt resubmission.
 A missing retained trace triggers canonical history readback, not an invented
 terminal outcome. App-restart discovery and other workflows still require their own proof before being called connected. An approval grant alone does not
 prove the original pending action resumed. Missing public semantics require an
