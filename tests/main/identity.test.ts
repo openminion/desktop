@@ -35,7 +35,7 @@ const profile = {
   profile_revision: 2,
   profile_version: "profile-v2",
   source_sha256: "source-sha-v2",
-  validation: { ok: true, errors: [], warnings: [] },
+  validation: { ok: true, errors: [], warnings: ["responsibilities are sparse"] },
   verification: { ok: false, source_status: "drifted", issues: [{ message: "source drift" }] },
   generated_sidecars: { status: "clean", files: ["AGENT.md"] },
   render: {
@@ -75,6 +75,7 @@ describe("identity settings service", () => {
       generatedFiles: ["AGENT.md"],
       sourceStatus: "drifted",
       verificationIssues: ["source drift"],
+      validationWarnings: ["responsibilities are sparse"],
       render: {
         purpose: "act",
         budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
@@ -84,6 +85,29 @@ describe("identity settings service", () => {
     });
     expect(JSON.stringify(result)).not.toMatch(/source_path|\/private|secret/);
     expect(run.mock.calls[0][1]).toContain("inspect");
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["string", "2"],
+    ["zero", 0],
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["non-finite", Number.POSITIVE_INFINITY],
+  ])("rejects a %s profile revision", async (_label, revision) => {
+    const { service, run } = await setup();
+    run.mockResolvedValue({
+      exitCode: 0,
+      stdout: JSON.stringify({ profiles: [{ ...profile, profile_revision: revision }] }),
+      stderr: "",
+    });
+
+    await expect(service.read("openminion")).rejects.toMatchObject({
+      clientError: {
+        code: "invalid_daemon_response",
+        message: "Identity profile revision is invalid.",
+      },
+    });
   });
 
   it("verifies a private draft and removes it after the command", async () => {
@@ -97,7 +121,7 @@ describe("identity settings service", () => {
         stdout: JSON.stringify({
           ok: true,
           agent_id: "ops",
-          validation: { ok: true, errors: [], warnings: [] },
+          validation: { ok: true, errors: [], warnings: ["responsibilities are sparse"] },
           render: profile.render,
         }),
       };
@@ -106,6 +130,8 @@ describe("identity settings service", () => {
     const result = await service.verify({ yaml: "agent_id: ops\n" }, "openminion");
 
     expect(result.validationOk).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(result.warnings).toEqual(["responsibilities are sparse"]);
     expect(result.render).toMatchObject({
       budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
       warnings: ["non-critical fields omitted to fit budget"],

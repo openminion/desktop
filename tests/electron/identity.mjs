@@ -99,8 +99,16 @@ async function check() {
     );
     assert.equal(await evaluate("document.querySelector('#identity-runtime').hidden"), true);
     assert.equal(
+      await evaluate("document.querySelector('#identity-source').textContent"),
+      "Direct YAML",
+    );
+    assert.equal(
       await evaluate("document.querySelector('#identity-source-status').textContent"),
-      "clean",
+      "In sync",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#identity-sidecars').textContent"),
+      "In sync",
     );
     assert.equal(
       await evaluate("document.querySelector('#identity-reload').textContent"),

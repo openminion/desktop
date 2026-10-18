@@ -44,6 +44,7 @@ export class IdentitySettingsService {
           agentId: "",
           validationOk: false,
           issues: error.issues.length > 0 ? error.issues : [error.message],
+          warnings: [],
           render: null,
         };
       }
@@ -144,11 +145,12 @@ function profileView(value: Record<string, unknown>): IdentityProfileView {
     editable: value.editable === true,
     readOnlyReason: typeof value.read_only_reason === "string" ? value.read_only_reason : null,
     authoredYaml: typeof value.authored_yaml === "string" ? value.authored_yaml : null,
-    profileRevision: Number(value.profile_revision) || 0,
+    profileRevision: profileRevision(value.profile_revision),
     profileVersion: requireString(value.profile_version),
     sourceSha256: typeof value.source_sha256 === "string" ? value.source_sha256 : null,
     validationOk:
       Object.keys(verification).length > 0 ? verification.ok === true : validation.ok === true,
+    validationWarnings: strings(validation.warnings),
     sourceStatus: optionalString(verification.source_status) || "unknown",
     verificationIssues: Array.isArray(verification.issues)
       ? verification.issues.map(issueText)
@@ -159,12 +161,20 @@ function profileView(value: Record<string, unknown>): IdentityProfileView {
   };
 }
 
+function profileRevision(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw protocolError("invalid_daemon_response", "Identity profile revision is invalid.");
+  }
+  return value;
+}
+
 function validationView(value: Record<string, unknown>): IdentityValidation {
   const validation = record(value.validation);
   return {
     agentId: requireString(value.agent_id),
     validationOk: validation.ok === true,
-    issues: [...strings(validation.errors), ...strings(validation.warnings)],
+    issues: strings(validation.errors),
+    warnings: strings(validation.warnings),
     render: value.render ? renderView(record(value.render)) : null,
   };
 }

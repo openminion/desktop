@@ -25,6 +25,7 @@ export type IdentityProfileView = {
   profileVersion: string;
   sourceSha256: string | null;
   validationOk: boolean;
+  validationWarnings: string[];
   sourceStatus: string;
   verificationIssues: string[];
   generatedStatus: string;
@@ -38,6 +39,7 @@ export type IdentityValidation = {
   agentId: string;
   validationOk: boolean;
   issues: string[];
+  warnings: string[];
   render: IdentityRenderView | null;
 };
 

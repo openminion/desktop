@@ -339,6 +339,7 @@ const api: NativeApi = {
             profileVersion: "sample-profile-version",
             sourceSha256: "sample-source-sha256",
             validationOk: true,
+            validationWarnings: [],
             sourceStatus: "clean",
             verificationIssues: [],
             generatedStatus: "clean",
@@ -361,6 +362,7 @@ const api: NativeApi = {
         agentId: "openminion",
         validationOk: true,
         issues: [],
+        warnings: [],
         render: {
           text: "Mission: Help the operator.",
           purpose: "act",

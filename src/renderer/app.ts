@@ -34,6 +34,7 @@ import type {
 } from "../shared/contracts.js";
 import type { DelegationControlInput, ScheduleInput, TaskAction } from "../shared/tasks.js";
 import { renderMarkdown } from "./markdown.js";
+import { identitySourceLabel, identityStatusLabel } from "./identity.js";
 import { mountProfiles } from "./profiles.js";
 import { renderDelegation, renderTasks } from "./tasks.js";
 import { renderToolProfile } from "./tool-profile.js";
@@ -2217,11 +2218,18 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
               : "Identity",
           [
             `${profile.displayName} (${profile.agentId})`,
-            `Source: ${profile.source}`,
+            `Source: ${identitySourceLabel(profile.source)}`,
             `Profile version: ${profile.profileVersion}`,
             `Verification: ${profile.validationOk ? "valid" : "needs attention"}`,
-            `Source status: ${profile.sourceStatus}`,
-            `Generated files: ${profile.generatedStatus}`,
+            `Source status: ${identityStatusLabel(profile.sourceStatus)}`,
+            `Generated file sync: ${identityStatusLabel(profile.generatedStatus)}`,
+            `Purpose: ${profile.render.purpose}`,
+            `Render budget: ${profile.render.budget.usedTokens}/${profile.render.budget.maxTokens} tokens`,
+            `Render version: ${profile.render.renderVersion}`,
+            `Included fields: ${profile.render.includedFields.join(", ") || "None"}`,
+            `Omitted fields: ${profile.render.omittedFields.join(", ") || "None"}`,
+            ...profile.validationWarnings.map((warning) => `Validation warning: ${warning}`),
+            ...profile.render.warnings.map((warning) => `Render warning: ${warning}`),
             ...profile.verificationIssues.map((issue) => `Issue: ${issue}`),
             "",
             profile.render.text,
