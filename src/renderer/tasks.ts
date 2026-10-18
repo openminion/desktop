@@ -656,7 +656,7 @@ function renderRun(
     run.delivery?.mode && `Delivery mode: ${run.delivery.mode}`,
     run.delivery?.targets.length && `Delivery targets: ${run.delivery.targets.join(", ")}`,
     run.delivery?.error && `Delivery error: ${errorText(run.delivery.error)}`,
-    run.deliveryTargets.length && `Delivered markers: ${run.deliveryTargets.join(", ")}`,
+    run.deliveryTargets.length && `Delivery attempt claims: ${run.deliveryTargets.join(", ")}`,
   ]
     .filter(Boolean)
     .join("\n");
