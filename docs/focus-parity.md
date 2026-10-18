@@ -125,23 +125,31 @@ both interfaces at the same installation.
 
 ## Connected Task Controls
 
-On pinned PyPI 0.0.29, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
-CLI calls. Main derives agent scope from the selected canonical session and passes
-its session ID. Focus's task report and these CLI commands share OpenMinion's task
-surface; Desktop does not copy lifecycle transitions, task ownership, or scheduler
-logic. The CLI retains its default inventory limit of 50. GUI buttons come from
-returned `valid_actions`; core validates them again on execution.
+`/tasks` and `/task` use fixed CLI JSON calls. The baseline pinned PyPI 0.0.29
+supports list/show/pause/resume/cancel. A compatible source runtime additionally
+exposes run-now, complete instruction/schedule update with `schedule_revision`,
+terminal-history deletion, and scheduler status/pause/resume. Desktop discovers
+those controls from returned data and does not present scheduler mutations to an
+older runtime that lacks the scheduler revision field. Main derives agent scope
+from the selected canonical session and passes its session ID. Focus's task report
+and these CLI commands share OpenMinion's task surface; Desktop does not copy
+lifecycle transitions, task ownership, scheduler logic, or task persistence. The
+CLI retains its default inventory limit of 50. GUI buttons come from returned
+`valid_actions`; core validates them again on execution.
 
 The renderer receives task presentation fields and scoped pending-approval facts.
 When paired with a compatible source runtime, tool approval cards resolve the
 exact active request through the authenticated approval-resume route, not
 through task lifecycle commands.
 Task changes are fenced against active Desktop turns and Settings updates. Reads
-remain available during a turn. The inline form creates scheduled work using fixed `schedule create` arguments:
+and scheduler-status refresh remain available during a turn. Destructive history
+deletion and scheduler pause/resume require a visible two-step confirmation.
+Completed run rows can open the exact isolated result conversation returned by
+Core. The inline form creates scheduled work using fixed `schedule create` arguments:
 name, instruction, one-time ISO timestamp, interval in minutes, or cron expression
 with timezone. It carries the same session and agent scope, then reads back the
-canonical task list. Core owns schedule validation and execution. Pending
-decisions, non-scheduled task creation and richer run-history inspection still
+canonical task list. Core owns schedule validation, authorization, execution,
+and optimistic revisions. Pending decisions and non-scheduled task creation still
 need integration.
 
 Pinned PyPI 0.0.29 includes `/close`; Desktop routes that command to its

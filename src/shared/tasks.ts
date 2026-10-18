@@ -1,10 +1,26 @@
-export type TaskAction = "list" | "show" | "pause" | "resume" | "cancel" | "schedule";
+export type TaskAction =
+  | "list"
+  | "show"
+  | "pause"
+  | "resume"
+  | "cancel"
+  | "schedule"
+  | "run-now"
+  | "update"
+  | "delete-history"
+  | "scheduler-status"
+  | "scheduler-pause"
+  | "scheduler-resume";
 
 export type TaskControlInput = {
   sessionId: string;
   action: TaskAction;
   taskId?: string;
   schedule?: ScheduleInput;
+  update?: TaskUpdateInput;
+  reason?: string;
+  expectedUpdatedAt?: string;
+  confirm?: boolean;
 };
 
 export type TaskError = {
@@ -40,6 +56,9 @@ export type SchedulerReadiness = {
   reason: string | null;
   lastHeartbeatAt: string | null;
   checkCommand: string | null;
+  paused: boolean | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
 };
 
 export type PendingTaskAction = {
@@ -59,7 +78,10 @@ export type RuntimeTask = {
   operatorState: string | null;
   resumeAction: string | null;
   sessionTarget: string | null;
-  validActions: Array<"pause" | "resume" | "cancel">;
+  instruction: string | null;
+  scheduleRevision: string | null;
+  scheduleInput: TaskScheduleInput | null;
+  validActions: Array<"pause" | "resume" | "cancel" | "run-now" | "update" | "delete-history">;
   recentRuns: TaskRun[];
 };
 
@@ -75,6 +97,12 @@ export type ScheduleInput = {
   kind: "at" | "every" | "cron";
   value: string;
   timezone: string;
+};
+
+export type TaskScheduleInput = Omit<ScheduleInput, "name" | "instruction">;
+
+export type TaskUpdateInput = TaskScheduleInput & {
+  instruction: string;
 };
 
 export type DelegationAction =

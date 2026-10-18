@@ -1050,6 +1050,242 @@ describe("PyPI CLI client", () => {
     }
   });
 
+  it("routes task updates, run-now, history deletion, and scheduler controls through the CLI", async () => {
+    const run = vi.fn();
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    const taskInventory = {
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        '{"ok":true,"tasks":[{"id":"task-1","schedule_revision":"revision-2","valid_actions":[]}],"pending_actions":[]}',
+    };
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-1","run_id":"run-1"}',
+    });
+    run.mockResolvedValueOnce(taskInventory);
+    const runNow = await client.controlTasks({ sessionId, action: "run-now", taskId: "task-1" });
+    expect(runNow).toMatchObject({
+      ok: true,
+      value: { tasks: [{ id: "task-1", scheduleRevision: "revision-2" }] },
+    });
+    expect(run.mock.calls.at(-2)?.[1]).toEqual([
+      "tasks",
+      "run-now",
+      "task-1",
+      "--session",
+      sessionId,
+      "--json",
+      "--agent-id",
+      "writer",
+    ]);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-1","task":{"job_id":"task-1"}}',
+    });
+    run.mockResolvedValueOnce(taskInventory);
+    await client.controlTasks({
+      sessionId,
+      action: "update",
+      taskId: "task-1",
+      update: {
+        instruction: "Review open pull requests",
+        kind: "cron",
+        value: "0 9 * * 1-5",
+        timezone: "America/Los_Angeles",
+      },
+      expectedUpdatedAt: "revision-1",
+    });
+    expect(run.mock.calls.at(-2)?.[1]).toEqual([
+      "tasks",
+      "update",
+      "task-1",
+      "--instruction=Review open pull requests",
+      "--cron=0 9 * * 1-5",
+      "--tz=America/Los_Angeles",
+      "--expected-updated-at=revision-1",
+      "--session",
+      sessionId,
+      "--json",
+      "--agent-id",
+      "writer",
+    ]);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-1","deleted_count":2}',
+    });
+    run.mockResolvedValueOnce(taskInventory);
+    await client.controlTasks({
+      sessionId,
+      action: "delete-history",
+      taskId: "task-1",
+      confirm: true,
+    });
+    expect(run.mock.calls.at(-2)?.[1]).toEqual([
+      "tasks",
+      "delete-history",
+      "task-1",
+      "--confirm",
+      "--session",
+      sessionId,
+      "--json",
+      "--agent-id",
+      "writer",
+    ]);
+
+    for (const [action, extra, expected] of [
+      [
+        "scheduler-status",
+        {},
+        ["tasks", "scheduler", "status", "--session", sessionId, "--json", "--agent-id", "writer"],
+      ],
+      [
+        "scheduler-pause",
+        { reason: "Provider maintenance", expectedUpdatedAt: "scheduler-1", confirm: true },
+        [
+          "tasks",
+          "scheduler",
+          "pause",
+          "--reason=Provider maintenance",
+          "--expected-updated-at=scheduler-1",
+          "--confirm",
+          "--session",
+          sessionId,
+          "--json",
+          "--agent-id",
+          "writer",
+        ],
+      ],
+      [
+        "scheduler-resume",
+        { expectedUpdatedAt: "scheduler-2", confirm: true },
+        [
+          "tasks",
+          "scheduler",
+          "resume",
+          "--expected-updated-at=scheduler-2",
+          "--confirm",
+          "--session",
+          sessionId,
+          "--json",
+          "--agent-id",
+          "writer",
+        ],
+      ],
+    ] as const) {
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout:
+          '{"ok":true,"scheduler":{"state":"ready"},"scheduler_control":{"paused":false,"updated_at":"scheduler-3","actor":"operator"}}',
+      });
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout:
+          '{"ok":true,"tasks":[],"pending_actions":[],"scheduler":{"state":"ready","paused":false,"updated_at":"scheduler-2"}}',
+      });
+      const result = await client.controlTasks({ sessionId, action, ...extra });
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          scheduler: {
+            state: "ready",
+            paused: false,
+            updatedAt: "scheduler-3",
+            updatedBy: "operator",
+          },
+        },
+      });
+      expect(run.mock.calls.at(-2)?.[1]).toEqual(expected);
+      expect(run.mock.calls.at(-1)?.[1]).toEqual([
+        "tasks",
+        "list",
+        "--session",
+        sessionId,
+        "--json",
+        "--agent-id",
+        "writer",
+      ]);
+    }
+
+    const calls = run.mock.calls.length;
+    for (const input of [
+      { sessionId, action: "delete-history", taskId: "task-1" },
+      { sessionId, action: "update", taskId: "task-1", expectedUpdatedAt: "revision-1" },
+      { sessionId, action: "scheduler-pause", expectedUpdatedAt: "scheduler-1", reason: "" },
+      { sessionId, action: "scheduler-resume", expectedUpdatedAt: "scheduler-2" },
+      { sessionId, action: "scheduler-status", taskId: "task-1" },
+    ])
+      expect(await client.controlTasks(input)).toMatchObject({ ok: false });
+    expect(run).toHaveBeenCalledTimes(calls);
+  });
+
+  it("round-trips one-time task schedules through datetime-local", async () => {
+    const run = vi.fn();
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    const at = "2030-01-01T09:00:00Z";
+    const inventory = {
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        ok: true,
+        tasks: [
+          {
+            id: "task-at",
+            instruction: "One-time work",
+            schedule_revision: "revision-at",
+            schedule: { kind: "at", at },
+            valid_actions: ["update"],
+          },
+        ],
+        pending_actions: [],
+      }),
+    };
+    run.mockResolvedValueOnce(inventory);
+
+    const listed = await client.controlTasks({ sessionId, action: "list" });
+    if (!listed.ok) throw new Error("Task list failed");
+    const schedule = listed.value.tasks[0]?.scheduleInput;
+    expect(schedule?.kind).toBe("at");
+    expect(schedule?.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    const submittedAt = new Date(schedule!.value).toISOString();
+    expect(submittedAt).toBe(new Date(at).toISOString());
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-at","task":{"job_id":"task-at"}}',
+    });
+    run.mockResolvedValueOnce(inventory);
+    await client.controlTasks({
+      sessionId,
+      action: "update",
+      taskId: "task-at",
+      update: {
+        instruction: "One-time work",
+        kind: "at",
+        value: submittedAt,
+        timezone: "UTC",
+      },
+      expectedUpdatedAt: "revision-at",
+    });
+
+    expect(run.mock.calls.at(-2)?.[1]).toContain(`--at=${submittedAt}`);
+  });
+
   it("runs fixed session-scoped delegation operations and projects safe inspection facts", async () => {
     const run = vi.fn();
     const client = new CliClient(

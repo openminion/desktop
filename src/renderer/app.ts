@@ -1,4 +1,3 @@
-import type { CustomCommand } from "../shared/reports.js";
 import type {
   ApprovalDecision,
   ApprovalDecisionV1,
@@ -25,14 +24,15 @@ import type {
   RuntimeUpdateStatus,
   SessionEventV1,
   SessionSummaryV1,
-  ToolProgressV1,
   ToolDisplay,
+  ToolProgressV1,
   TurnEventV1,
   TurnInputQueueEntry,
   TurnSubmitValue,
   TurnUsageDisplay,
 } from "../shared/contracts.js";
-import type { DelegationControlInput, ScheduleInput, TaskAction } from "../shared/tasks.js";
+import type { CustomCommand } from "../shared/reports.js";
+import type { DelegationControlInput, ScheduleInput, TaskControlInput } from "../shared/tasks.js";
 import { renderMarkdown } from "./markdown.js";
 import { mountProfiles } from "./profiles.js";
 import { renderDelegation, renderTasks } from "./tasks.js";
@@ -1736,13 +1736,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.showDaemonStatus.addEventListener("click", () => void inspectDaemon("status"));
   elements.showDaemonLogs.addEventListener("click", () => void inspectDaemon("logs"));
 
-  const runTasks = async (action: TaskAction, taskId?: string, schedule?: ScheduleInput) => {
+  const runTasks = async (input: Omit<TaskControlInput, "sessionId">, schedule?: ScheduleInput) => {
+    const { action } = input;
     if (!selected || !api.tasks) {
       if (schedule) return "Choose a saved conversation first.";
       showCommandResult("Tasks", "Choose a saved conversation first.");
       return;
     }
-    if (chat.active && !["list", "show"].includes(action)) {
+    if (chat.active && !["list", "show", "scheduler-status"].includes(action)) {
       if (schedule) return "Finish or stop this turn before scheduling work.";
       showCommandResult("Turn in progress", "Finish or stop this turn before changing work.");
       return;
@@ -1756,8 +1757,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const request = commandResultGeneration;
     const result = await api.tasks.control({
       sessionId,
-      action,
-      taskId,
+      ...input,
       ...(schedule ? { schedule } : {}),
     });
     if (request !== commandResultGeneration || selected?.sessionId !== sessionId) return;
@@ -1769,7 +1769,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const refresh = root.createElement("button");
         refresh.type = "button";
         refresh.textContent = "Refresh work list";
-        refresh.addEventListener("click", () => void runTasks("list"));
+        refresh.addEventListener("click", () => void runTasks({ action: "list" }));
         elements.commandResult.append(refresh);
         return;
       }
@@ -1802,13 +1802,21 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       elements.commandResult,
       result.value,
       chat.active,
-      (nextAction, id) => {
-        if (selected?.sessionId === sessionId) void runTasks(nextAction, id);
+      (nextInput) => {
+        if (selected?.sessionId === sessionId) void runTasks(nextInput);
       },
       (schedule) =>
         selected?.sessionId === sessionId
-          ? runTasks("schedule", undefined, schedule)
+          ? runTasks({ action: "schedule" }, schedule)
           : Promise.resolve("Choose the original conversation before scheduling work."),
+      async (resultSessionId) => {
+        await loadSessions();
+        const resultSession = sessions.find((session) => session.sessionId === resultSessionId);
+        if (!resultSession)
+          return "The result conversation is not available to this Desktop session.";
+        await selectSession(resultSession);
+        hideCommandResult();
+      },
     );
   };
 
@@ -2125,18 +2133,21 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         break;
       }
       case "/tasks": {
-        if (!args.length) await runTasks("list");
+        if (!args.length) await runTasks({ action: "list" });
         else if (["pause", "resume", "cancel"].includes(args[0].toLowerCase()) && args.length === 2)
-          await runTasks(args[0].toLowerCase() as TaskAction, args[1]);
+          await runTasks({
+            action: args[0].toLowerCase() as "pause" | "resume" | "cancel",
+            taskId: args[1],
+          });
         else if (
           args.length === 1 &&
           !["pause", "resume", "cancel"].includes(args[0].toLowerCase())
         )
-          await runTasks("show", args[0]);
+          await runTasks({ action: "show", taskId: args[0] });
         else
           showCommandResult(
             "Task command",
-            "Use /tasks, /tasks <task-id>, or /tasks pause|resume|cancel <task-id>.",
+            "Use /tasks, /tasks <task-id>, or /tasks pause|resume|cancel <task-id>. Use capability-gated task cards for run-now, update, history deletion, and scheduler controls.",
           );
         break;
       }
