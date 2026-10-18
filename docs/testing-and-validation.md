@@ -32,6 +32,14 @@ npm run hooks:run
 
 Hosted CI also runs actionlint against `.github/workflows/`.
 
+Run commands below from the repository root. Direct `node` or `electron`
+harnesses use `dist/` and do not build it themselves. Run `npm run build` after
+source changes before invoking them; `npm run ci-check` also builds. A missing
+`dist/` import is a build prerequisite failure, not a daemon connection failure.
+Package scripts such as `npm run electron-check` include their own build step.
+The optional Vitest checks require the executable or permission inputs
+shown below; a skipped check is not integration evidence.
+
 ## Native Package Smoke
 
 ```bash
@@ -50,8 +58,10 @@ draft release for verification or transfer. That draft is not a public release
 and should be deleted after its outputs are handled.
 
 The command rejects an application archive containing repository-only files,
-development dependencies, local `.openminion` state, source, or tests. It also
-fails when a platform's expected artifact formats are missing.
+dependency directories, local `.openminion` state, source, or tests. Selected
+runtime modules from development dependencies are bundled into `dist/`; the
+archive check validates file layout, not the absence of all third-party code.
+It also fails when a platform's expected artifact formats are missing.
 
 ## Desktop Storage
 
@@ -67,8 +77,8 @@ native update certification. Run the real
 managed PyPI first-install/reuse/owned-quit check separately after building:
 
 ```bash
+npm run build
 node tests/electron/managed-install.mjs
-node tests/electron/runtime-update.mjs
 ```
 
 The supervisor suite also advances a test clock through the 24-hour check
@@ -83,10 +93,16 @@ The private update harness uses main-only test fixtures and isolated roots to
 stage its target beside the current managed installer pin, keep the old daemon usable, activate on
 the next startup, retain an echo conversation and refuse interrupted-intent
 restart. Its fixture bounds are not published compatibility certification;
-it does not qualify a public feed or a packaged application. The default target
-is the historical 0.0.20 fixture, not a current upgrade candidate. For a newer
-release rehearsal, supply the exact authorized version through one of the
-index flags below.
+it does not qualify a public feed or a packaged application. Running the harness
+without a version flag selects the historical 0.0.20 fixture. Do not use that default as current upgrade evidence: it predates the
+managed installer pin. For an upgrade rehearsal, choose an exact published
+version newer than `OPENMINION_VERSION` in `src/main/installation.ts` and replace
+`VERSION` below. This is still a private fixture, not public-feed acceptance.
+
+```bash
+npm run build
+node tests/electron/runtime-update.mjs --pypi-final VERSION
+```
 
 The optional `--testpypi-final` mode rehearses an exact final TestPyPI wheel
 against the managed installer pin in isolated roots, resolving ordinary pip
@@ -150,6 +166,7 @@ separate acceptance gates.
 After building, run the native migration and restart check:
 
 ```bash
+npm run build
 node tests/electron/storage.mjs
 ```
 
@@ -211,10 +228,10 @@ local echo provider only; it does not qualify a paid provider or remote peer.
 Use an isolated installation of the pinned PyPI package:
 
 ```bash
+npm run build
 env -u OPENMINION_EXECUTABLE -u OPENMINION_PYPI_EXECUTABLE \
   node tests/electron/managed-install.mjs
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npm test -- tests/main/cli-client.test.ts
-npm run build
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/pypi.mjs
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/onboarding.mjs
 ```

@@ -1,11 +1,31 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-11
+Last updated: 2026-10-17
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+These entries describe source development, not a newly published binary.
+Earlier notes retain the state at the time of each change; later entries can
+supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
+and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+### Recent changes
+
+- Resolve agent and MCP reports using the selected session's canonical agent.
+- Browse the complete global skill catalog and the selected agent's stored
+  catalog through existing public OpenMinion operations.
+- Add `/graph status` readiness reporting and report clipboard failures after
+  the actual write completes.
+- Prepare public contribution guidance, guided issue reports, download
+  verification, and source-backed data/privacy documentation. Public source
+  visibility and stable release approval remain separate gates.
+- Clarify integration-test build prerequisites and require an explicit newer
+  target in the documented private runtime-upgrade rehearsal.
+
+### Earlier development notes
 
 - Add compact language headers and Copy controls to chat code blocks, with
   keyboard scrolling and the same clipboard feedback as message actions.
