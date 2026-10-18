@@ -12,6 +12,7 @@ Read these package-local references first:
 4. [OpenMinion Desktop Code Quality and Hygiene](CODE_QUALITY.md)
 5. [Testing and Validation](docs/testing-and-validation.md)
 6. [API Compatibility](API_COMPATIBILITY.md)
+7. [Source Tree Owner Map](docs/source-tree-owner-map.md)
 
 Keep the process boundary explicit: OpenMinion owns agent execution, sessions,
 policy, credentials, and durable state; Desktop main owns privileged local
@@ -56,6 +57,15 @@ The primary checkout stays untouched. Push the feature branch to your fork’s
 upstream checkout use `origin/dev` as the worktree starting point instead.
 Before final validation, fetch the upstream `dev` branch again and reconcile
 any new changes. Do not use a check from an earlier revision as final proof.
+
+## Iterating on a change
+
+Start with the closest existing tests while editing, then run the full package
+gate before review. The [focused validation loop](docs/testing-and-validation.md#focused-iteration)
+includes commands for a single test file and fixing formatting failures.
+
+For cleanup, use the [bounded review guidance](CODE_QUALITY.md#5-keep-changes-focused).
+A small fix does not need a new process document or a package-wide refactor.
 
 ## Development basics
 
