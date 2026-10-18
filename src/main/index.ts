@@ -430,6 +430,35 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.turnsReconnect, (event, input) =>
     isAppInvocation(event) ? supervisor.client.reconnect(input) : forbiddenResult(),
   );
+  ipcMain.handle(IPC_CHANNELS.turnsQueueList, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.listTurnInputs(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsQueueEnqueue, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.enqueueTurnInput(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsQueueDrop, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.dropTurnInput(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsQueueMove, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.moveTurnInput(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsCancelAndRunNext, (event, input) => {
+    const sourceFrame = event.senderFrame;
+    if (sourceFrame === null || !isAppInvocation(event)) return forbiddenResult();
+    let deliveryActive = true;
+    return supervisor.client.cancelAndRunNext(input, (turnEvent) => {
+      if (!deliveryActive) return;
+      if (sourceFrame.detached || event.sender.mainFrame !== sourceFrame) {
+        deliveryActive = false;
+        return;
+      }
+      try {
+        sourceFrame.send(IPC_CHANNELS.turnEvent, turnEvent);
+      } catch {
+        deliveryActive = false;
+      }
+    });
+  });
   ipcMain.handle(IPC_CHANNELS.approvalsDecide, (event, input) =>
     isAppInvocation(event) ? supervisor.client.decide(input) : forbiddenResult(),
   );

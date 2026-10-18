@@ -436,6 +436,33 @@ async function check() {
     );
     const active = catalog.find((item) => item.id === activeId);
     assert.ok(active);
+    const queueProof = await evaluate(`(async () => {
+      const turns = window.openminion.turns;
+      const first = await turns.enqueue({sessionId:${JSON.stringify(active.id)},agentId:${JSON.stringify(active.agent)},text:'First queued prompt'});
+      const second = await turns.enqueue({sessionId:${JSON.stringify(active.id)},agentId:${JSON.stringify(active.agent)},text:'Second queued prompt'});
+      if (!first.ok || !second.ok) return {first, second};
+      const initial = await turns.listQueue({sessionId:${JSON.stringify(active.id)}});
+      const moved = await turns.move({sessionId:${JSON.stringify(active.id)},queueId:second.value.queueId,statusVersion:second.value.statusVersion,beforeQueueId:first.value.queueId});
+      if (!moved.ok) return {first, second, initial, moved};
+      const reordered = await turns.listQueue({sessionId:${JSON.stringify(active.id)}});
+      const droppedFirst = await turns.drop({sessionId:${JSON.stringify(active.id)},queueId:first.value.queueId,statusVersion:first.value.statusVersion});
+      const droppedSecond = await turns.drop({sessionId:${JSON.stringify(active.id)},queueId:second.value.queueId,statusVersion:moved.value.statusVersion});
+      const empty = await turns.listQueue({sessionId:${JSON.stringify(active.id)}});
+      return {first, second, initial, moved, reordered, droppedFirst, droppedSecond, empty};
+    })()`);
+    assert.equal(queueProof.first.ok, true, JSON.stringify(queueProof));
+    assert.deepEqual(
+      queueProof.initial.value.map((entry) => entry.text),
+      ["First queued prompt", "Second queued prompt"],
+    );
+    assert.deepEqual(
+      queueProof.reordered.value.map((entry) => entry.text),
+      ["Second queued prompt", "First queued prompt"],
+    );
+    assert.equal(queueProof.droppedFirst.value.status, "dropped");
+    assert.equal(queueProof.droppedSecond.value.status, "dropped");
+    assert.deepEqual(queueProof.empty.value, []);
+    console.log("PASS: native shared prompt queue list, enqueue, reorder, and removal.");
     const facts = await evaluate(
       "document.querySelector('.session-option[aria-current=true] small').textContent",
     );

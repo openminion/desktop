@@ -130,9 +130,12 @@ Except for task and delegation commands, `/identity verify`, `/identity reload`,
 `/details [on|off|quiet|toggle]`, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, `/tools activate [profile]`, `/tools deactivate [profile]`, `/graph status`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help/status, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
-The composer remains editable during a turn so you can write a draft or run a
-local command. Ordinary text is not queued or sent until the turn finishes and
-you submit it yourself. Incoming response text is visible as it arrives.
+The composer remains editable during a turn so you can queue ordinary text or
+run a local command. Enter admits ordinary text to OpenMinion's shared **Up
+next** queue; Shift+Enter keeps editing. The queue can be reordered or trimmed,
+and **Stop and run next** requests canonical cancellation before starting its
+head. Attachments remain drafts until the active turn finishes. Incoming
+response text is visible as it arrives.
 Switching tasks within the same app keeps the running turn's response,
 approval cards, and cancellation controls. App restart still requires richer
 active-turn attachment/recovery support; saved completed conversations recover
@@ -170,7 +173,7 @@ broader Focus commands remain pending.
 | `/cost`                                                                                                 | Return live session usage and supported cost accounting. `/tokens` is connected to durable CLI accounting; it is not a live-cost substitute.                                                                                                                 |
 | `/memory`, `/telemetry`, `/trace`, `/overview`                                                          | Expose bounded, redacted owner queries over the existing public interfaces. `/graph status` runs the CLI readiness report suggested by Focus; other graph workflows remain pending.                                                                              |
 | `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership, handoff, messaging, start, and routing operations for admitted sessions.                                                                                                                                                             |
-| `/goal`, `/project`, `/queue`                                                                           | Expose the existing goal, project, and queue owners; do not create Desktop-owned execution queues.                                                                                                                                                            |
+| `/goal`, `/project`, `/queue`                                                                           | Expose goal/project commands and optional queue command presentation; composer queue controls already consume the Core queue.                                                                                                                                 |
 | `/init`, `/diff`, `/review`, `/undo`, `/browser`                                                        | Expose scoped workspace/browser operations and their existing permission and audit boundaries.                                                                                                                                                               |
 | `/theme`, `/statusline`, `/expand`, `/editor`, `/exit`, `/quit`                 | Additional Desktop presentation or native interactions. Current Focus `/editor` composes an unsent draft through an external editor; Desktop shortcut guidance alone is not equivalent.                                                                      |
 

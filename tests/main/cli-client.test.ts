@@ -2429,6 +2429,78 @@ describe("PyPI CLI client", () => {
       }),
     );
   });
+
+  it("manages queued prompts and starts the next prompt through the shared daemon contract", async () => {
+    const fixture = await executableFixture("wait");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const currentEvents: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "current" }, (event) =>
+      currentEvents.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+
+    const first = await client.enqueueTurnInput({
+      sessionId: "saved",
+      agentId: "writer",
+      text: "first queued prompt",
+    });
+    const second = await client.enqueueTurnInput({
+      sessionId: "saved",
+      agentId: "writer",
+      text: "second queued prompt",
+    });
+    if (!first.ok || !second.ok) throw new Error("Prompt not queued");
+    expect(await client.listTurnInputs({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: [
+        { queueId: first.value.queueId, text: "first queued prompt", status: "queued" },
+        { queueId: second.value.queueId, text: "second queued prompt", status: "queued" },
+      ],
+    });
+
+    const moved = await client.moveTurnInput({
+      sessionId: "saved",
+      queueId: second.value.queueId,
+      statusVersion: second.value.statusVersion,
+      beforeQueueId: first.value.queueId,
+    });
+    if (!moved.ok) throw new Error("Prompt not moved");
+    expect(await client.listTurnInputs({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: [{ queueId: second.value.queueId }, { queueId: first.value.queueId }],
+    });
+
+    const dropped = await client.dropTurnInput({
+      sessionId: "saved",
+      queueId: first.value.queueId,
+      statusVersion: first.value.statusVersion,
+    });
+    expect(dropped).toMatchObject({ ok: true, value: { status: "dropped" } });
+
+    const nextEvents: TurnEventV1[] = [];
+    const next = await client.cancelAndRunNext(
+      {
+        sessionId: "saved",
+        traceId: submitted.value.traceId,
+        agentId: "writer",
+        expectedQueueId: second.value.queueId,
+      },
+      (event) => nextEvents.push(event),
+    );
+    expect(next).toMatchObject({ ok: true, value: { sessionId: "saved" } });
+    await vi.waitFor(() =>
+      expect(nextEvents.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+    );
+    expect(nextEvents).toContainEqual(
+      expect.objectContaining({ kind: "response", finalText: "Next reply" }),
+    );
+    expect(fixture.requests).toContainEqual(
+      expect.objectContaining({
+        method: "GET",
+        path: "/v1/sessions/saved/turn-inputs?status=queued&status=steer_deferred",
+      }),
+    );
+  });
 });
 
 const now = "2026-09-08T00:00:00Z";
@@ -2454,20 +2526,56 @@ async function executableFixture(
     body: Record<string, unknown>;
     token: string | string[] | undefined;
     path?: string;
+    method?: string;
   }> = [];
   let complete: ((cancelled: boolean) => void) | null = null;
   let emitSse: ((event: string, value: unknown) => void) | null = null;
   let activeSessionId = "";
   let traceId = "";
+  let nextTraceId = "";
   let traceExpired = false;
+  let queueSequence = 0;
+  const queue: Record<string, unknown>[] = [];
   const server = createServer((req, res) => {
     if (req.method === "GET") {
       requests.push({
         body: {},
         token: req.headers["x-ipc-token"],
         path: req.url,
+        method: req.method,
       });
       res.setHeader("Content-Type", "application/json");
+      if (req.url?.startsWith("/v1/sessions/saved/turn-inputs")) {
+        res.end(
+          JSON.stringify({
+            ok: true,
+            entries: queue.filter((entry) => entry.status === "queued"),
+          }),
+        );
+        return;
+      }
+      if (nextTraceId && req.url === `/v1/turn/${nextTraceId}/stream?after_sequence=0`) {
+        res.setHeader("Content-Type", "text/event-stream");
+        const output = (event: string, value: unknown) =>
+          res.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
+        output("meta", {
+          session_id: "saved",
+          trace_id: nextTraceId,
+          request_id: "request-next",
+          stream_schema_version: "openminion.turn-stream.v1",
+          capabilities: ["active_turn_replay"],
+        });
+        output("chunk", {
+          trace_id: nextTraceId,
+          kind: "final_text",
+          data: { text: "Next reply" },
+          ts: now,
+        });
+        output("response", { trace_id: nextTraceId, final_text: "Next reply", errors: [] });
+        output("done", { trace_id: nextTraceId, status: "complete" });
+        res.end();
+        return;
+      }
       if (
         req.url === `/v1/turn/${traceId}/status` ||
         req.url?.startsWith(`/v1/turn/${traceId}/stream?`)
@@ -2711,7 +2819,82 @@ async function executableFixture(
     });
     req.on("end", () => {
       const body = JSON.parse(data);
-      requests.push({ body, token: req.headers["x-ipc-token"] });
+      requests.push({
+        body,
+        token: req.headers["x-ipc-token"],
+        path: req.url,
+        method: req.method,
+      });
+      if (req.url === "/v1/sessions/saved/turn-inputs") {
+        queueSequence += 1;
+        const entry = {
+          queue_id: `queue-${queueSequence}`,
+          session_id: "saved",
+          agent_id: body.agent_id,
+          text: body.text,
+          intent: "queue_next",
+          source_client: body.source_client,
+          idempotency_key: body.idempotency_key,
+          priority: 0,
+          metadata: {},
+          status: "queued",
+          status_version: 1,
+          created_at: now,
+          trace_id: null,
+        };
+        queue.push(entry);
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, entry }));
+        return;
+      }
+      const queuePath = req.url?.match(/^\/v1\/sessions\/saved\/turn-inputs\/([^/]+)$/);
+      if (req.method === "DELETE" && queuePath) {
+        const entry = queue.find((item) => item.queue_id === queuePath[1]);
+        if (!entry) throw new Error("Queue fixture entry not found");
+        entry.status = "dropped";
+        entry.status_version = Number(entry.status_version) + 1;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, entry }));
+        return;
+      }
+      const movePath = req.url?.match(/^\/v1\/sessions\/saved\/turn-inputs\/([^/]+)\/move$/);
+      if (movePath) {
+        const index = queue.findIndex((item) => item.queue_id === movePath[1]);
+        const before = queue.findIndex((item) => item.queue_id === body.before_queue_id);
+        if (index < 0 || before < 0) throw new Error("Queue fixture move target not found");
+        const [entry] = queue.splice(index, 1);
+        queue.splice(
+          queue.findIndex((item) => item.queue_id === body.before_queue_id),
+          0,
+          entry!,
+        );
+        entry!.status_version = Number(entry!.status_version) + 1;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, entry }));
+        return;
+      }
+      if (req.url === `/v1/turn/${traceId}/cancel-and-run-next`) {
+        const entry = queue.find((item) => item.queue_id === body.expected_queue_id);
+        if (!entry) throw new Error("Queue fixture next entry not found");
+        nextTraceId = "trace-next";
+        entry.status = "running";
+        entry.status_version = Number(entry.status_version) + 1;
+        entry.trace_id = nextTraceId;
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            ok: true,
+            cancelled: true,
+            trace_id: traceId,
+            next_trace_id: nextTraceId,
+            entry,
+          }),
+        );
+        complete?.(true);
+        return;
+      }
       if (req.url?.endsWith("/cancel")) {
         expect(req.url).toBe(`/v1/turn/${traceId}/cancel`);
         expect(req.headers["x-ipc-token"]).toBe("test-private-token");

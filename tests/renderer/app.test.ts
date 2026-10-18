@@ -38,6 +38,7 @@ import type {
   ObservationStatusV1,
   SessionSummaryV1,
   TurnEventV1,
+  TurnInputQueueEntry,
 } from "../../src/shared/contracts.js";
 
 function mount(api: NativeApi, root: Document): Promise<void> {
@@ -84,6 +85,11 @@ function mount(api: NativeApi, root: Document): Promise<void> {
     }),
     control: vi.fn(),
   };
+  api.turns.listQueue ??= async () => ({ ok: true, value: [] });
+  api.turns.enqueue ??= vi.fn();
+  api.turns.drop ??= vi.fn();
+  api.turns.move ??= vi.fn();
+  api.turns.cancelAndRunNext ??= vi.fn();
   return mountRenderer(api, root);
 }
 
@@ -638,6 +644,157 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it("queues a message during an active turn and can stop to run it next", async () => {
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    let emit!: (event: TurnEventV1) => void;
+    const entry = {
+      queueId: "queue-1",
+      sessionId: "session-1",
+      agentId: "openminion",
+      text: "Run the checks next",
+      status: "queued" as const,
+      statusVersion: 1,
+      createdAt: "2026-08-19T00:00:02Z",
+      traceId: null,
+    };
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.turns.subscribe = vi.fn((listener) => {
+      emit = listener;
+      return vi.fn();
+    });
+    api.turns.listQueue = vi.fn().mockResolvedValue({ ok: true, value: [] });
+    api.turns.enqueue = vi.fn().mockResolvedValue({ ok: true, value: entry });
+    api.turns.submit = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        sessionId: "session-1",
+        traceId: "trace-current",
+        requestId: "request-current",
+      },
+    });
+    api.turns.cancelAndRunNext = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { sessionId: "session-1", traceId: "trace-next", requestId: "request-next" },
+    });
+    const page = new FixtureDocument();
+    await mount(api, page.asDocument());
+    page.element("composer").value = "Start the current turn";
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+    emit({
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-current",
+      requestId: "request-current",
+    });
+
+    page.element("composer").value = entry.text;
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.enqueue).toHaveBeenCalledOnce());
+    expect(api.turns.enqueue).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      agentId: "openminion",
+      text: entry.text,
+    });
+    expect(page.element("turn-queue").hidden).toBe(false);
+    expect(
+      page
+        .element("turn-queue-list")
+        .descendants()
+        .map((item) => item.textContent),
+    ).toContain(entry.text);
+    expect(page.element("run-next").hidden).toBe(false);
+
+    page.element("run-next").click();
+    await vi.waitFor(() => expect(api.turns.cancelAndRunNext).toHaveBeenCalledOnce());
+    expect(api.turns.cancelAndRunNext).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      traceId: "trace-current",
+      agentId: "openminion",
+      expectedQueueId: "queue-1",
+    });
+  });
+
+  it("keeps a late queue response with its original conversation", async () => {
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    let emit!: (event: TurnEventV1) => void;
+    let finishEnqueue!: (result: ClientResult<TurnInputQueueEntry>) => void;
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Other conversation" },
+    ];
+    const api = approvalRendererApi(vi.fn(), sessions);
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.turns.subscribe = vi.fn((listener) => {
+      emit = listener;
+      return vi.fn();
+    });
+    api.turns.listQueue = vi.fn().mockResolvedValue({ ok: true, value: [] });
+    api.turns.submit = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        sessionId: "session-1",
+        traceId: "trace-current",
+        requestId: "request-current",
+      },
+    });
+    api.turns.enqueue = vi.fn(
+      () =>
+        new Promise<ClientResult<TurnInputQueueEntry>>((resolve) => {
+          finishEnqueue = resolve;
+        }),
+    );
+    const page = new FixtureDocument();
+    await mount(api, page.asDocument());
+    page.element("composer").value = "Start";
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+    emit({
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-current",
+      requestId: "request-current",
+    });
+    page.element("composer").value = "Queued elsewhere";
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.enqueue).toHaveBeenCalledOnce());
+
+    page
+      .sessionButtons()
+      .find((button) => button.textContent === "Other conversation")!
+      .click();
+    await vi.waitFor(() =>
+      expect(page.element("current-title").textContent).toBe("Other conversation"),
+    );
+    finishEnqueue({
+      ok: true,
+      value: {
+        queueId: "queue-1",
+        sessionId: "session-1",
+        agentId: "openminion",
+        text: "Queued elsewhere",
+        status: "queued",
+        statusVersion: 1,
+        createdAt: "2026-08-19T00:00:02Z",
+        traceId: null,
+      },
+    });
+
+    await vi.waitFor(() => expect(page.element("turn-queue").hidden).toBe(true));
+    expect(page.element("current-title").textContent).toBe("Other conversation");
+  });
+
   it.each([
     [
       "verified",
@@ -5970,6 +6127,10 @@ class FixtureDocument {
     "chat-detail",
     "chat-update",
     "chat-elapsed",
+    "turn-queue",
+    "turn-queue-status",
+    "turn-queue-list",
+    "run-next",
     "composer-hint",
     "composer-form",
     "composer",
