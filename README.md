@@ -1,24 +1,26 @@
 <p align="center">
-  <img src="assets/icon.png" alt="OpenMinion logo" width="128" />
+  <a href="https://www.openminion.com"><img src="assets/icon.png" alt="OpenMinion logo" width="128" height="128" /></a>
 </p>
 
 <h1 align="center">OpenMinion Desktop</h1>
 
 <p align="center">
-  <strong>A local desktop workspace for OpenMinion.</strong>
+  <strong>Chat, manage agents, and review their work in one local desktop app.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/openminion/desktop">GitHub</a>
-  · <a href="https://www.openminion.com">Website</a>
+  <a href="#install">Download</a>
   · <a href="docs/README.md">Docs</a>
+  · <a href="CONTRIBUTING.md">Contribute</a>
+  · <a href="https://github.com/openminion/openminion">CLI &amp; Core</a>
+  · <a href="https://www.openminion.com">Website</a>
   · <a href="https://x.com/OpenMinion">X</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/openminion/desktop/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/openminion/desktop/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
-  <img alt="Node.js" src="https://img.shields.io/badge/node-24-339933">
+  <a href="CHANGELOG.md"><img alt="Desktop version" src="https://img.shields.io/badge/desktop-0.0.1-6B7280"></a>
   <img alt="Status" src="https://img.shields.io/badge/status-alpha-6B7280">
 </p>
 
