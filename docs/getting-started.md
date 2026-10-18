@@ -336,13 +336,37 @@ Progress uses a subtle working indicator, while
 successful completion leaves the composer quiet. Stop requests and errors remain
 visible; a stop request is not treated as confirmed cancellation.
 While a reply is running, its status, details and elapsed time appear directly
-beneath your request and scroll with the conversation. Enter sends ordinary
-text to OpenMinion's shared **Up next** queue; Shift+Enter keeps editing. Queued
-prompts can be moved, removed, or started immediately with **Stop and run next**.
-Attachments stay out of the queue. Stop stays pending until OpenMinion reports
-the outcome. Successful completion hides the progress row; errors remain visible
-with the request. The composer stays in place, and history refreshes without
-clearing the conversation.
+beneath your request and scroll with the conversation. Stop stays pending until
+OpenMinion reports the outcome. Successful completion hides the progress row;
+errors remain visible with the request. The composer stays in place, and history
+refreshes without clearing the conversation.
+
+### Queue A Follow-up
+
+While a reply is running, write ordinary text and press **Enter** to submit it
+to OpenMinion's **Up next** queue. **Shift+Enter** adds a new line without
+submitting. Text left in the composer is still a local draft; an accepted queued
+message belongs to the runtime and appears in **Up next**. A rejected submission
+keeps the draft and shows the error.
+
+Use **Move up**, **Move down**, or **Remove** on a queued item to change the
+pending list. **Stop and run next** asks OpenMinion to cancel the current
+response and start the first queued message after cancellation settles. It does
+not inject instructions into the current response. Errors remain visible; a
+stop request alone is not proof that the response stopped. Attachments cannot
+be queued, and slash commands keep their own command handling.
+
+The recorded native bridge queue journey used published OpenMinion **0.1.7**;
+this is a tested version, not a declared minimum. The default managed runtime remains
+**0.0.29**. Queue controls need the runtime's public turn-input operations; an
+older or incompatible runtime can reject an operation. Desktop does not replace
+that failure with a local queue. See [runtime selection](#use-a-source-runtime)
+and the [readiness matrix](certification-readiness-matrix.md) before comparing
+source and installed-build behavior. Automatic queue advancement, active-turn
+recovery after restart, and exactly-once effect acceptance are not certified by
+the bounded native bridge journey.
+
+### Recover A Response
 
 If a response disconnects, use **Reconnect response** to attach to the same
 retained turn without sending your message again. If replay is unavailable,
@@ -350,6 +374,8 @@ retained turn without sending your message again. If replay is unavailable,
 When it no longer does, Desktop reloads saved history without claiming the turn
 succeeded or failed. This recovery requires the current Desktop process to know
 the trace; discovery after app or daemon restart is not supported.
+
+### Commands And Context
 
 Type `/` or press **Command/Ctrl+K** to open the command menu. Arrow keys select,
 Tab completes, Shift+Tab leaves suggestions, and Enter runs a command. Start with `/help`, `/new`, `/sessions`,

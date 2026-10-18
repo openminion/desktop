@@ -1,7 +1,7 @@
 # OpenMinion Desktop Source Tree Owner Map
 
 Status: active
-Last updated: 2026-09-17
+Last updated: 2026-10-17
 
 Purpose: give contributors a package-local owner map without turning internal
 TypeScript modules into supported third-party APIs.
@@ -42,6 +42,14 @@ keep its presentation tables aligned when updating the supported runtime.
 export destinations remain in the native save dialog and main process.
 The managed executable, roots, config path, and
 credentials remain main-only facts.
+
+Prompt queue operations stay in `src/main/cli-client.ts`, using the public
+session turn-input and turn-control routes for list, enqueue, move, remove and
+cancel-and-run-next.
+`src/shared/contracts.ts` defines their typed bridge; `src/main/index.ts` and
+`src/preload/index.ts` expose only those fixed operations. `src/renderer/app.ts`
+presents **Up next** and its controls. OpenMinion owns queue persistence and
+execution; Desktop's SQLite store still owns unsent drafts, not queued prompts.
 
 `src/main/bootstrap.ts` chooses stable packaged-app paths before Electron is ready
 and admits one app instance per Desktop root. `src/main/desktop-store.ts` owns

@@ -13,6 +13,7 @@ OpenMinion Desktop repository.
 | Complete first launch and choose a provider | [Getting Started](getting-started.md#first-run) |
 | Manage profiles, model keys, and search-tool keys | [Agent Profiles and Keys](getting-started.md#agent-profiles-and-keys) |
 | Find, name, or resume a conversation | [Workspace Basics](getting-started.md#workspace-basics) and [Name a chat](getting-started.md#name-a-chat) |
+| Queue a follow-up while a reply is running | [Queue a Follow-up](getting-started.md#queue-a-follow-up) |
 | Use connected slash commands | [Desktop Commands](commands.md) |
 | Understand saved credentials and external connections | [Privacy and Connections](getting-started.md#privacy-and-connections) |
 | Export a saved conversation | [Export a conversation](getting-started.md#export-a-conversation) |
