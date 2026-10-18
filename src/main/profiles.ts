@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
 import type { RunCommand } from "./installation.js";
-import { protocolError, requireRecord, requireString } from "./openminion-client.js";
+import { protocolError, requireArray, requireRecord, requireString } from "./openminion-client.js";
 import {
   TOOL_CREDENTIALS,
   type ProfileSaveInput,
@@ -42,28 +42,47 @@ export class Profiles {
   }
 
   async #presets(executable: string) {
-    const result = await this.run(executable, ["setup", "--list-providers"], 30_000);
+    const result = await this.run(executable, ["setup", "--list-providers", "--json"], 30_000);
     if (result.exitCode !== 0)
       throw protocolError("setup_unavailable", "OpenMinion could not list setup providers.");
-    // This is the pinned CLI's public text listing; provider defaults stay owned by core.
-    const presets = [
-      ...result.stdout.matchAll(/^([a-z0-9-]+): ([^\n]+)\n((?:[ \t]+[^\n]*\n|\n)*)/gm),
-    ].map((match) => {
-      const credential = match[3].match(/^ {2}Credential: (.+)$/m)?.[1] ?? "";
-      const credentialEnv = credential === "not required" ? "" : credential;
-      if (!credential || (credentialEnv && !/^[A-Z][A-Z0-9_]*_API_KEY$/.test(credentialEnv)))
+    let payload: Record<string, unknown>;
+    try {
+      payload = requireRecord(JSON.parse(result.stdout));
+    } catch {
+      throw protocolError("setup_unavailable", "OpenMinion returned an invalid setup catalog.");
+    }
+    if (Object.keys(payload).length !== 1 || !("providers" in payload))
+      throw protocolError("setup_unavailable", "OpenMinion returned an invalid setup catalog.");
+    const presets = requireArray(payload.providers).map((entry) => {
+      const provider = requireRecord(entry);
+      const expected = [
+        "base_url",
+        "credential_env",
+        "id",
+        "label",
+        "recommended_models",
+        "requires_credential",
+      ];
+      if (
+        Object.keys(provider).sort().join(",") !== expected.join(",") ||
+        typeof provider.requires_credential !== "boolean"
+      )
+        throw protocolError("setup_unavailable", "OpenMinion returned an invalid setup catalog.");
+      const credentialEnv =
+        provider.credential_env === null ? "" : requireString(provider.credential_env);
+      if (provider.requires_credential !== Boolean(credentialEnv))
         throw protocolError(
           "setup_unavailable",
-          "OpenMinion returned an unsupported credential binding.",
+          "OpenMinion returned an invalid credential binding.",
         );
-      const endpoint = match[3].match(/^ {2}Endpoint: (.+)$/m)?.[1] ?? "";
+      const baseUrl = provider.base_url === null ? "" : requireString(provider.base_url);
       return {
-        id: match[1],
-        label: match[2],
+        id: requireString(provider.id),
+        label: requireString(provider.label),
         credentialEnv,
-        requiresKey: Boolean(credentialEnv),
-        baseUrl: /^https?:\/\//.test(endpoint) ? endpoint : "",
-        model: match[3].match(/^ {2}Recommended models: ([^,\n]+)/m)?.[1] ?? "",
+        requiresKey: provider.requires_credential,
+        baseUrl,
+        model: requireArray(provider.recommended_models).map(requireString)[0] ?? "",
       };
     });
     if (!presets.length)
