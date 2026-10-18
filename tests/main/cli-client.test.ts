@@ -638,7 +638,7 @@ describe("PyPI CLI client", () => {
           applied_addition: { added_skill_id: "emergent.inventory", version_hash: "v1" },
         },
         guidance:
-          "Admit from the operator CLI: openminion skill admit --skill-id emergent.inventory --version-hash v1",
+          "Inspect the staged version from the operator CLI: openminion skill show emergent.inventory --version v1",
       },
     ];
     for (const item of cases) {

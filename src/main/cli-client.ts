@@ -759,7 +759,7 @@ export class CliClient {
             const skillId = requireString(addition.added_skill_id);
             const versionHash = requireString(addition.version_hash);
             lines.push(
-              `Admit from the operator CLI: openminion skill admit --skill-id ${skillId} --version-hash ${versionHash} --expected-active-version-hash none --target-status verified --reason "Reviewed and approved proposal"`,
+              `Inspect the staged version from the operator CLI: openminion skill show ${skillId} --version ${versionHash}`,
             );
           } else if (reviewStatus === "accepted") {
             lines.push(`Apply from the operator CLI: skillctl proposal-apply ${value.proposalId}`);
