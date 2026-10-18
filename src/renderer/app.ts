@@ -35,7 +35,7 @@ import type { CustomCommand } from "../shared/reports.js";
 import type { DelegationControlInput, ScheduleInput, TaskControlInput } from "../shared/tasks.js";
 import { renderMarkdown } from "./markdown.js";
 import { mountProfiles } from "./profiles.js";
-import { renderDelegation, renderTasks } from "./tasks.js";
+import { renderDelegation, renderTasks, schedulerReadinessText } from "./tasks.js";
 import { renderToolProfile } from "./tool-profile.js";
 
 declare global {
@@ -1784,11 +1784,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           ? "Tasks reported by OpenMinion for the current agent."
           : "No tasks found.",
         result.value.scheduler
-          ? `Scheduler: ${result.value.scheduler.state}. ${
-              result.value.scheduler.state === "ready"
-                ? "Scheduled work is ready to run."
-                : "Saved schedules remain manageable, but execution readiness is degraded."
-            }`
+          ? `Scheduler: ${result.value.scheduler.state}. ${schedulerReadinessText(
+              result.value.scheduler,
+            )}`
           : "",
         result.value.pendingActions.length
           ? `${result.value.pendingActions.length} pending approvals. Resolve them in Focus.`

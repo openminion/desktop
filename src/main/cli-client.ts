@@ -255,7 +255,7 @@ function taskScheduleInput(value: unknown): RuntimeTask["scheduleInput"] {
     if (!Number.isFinite(instant.getTime())) return null;
     const local = new Date(instant.getTime() - instant.getTimezoneOffset() * 60_000)
       .toISOString()
-      .slice(0, 16);
+      .slice(0, -1);
     return { kind, value: local, timezone: "UTC" };
   }
   if (kind === "every") {

@@ -23,7 +23,7 @@ import {
 } from "../../src/renderer/app.js";
 import { renderMarkdown } from "../../src/renderer/markdown.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
-import { renderTasks } from "../../src/renderer/tasks.js";
+import { renderTasks, schedulerReadinessText } from "../../src/renderer/tasks.js";
 import type {
   ApprovalDecisionV1,
   ApprovalEventV1,
@@ -5929,6 +5929,21 @@ describe("scheduled task parity", () => {
     expect(text).toContain("Schedule work");
   });
 
+  it("reports paused dispatch before daemon readiness", () => {
+    expect(
+      schedulerReadinessText({
+        state: "ready",
+        hostedBy: "daemon",
+        reason: null,
+        lastHeartbeatAt: "2026-10-18T12:00:00Z",
+        checkCommand: null,
+        paused: true,
+        updatedAt: "scheduler-revision-1",
+        updatedBy: "operator",
+      }),
+    ).toBe("Scheduled work is paused. Saved schedules will not dispatch until resumed.");
+  });
+
   it("renders exact operational controls, confirms history deletion, and opens run results", async () => {
     const page = new FixtureDocument();
     const container = page.createElement("div");
@@ -6143,6 +6158,7 @@ describe("scheduled task parity", () => {
   it("keeps conversation copy distinct from scheduled task copy", () => {
     const html = readFileSync(new URL("../../src/renderer/index.html", import.meta.url), "utf8");
     const app = readFileSync(new URL("../../src/renderer/app.ts", import.meta.url), "utf8");
+    const tasks = readFileSync(new URL("../../src/renderer/tasks.ts", import.meta.url), "utf8");
     for (const text of [
       "New task",
       "Search tasks",
@@ -6164,7 +6180,7 @@ describe("scheduled task parity", () => {
     expect(html).toContain("Search conversations");
     expect(html).toContain('aria-label="Conversations"');
     expect(html).toContain('aria-label="Conversation outputs"');
-    expect(`${html}\n${app}`).toContain("Scheduled work");
+    expect(`${html}\n${app}\n${tasks}`).toContain("Scheduled work");
   });
 });
 

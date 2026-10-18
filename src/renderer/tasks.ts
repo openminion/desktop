@@ -9,6 +9,17 @@ import type {
   TaskUpdateInput,
 } from "../shared/tasks.js";
 
+export function schedulerReadinessText(
+  scheduler: NonNullable<TaskControlValue["scheduler"]>,
+): string {
+  if (scheduler.paused) {
+    return "Scheduled work is paused. Saved schedules will not dispatch until resumed.";
+  }
+  return scheduler.state === "ready"
+    ? "Scheduled work is ready to run."
+    : "Saved schedules remain manageable, but execution readiness is degraded.";
+}
+
 export function renderDelegation(
   root: Document,
   container: HTMLElement,
@@ -326,9 +337,7 @@ export function renderTasks(
     readiness.className = "task-readiness";
     readiness.textContent = [
       `Scheduler: ${value.scheduler.state}`,
-      value.scheduler.state === "ready"
-        ? "Scheduled work is ready to run."
-        : "Saved schedules remain manageable, but execution readiness is degraded.",
+      schedulerReadinessText(value.scheduler),
       value.scheduler.reason && `Reason: ${value.scheduler.reason}`,
       value.scheduler.lastHeartbeatAt && `Last heartbeat: ${value.scheduler.lastHeartbeatAt}`,
       value.scheduler.paused !== null &&
@@ -556,6 +565,7 @@ export function renderTasks(
     "schedule-value",
   );
   timing.type = "datetime-local";
+  timing.step = "0.001";
   timing.required = true;
   const [timezone, timezoneLabel] = field(
     "Timezone for cron",
@@ -567,7 +577,7 @@ export function renderTasks(
   kind.addEventListener("change", () => {
     timing.type =
       kind.value === "at" ? "datetime-local" : kind.value === "every" ? "number" : "text";
-    timing.step = kind.value === "every" ? "any" : "";
+    timing.step = kind.value === "at" ? "0.001" : kind.value === "every" ? "any" : "";
     timing.min = kind.value === "every" ? String(10 / 60) : "";
     timing.value = "";
     timing.placeholder = kind.value === "every" ? "Minutes between runs" : "e.g. 0 9 * * 1-5";
@@ -714,7 +724,7 @@ function taskUpdateForm(
   const syncTiming = () => {
     timing.type =
       kind.value === "at" ? "datetime-local" : kind.value === "every" ? "number" : "text";
-    timing.step = kind.value === "every" ? "any" : "";
+    timing.step = kind.value === "at" ? "0.001" : kind.value === "every" ? "any" : "";
     timing.min = kind.value === "every" ? String(10 / 60) : "";
     timingCaption.textContent =
       kind.value === "at"

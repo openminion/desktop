@@ -1236,7 +1236,7 @@ describe("PyPI CLI client", () => {
     const created = await client.create({ agentId: "writer" });
     if (!created.ok) throw new Error("Draft not created");
     const sessionId = created.value.sessionId;
-    const at = "2030-01-01T09:00:00Z";
+    const at = "2030-01-01T09:00:30.125Z";
     const inventory = {
       exitCode: 0,
       stderr: "",
@@ -1260,7 +1260,7 @@ describe("PyPI CLI client", () => {
     if (!listed.ok) throw new Error("Task list failed");
     const schedule = listed.value.tasks[0]?.scheduleInput;
     expect(schedule?.kind).toBe("at");
-    expect(schedule?.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(schedule?.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$/);
     const submittedAt = new Date(schedule!.value).toISOString();
     expect(submittedAt).toBe(new Date(at).toISOString());
 
