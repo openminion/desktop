@@ -66,7 +66,7 @@ and should be treated as a scam.
 
 ## Install
 
-[Download the unsigned 0.0.1 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.2)
+[Download the unsigned 0.0.1 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.3)
 from the official runtime repository. The release includes checksums and a
 manifest identifying its exact source revision. Follow
 [download verification](SUPPORT.md#verify-a-development-download) before installing. Development packages can lag
