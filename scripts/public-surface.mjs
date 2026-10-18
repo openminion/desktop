@@ -100,7 +100,7 @@ for (const file of new Set(markdownFiles)) {
   ) {
     failures.push(`missing lifecycle metadata in public documentation: ${file}`);
   }
-  if (/\/Users\/|[A-Za-z]:\\\\Users\\\\/.test(content)) {
+  if (/\/Users\/|[A-Za-z]:\\+Users\\+/.test(content)) {
     failures.push(`machine-local path in public documentation: ${file}`);
   }
 
