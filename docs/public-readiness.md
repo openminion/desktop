@@ -1,7 +1,7 @@
 # OpenMinion Desktop Public Source Readiness
 
 Status: private preparation; visibility change not authorized
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 
 This checklist separates opening the source from shipping a certified Desktop
 release. OpenMinion CLI remains the execution owner. Public source does not
@@ -32,8 +32,8 @@ and dated evidence for each gate. Source validation alone cannot close them.
 
 | Gate | Acceptance | Current boundary |
 | --- | --- | --- |
-| Source and history disclosure | Scan heads, tags and historical PR heads, and inspect historical paths, assets, commit metadata and licenses; resolve findings before exposure | Gitleaks 8.30.1 scanned 224 reachable commits, including 62 PR heads, with zero secret findings on 2026-10-17; automated detection is not a privacy or rights signoff |
-| Hosted-content disclosure | Review retained Actions logs/artifacts, PR and issue bodies/comments, releases, wiki and attachments; redact or remove confidential material before visibility changes | Retained logs from 241 runs and 62 PR bodies/19 comments were scanned on 2026-10-17 with no secret findings; local paths in two PR descriptions were redacted. Contextual maintainer signoff remains required |
+| Source and history disclosure | Scan heads, tags and historical PR heads, and inspect historical paths, assets, commit metadata and licenses; resolve findings before exposure | On 2026-10-18, a fresh remote-only mirror contained 195 reachable commits and all 70 PR heads; Gitleaks 8.30.1 scanned 142 non-merge commits with zero secret findings. Automated detection is not a privacy or rights signoff |
+| Hosted-content disclosure | Review retained Actions logs/artifacts, PR and issue bodies/comments, releases, wiki and attachments; redact or remove confidential material before visibility changes | The 2026-10-18 inventory covers 262 runs and 70 PRs/19 comments. Current prose and all 20 new runs since the prior 242-run receipt passed secret scans; earlier retained-log evidence is preserved. No retained artifacts, releases, ordinary issues or enabled wiki/discussions were found. External image bytes and contextual maintainer approval remain outside the scan |
 | License and branding | Confirm authority to publish every source file and bundled asset, including historical versions; retain compatible notices | Apache-2.0, NOTICE and brand boundaries exist; asset origin does not itself establish publishing rights |
 | Dependency security | Record the full install/build audit, triage unresolved advisories and verify any upgrade with actual package builds | Forge 8.0.1 leaves four high audit reports in one DMG build chain; upstream resolution or explicit maintainer risk disposition remains open |
 | Reproducible contribution | Clean dependency install from the lockfile without private registry, Git credentials or sibling checkouts; both Quality jobs pass | Local and hosted evidence must identify the exact revision; public fork proof follows the switch |
@@ -44,10 +44,39 @@ and dated evidence for each gate. Source validation alone cannot close them.
 The remaining audit chain is `@electron-forge/maker-dmg` →
 `electron-installer-dmg` → `appdmg` → `image-size`. The
 [ICNS parsing advisory](https://github.com/advisories/GHSA-w3rx-r6r6-pgpr)
-can hang a build. The available fix is outside `appdmg`'s declared dependency
-range. Do not suppress the report or force an untested major override. A
+can hang a build. On 2026-10-18, the latest `appdmg` (0.6.6) still requires
+`image-size ^0.7.4`. Patched `image-size` 2.0.3 and 2.0.4 change both the export
+and file-reading API: an isolated check of the actual `appdmg` call against the
+Desktop icon succeeded with 0.7.5 and failed with both patched versions. A
+compatible upstream release or explicit maintainer disposition is required;
+forcing an override would break DMG packaging. Do not suppress the report. A
 production-only npm audit is not sufficient: install/build tools execute code,
 and this application bundles selected runtime modules from development dependencies.
+
+## Maintainer decisions
+
+Before source publication, record these decisions against the reviewed revision:
+
+- **Disclosure and rights:** approve publication of current and historical code,
+  contributor attribution, PR discussion and retained CI logs; confirm authority
+  to publish bundled artwork. The PNG retains documented OpenAI creation
+  provenance; the hash and origin in [assets](../assets/README.md) establish
+  identity, not publishing rights or contextual privacy approval.
+- **Build dependency:** resolve the DMG advisory above or explicitly accept its
+  disclosed build-tool limitation for source publication. This decision does not
+  certify a stable binary or dismiss dependency risks in general.
+- **Launch controls:** choose a plan upgrade or immediate protection setup at the
+  approved visibility switch. Verify private vulnerability reporting externally;
+  if unavailable, establish a concrete private contact route before launch.
+
+GitHub currently rejects protection readback for this private repository with a
+plan restriction, returns no usable private-reporting readback, and disallows
+public fork-approval configuration while private. These responses do not prove
+that the desired settings are effective. Keep the switch pending until the
+maintainer can perform and verify the sequence below. Ordinary PR workflows use
+read-only tokens. The separate canonical-main runtime qualification workflow
+creates evidence PRs, so disabling repository-wide PR creation would break that
+existing maintenance flow; verify untrusted-job permissions at their owner.
 
 ## Visibility switch and acceptance
 
