@@ -627,6 +627,8 @@ describe("renderer computer observation", () => {
     expect(html).toContain('id="identity-verify"');
     expect(html).toContain('id="identity-save"');
     expect(html).toContain('id="identity-preview"');
+    expect(html).toContain('aria-describedby="identity-status identity-issues"');
+    expect(html).toMatch(/id="identity-preview"[^>]*readonly/);
   });
 });
 

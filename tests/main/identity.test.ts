@@ -43,8 +43,15 @@ const profile = {
     purpose: "act",
     profile_version: "profile-v2",
     render_version: "render-v1",
+    budget: {
+      max_tokens: 180,
+      used_tokens: 42,
+      max_chars: 720,
+      used_chars: 168,
+    },
     included_fields: ["role.mission"],
-    omitted_fields: [],
+    omitted_fields: ["personality.formatting"],
+    warnings: ["non-critical fields omitted to fit budget"],
   },
 };
 
@@ -68,6 +75,12 @@ describe("identity settings service", () => {
       generatedFiles: ["AGENT.md"],
       sourceStatus: "drifted",
       verificationIssues: ["source drift"],
+      render: {
+        purpose: "act",
+        budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
+        omittedFields: ["personality.formatting"],
+        warnings: ["non-critical fields omitted to fit budget"],
+      },
     });
     expect(JSON.stringify(result)).not.toMatch(/source_path|\/private|secret/);
     expect(run.mock.calls[0][1]).toContain("inspect");
@@ -93,7 +106,41 @@ describe("identity settings service", () => {
     const result = await service.verify({ yaml: "agent_id: ops\n" }, "openminion");
 
     expect(result.validationOk).toBe(true);
+    expect(result.render).toMatchObject({
+      budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
+      warnings: ["non-critical fields omitted to fit budget"],
+    });
     expect(await readdir(join(root, "data", "desktop-drafts"))).toEqual([]);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["non-numeric", "180"],
+    ["zero", 0],
+  ])("rejects a %s required render budget", async (_label, maxTokens) => {
+    const { service, run } = await setup();
+    run.mockResolvedValue({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        profiles: [
+          {
+            ...profile,
+            render: {
+              ...profile.render,
+              budget: { ...profile.render.budget, max_tokens: maxTokens },
+            },
+          },
+        ],
+      }),
+      stderr: "",
+    });
+
+    await expect(service.read("openminion")).rejects.toMatchObject({
+      clientError: {
+        code: "invalid_daemon_response",
+        message: "Identity render budget is invalid.",
+      },
+    });
   });
 
   it("returns field-level validation issues without treating them as a bridge failure", async () => {
