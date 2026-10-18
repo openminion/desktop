@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -13,6 +13,37 @@ Desktop expects Node.js 24 and npm 11. Install the exact locked dependency set:
 ```bash
 npm ci
 ```
+
+## Focused Iteration
+
+Run commands from the repository root. While editing, run the closest existing
+suite; for example, renderer interaction tests:
+
+```bash
+npm test -- tests/renderer/app.test.ts
+npm run typecheck
+npm run lint
+```
+
+Choose tests for the changed boundary. A bridge change can require main, preload,
+and renderer coverage; a renderer test alone does not prove daemon behavior.
+Type checking and lint above still cover the configured project.
+
+If formatting fails, use the installed formatter on the files you changed:
+
+```bash
+npx --no-install biome format --write src/renderer/app.ts
+npm run format:check
+```
+
+Replace the example path with your changed source file. `npm run format` formats
+all supported files in the configured repository, so use it only when you own
+that scope. Review the diff after formatting and preserve unrelated edits.
+Formatting does not fix lint findings or format Markdown; address lint findings
+in the owning code and check documentation with `npm run public-surface-check`.
+
+Focused checks shorten the editing loop. They do not replace the normal package
+gate or the integration tier required by the changed behavior.
 
 ## Normal Package Gate
 
