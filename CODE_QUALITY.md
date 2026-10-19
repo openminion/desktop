@@ -45,14 +45,32 @@ Do not commit `node_modules/`, `dist/`, `out/`, captured media, credentials, or
 `.openminion` runtime state.
 
 Package only built runtime files, license notices, and runtime metadata. Never
-copy source, tests, hooks, CI, docs, development dependencies, credentials, or
-local state into the application archive.
+copy source, tests, hooks, CI, docs, dependency directories, credentials, or
+local state into the application archive. Selected runtime dependencies are
+bundled into the reviewed build output; their presence in `devDependencies`
+does not mean they are absent from the shipped JavaScript.
 
 ## 5. Keep changes focused
 
 Use one clear purpose per pull request, update tests next to the changed owner,
 and record unrelated cleanup separately. Do not turn a feature or fix into a
 broad structural rewrite.
+
+Before editing, inspect the working tree and identify the files you own. After
+editing, review that changed-file set for duplicate logic, unnecessary wrappers,
+unused paths, and documentation that depends on a contributor's local checkout.
+A bounded review is not a claim that the whole package has been cleaned.
+
+A broad cleanup needs a fresh file inventory and a disposition for every file
+in scope: keep, simplify, or defer with a reason and existing owner. Keep source,
+test, and script inventories separate, record validation, and refresh them if
+the checkout moves. Keep scratch inventories outside the tracked package.
+Small fixes do not need a new tracker; record their scope and proof in the PR.
+
+Prefer direct code and remove indirection only when it improves readability.
+Preserve authorization, typed boundaries, cancellation, timeouts, persistence,
+and accessibility contracts. Use the [focused validation loop](docs/testing-and-validation.md#focused-iteration),
+then run the applicable package and integration gates below.
 
 ## 6. Validate before calling work done
 
@@ -69,8 +87,9 @@ commands synchronized.
 
 GitHub Actions also lints its workflow definitions, validates new commit
 subjects, runs the normal package gate on Linux and macOS, and builds an
-unsigned macOS package. A manual `packages` run stages unsigned macOS, Windows,
-and Linux outputs in a private draft release for verification or transfer. The
+unsigned macOS package. A maintainer `packages` run on canonical `main` stages unsigned macOS, Windows,
+and Linux outputs in a draft release for verification or transfer. Reviewed
+unsigned development distribution follows [Releasing](RELEASING.md). The
 repository uses small Node-native hooks rather than adding a Python pre-commit
 runtime to this TypeScript application.
 

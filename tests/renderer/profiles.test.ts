@@ -7,12 +7,15 @@ function profilePage() {
   const nodes: Element[] = [];
   class Element {
     id = "";
+    tagName = "DIV";
     value = "";
     checked = false;
     disabled = false;
     hidden = false;
     open = false;
     textContent = "";
+    children: Element[] = [];
+    attributes = new Map<string, string>();
     focus = vi.fn();
     listeners = new Map<string, (event: unknown) => unknown>();
     addEventListener(name: string, listener: (event: unknown) => unknown) {
@@ -21,9 +24,20 @@ function profilePage() {
     dispatch(name: string) {
       return this.listeners.get(name)?.({ preventDefault: vi.fn() });
     }
-    append() {}
-    replaceChildren() {}
-    setAttribute() {}
+    append(...children: Element[]) {
+      this.children.push(...children);
+      if (this.tagName === "SELECT" && !this.value && children[0]) this.value = children[0].value;
+    }
+    replaceChildren(...children: Element[]) {
+      this.children = children;
+      this.textContent = children.map((child) => child.textContent).join(" ");
+      if (this.tagName === "SELECT") this.value = children[0]?.value ?? "";
+    }
+    setAttribute(name: string, value: string) {
+      this.attributes.set(name, value);
+    }
+    after() {}
+    before() {}
     showModal() {
       this.open = true;
     }
@@ -32,8 +46,9 @@ function profilePage() {
       this.dispatch("close");
     }
   }
-  const create = () => {
+  const create = (tagName = "div") => {
     const node = new Element();
+    node.tagName = tagName.toUpperCase();
     nodes.push(node);
     return node;
   };
@@ -42,13 +57,20 @@ function profilePage() {
     if (existing) return existing;
     const node = create();
     node.id = id;
+    if (["profile-agent", "identity-agent", "setup-provider"].includes(id)) {
+      node.tagName = "SELECT";
+    }
     return node;
   };
   const confirm = vi.fn(() => false);
   const root = {
     getElementById: get,
     createElement: create,
-    createTextNode: create,
+    createTextNode: (value: string) => {
+      const node = create();
+      node.textContent = value;
+      return node;
+    },
     querySelector: () => get("settings-body"),
     addEventListener: vi.fn(),
     activeElement: get("show-settings"),
@@ -85,12 +107,211 @@ function profilePage() {
       },
     ],
   }));
+  const identityProfile = {
+    agentId: "first",
+    displayName: "First",
+    source: "yaml",
+    editable: true,
+    readOnlyReason: null,
+    authoredYaml: "agent_id: first\nmission: Original\n",
+    profileRevision: 2,
+    profileVersion: "profile-v2",
+    sourceSha256: "source-v2",
+    validationOk: false,
+    sourceStatus: "drifted",
+    verificationIssues: ["source YAML does not match the stored profile"],
+    generatedStatus: "clean",
+    generatedFiles: ["AGENT.md", "SOUL.md"],
+    render: {
+      text: "Mission: Original",
+      purpose: "act",
+      profileVersion: "profile-v2",
+      renderVersion: "render-v1",
+      budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
+      includedFields: ["role.mission"],
+      omittedFields: ["personality.formatting"],
+      warnings: ["non-critical fields omitted to fit budget"],
+    },
+  };
+  const readIdentity = vi.fn(async () => ({
+    ok: true as const,
+    value: {
+      profiles: [
+        identityProfile,
+        {
+          ...identityProfile,
+          agentId: "second",
+          displayName: "Second",
+          source: "bundle",
+          editable: false,
+          readOnlyReason: "Bundle-managed identity is read-only.",
+          authoredYaml: null,
+          profileVersion: "profile-v3",
+          sourceSha256: null,
+          validationOk: true,
+          sourceStatus: "not_applicable",
+          verificationIssues: [],
+        },
+      ],
+    },
+  }));
+  const verifyIdentity = vi.fn<NativeApi["identity"]["verify"]>(async () => ({
+    ok: true as const,
+    value: {
+      agentId: "first",
+      validationOk: true,
+      issues: [],
+      render: { ...identityProfile.render, text: "Mission: Verified draft" },
+    },
+  }));
+  const saveIdentity = vi.fn(async () => ({
+    ok: true as const,
+    value: identityProfile,
+  }));
   const api = {
     profiles: { read: async () => ({ ok: true, value: settings }), save, setup, presets },
+    identity: {
+      read: readIdentity,
+      verify: verifyIdentity,
+      save: saveIdentity,
+      reload: vi.fn(),
+    },
   } as unknown as NativeApi;
   mountProfiles(api, root, vi.fn());
-  return { get, confirm, save, setup, presets };
+  return { get, confirm, save, setup, presets, readIdentity, verifyIdentity, saveIdentity };
 }
+
+describe("identity settings", () => {
+  it("shows health and render completeness without treating the preview as full YAML", async () => {
+    const page = profilePage();
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+
+    expect(page.get("identity-source").textContent).toBe("yaml");
+    expect(page.get("identity-source-status").textContent).toBe("drifted");
+    expect(page.get("identity-validation").textContent).toBe("Needs attention");
+    expect(page.get("identity-issues").textContent).toContain("source YAML does not match");
+    expect(page.get("identity-render-purpose").textContent).toBe("act");
+    expect(page.get("identity-render-budget").textContent).toBe("42/180 tokens");
+    expect(page.get("identity-render-omitted").textContent).toBe("personality.formatting");
+    expect(page.get("identity-render-warnings").textContent).toContain("non-critical fields");
+    expect(page.get("identity-reload").textContent).toBe("Discard draft and refresh source");
+    expect(page.get("identity-save").disabled).toBe(true);
+  });
+
+  it("invalidates verified output on edit and saves only changed non-blank YAML", async () => {
+    const page = profilePage();
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+    const yaml = page.get("identity-yaml");
+
+    yaml.value = `${yaml.value}tone: Precise\n`;
+    yaml.dispatch("input");
+    expect(page.get("identity-status").textContent).toBe("Unverified changes.");
+    expect(page.get("identity-preview").value).toContain("Preview is stale");
+    expect(page.get("identity-save").disabled).toBe(false);
+
+    await page.get("identity-verify").dispatch("click");
+    expect(page.verifyIdentity).toHaveBeenCalledOnce();
+    expect(page.get("identity-status").textContent).toBe("Draft is valid and renderable.");
+    expect(page.get("identity-preview").value).toContain("Verified draft");
+
+    yaml.value += "formatting: concise\n";
+    yaml.dispatch("input");
+    expect(page.get("identity-status").textContent).toBe("Unverified changes.");
+    expect(page.get("identity-preview").value).toContain("Preview is stale");
+
+    yaml.value = "   ";
+    yaml.dispatch("input");
+    expect(page.get("identity-save").disabled).toBe(true);
+    yaml.value = "agent_id: first\nmission: Original\n";
+    yaml.dispatch("input");
+    expect(page.get("identity-save").disabled).toBe(true);
+    expect(page.get("identity-preview").value).toBe("Mission: Original");
+  });
+
+  it("clears a prior successful preview when re-verification returns an error", async () => {
+    const page = profilePage();
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+    page.get("identity-yaml").value += "tone: Precise\n";
+    page.get("identity-yaml").dispatch("input");
+    await page.get("identity-verify").dispatch("click");
+    expect(page.get("identity-preview").value).toContain("Verified draft");
+
+    page.verifyIdentity.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: "identity_failed",
+        message: "Verification failed.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    });
+    await page.get("identity-verify").dispatch("click");
+
+    expect(page.get("identity-validation").textContent).toBe("Draft could not be verified");
+    expect(page.get("identity-issues").hidden).toBe(true);
+    expect(page.get("identity-preview").value).toBe("Draft could not be verified.");
+  });
+
+  it("clears a prior successful preview when re-verification throws", async () => {
+    const page = profilePage();
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+    page.get("identity-yaml").value += "tone: Precise\n";
+    page.get("identity-yaml").dispatch("input");
+    await page.get("identity-verify").dispatch("click");
+    expect(page.get("identity-preview").value).toContain("Verified draft");
+
+    page.verifyIdentity.mockRejectedValueOnce(new Error("offline"));
+    await page.get("identity-verify").dispatch("click");
+
+    expect(page.get("identity-validation").textContent).toBe("Draft could not be verified");
+    expect(page.get("identity-issues").hidden).toBe(true);
+    expect(page.get("identity-preview").value).toBe("Draft could not be verified.");
+  });
+
+  it("shows every issue returned for a verified draft", async () => {
+    const page = profilePage();
+    page.verifyIdentity.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        agentId: "first",
+        validationOk: false,
+        issues: ["mission is required", "risk level is invalid"],
+        render: null,
+      },
+    });
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+    page.get("identity-yaml").value += "risk: invalid\n";
+    page.get("identity-yaml").dispatch("input");
+
+    await page.get("identity-verify").dispatch("click");
+
+    expect(page.get("identity-issues").textContent).toContain("mission is required");
+    expect(page.get("identity-issues").textContent).toContain("risk level is invalid");
+  });
+
+  it("clears prior draft feedback when switching to a read-only profile", async () => {
+    const page = profilePage();
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+    page.get("identity-yaml").value += "tone: Precise\n";
+    page.get("identity-yaml").dispatch("input");
+
+    page.get("identity-agent").value = "second";
+    page.get("identity-agent").dispatch("change");
+
+    expect(page.get("identity-status").textContent).toBe("");
+    expect(page.get("identity-editability").textContent).toBe(
+      "Bundle-managed identity is read-only.",
+    );
+    expect(page.get("identity-yaml").disabled).toBe(true);
+    expect(page.get("identity-save").disabled).toBe(true);
+  });
+});
 
 describe("profile agent switching", () => {
   it.each([

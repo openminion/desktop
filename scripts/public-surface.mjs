@@ -8,6 +8,9 @@ const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageMetadata = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
 const requiredFiles = [
   ".github/dependabot.yml",
+  ".github/ISSUE_TEMPLATE/bug-report.md",
+  ".github/ISSUE_TEMPLATE/feature-request.md",
+  ".github/ISSUE_TEMPLATE/config.yml",
   ".github/pull_request_template.md",
   ".github/workflows/ci.yml",
   ".githooks/commit-msg",
@@ -33,6 +36,7 @@ const requiredFiles = [
   "docs/code-quality-enforcement.md",
   "docs/engineering-patterns.md",
   "docs/getting-started.md",
+  "docs/public-readiness.md",
   "docs/source-tree-owner-map.md",
   "docs/testing-and-validation.md",
 ];
@@ -96,7 +100,7 @@ for (const file of new Set(markdownFiles)) {
   ) {
     failures.push(`missing lifecycle metadata in public documentation: ${file}`);
   }
-  if (/\/Users\/|[A-Za-z]:\\\\Users\\\\/.test(content)) {
+  if (/\/Users\/|[A-Za-z]:\\+Users\\+/.test(content)) {
     failures.push(`machine-local path in public documentation: ${file}`);
   }
 

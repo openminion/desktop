@@ -348,8 +348,10 @@ const api: NativeApi = {
               purpose: "act",
               profileVersion: "sample-profile-version",
               renderVersion: "sample-render-version",
+              budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
               includedFields: ["role.mission"],
               omittedFields: [],
+              warnings: [],
             },
           },
         ],
@@ -364,8 +366,10 @@ const api: NativeApi = {
           purpose: "act",
           profileVersion: "sample-profile-version",
           renderVersion: "sample-render-version",
+          budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
           includedFields: ["role.mission"],
           omittedFields: [],
+          warnings: [],
         },
       }),
     save: async () => {
@@ -433,6 +437,41 @@ const api: NativeApi = {
   turns: {
     reconnect: async ({ sessionId, traceId }) =>
       ok({ sessionId, traceId, requestId: "preview-request" }),
+    listQueue: async () => ok([]),
+    enqueue: async ({ sessionId, agentId, text }) =>
+      ok({
+        queueId: id(),
+        sessionId,
+        agentId,
+        text,
+        status: "queued",
+        statusVersion: 1,
+        createdAt: now(),
+        traceId: null,
+      }),
+    drop: async ({ sessionId, queueId }) =>
+      ok({
+        queueId,
+        sessionId,
+        agentId: "preview-agent",
+        text: "Preview queued prompt",
+        status: "dropped",
+        statusVersion: 2,
+        createdAt: now(),
+        traceId: null,
+      }),
+    move: async ({ sessionId, queueId }) =>
+      ok({
+        queueId,
+        sessionId,
+        agentId: "preview-agent",
+        text: "Preview queued prompt",
+        status: "queued",
+        statusVersion: 2,
+        createdAt: now(),
+        traceId: null,
+      }),
+    cancelAndRunNext: async ({ sessionId }) => ok({ sessionId, traceId: id(), requestId: id() }),
     subscribe: (listener) => {
       turnListener = listener;
       return () => {

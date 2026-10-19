@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-10-03
+Last updated: 2026-10-17
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -50,7 +50,9 @@ Text turns use authenticated loopback `POST /v1/turn/stream`; cancellation uses
 `POST /v1/turn/{trace_id}/cancel`. Executable paths, config, and IPC tokens remain
 main-only. Prompts are HTTP request bodies and never process arguments.
 
-A new task is an in-memory draft until the first canonical turn creates it.
+A new conversation is a persisted local draft until the first canonical turn
+creates its runtime session. Unsent text and local draft identities live in
+Desktop SQLite; the runtime remains authoritative for saved messages.
 Desktop maps CLI transcript inbound/outbound roles to user/assistant display
 roles and recovers history from OpenMinion. Session agent selection is preserved
 when sending a follow-up. Like Focus, Desktop supplies `caller_handles_delivery`
@@ -63,7 +65,9 @@ Approval decisions use the
 authenticated local approval-resume operation and negotiated turn stream.
 Desktop can allow once or deny the exact pending request; policy and grant
 ownership remain in OpenMinion. Media, artifacts,
-full Focus commands, and active-turn reattachment remain incomplete. They must
+full Focus commands, and active-turn discovery after restart remain incomplete.
+Within the same app process, explicit reconnection can reattach a known trace
+without resending the prompt. Further integration must
 use existing public interfaces without restoring Desktop-only code in the
 OpenMinion package. The live supervisor uses the CLI-backed client exclusively.
 
@@ -101,8 +105,9 @@ The narrow `runtime.control` bridge accepts PyPI/native source selection,
 pause/resume, discard, installed-pin, remove-pin and exact stable-version pin
 actions. Main resolves record/artifact
 identities; renderer-provided URLs, paths, hashes and commands are rejected.
-Policy persists in Desktop's SQLite schema three; older clients must refuse
-that schema instead of silently ignoring a hold. Preparation and startup
+Runtime policy was introduced in SQLite schema three; the current schema is
+six. Older clients must refuse an unsupported schema instead of silently
+ignoring a hold. Preparation and startup
 activation both enforce pause and exact identity. Recovery-required state is
 not cleared by policy controls, and no action forces a downgrade or live restart.
 
@@ -123,7 +128,9 @@ SQLite records launch intent before candidate execution against live data.
 Failed/interrupted launch leaves a recovery marker instead of an automatic
 older-runtime restart. Developer executable overrides are unmanaged.
 
-Publication and compatibility certification remain pending. Missing feeds fail
+Runtime artifacts are published separately; publication alone does not qualify
+them for Desktop updates. Compatible-feed acceptance remains a separate gate.
+Missing feeds fail
 as update checks without changing the installed pin. Selecting the native source
 does not install or relabel the active runtime, and an empty binary feed offers
 no update; only centrally verified, promoted records with explicit Desktop
