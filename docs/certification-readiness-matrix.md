@@ -12,7 +12,7 @@ application.
 | --- | --- | --- |
 | Provider-free code quality | format, lint, type, public-surface, tests, and build | ready for pull-request use |
 | Public repository surface | required-file, local-link, portable-path, heading, lifecycle-metadata, and documented-command validation | aligned and enforced |
-| GitHub Actions definitions | actionlint plus successful hosted execution | aligned and enforced |
+| GitHub Actions definitions | actionlint and earlier successful hosted execution; current runs are blocked before steps execute by the Actions budget | fresh hosted proof required for each PR; see [public-source gates](public-readiness.md) |
 | Development dependency audit | Forge 8.0.1 reduces 37 findings to 4 high reports in one DMG build chain (`appdmg` → `image-size`) | upstream fix/disposition required; not a clean full audit |
 | Linux source compatibility | provider-free CI | supported as a CI host, not a packaged product |
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |

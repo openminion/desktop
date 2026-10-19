@@ -51,6 +51,30 @@ these identify the Desktop build even when the app cannot start. Its
 include `git rev-parse HEAD` and the version in `package.json`.
 Do not substitute an unrelated system-wide CLI version for Desktop's managed runtime.
 
+## Choose a development download
+
+The [current development release](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.3)
+contains these packages. Choose by operating system and processor, not just by
+the `0.0.1` application version; the release tag identifies the particular build.
+
+| Computer | Package | Current acceptance |
+| --- | --- | --- |
+| Mac with Apple Silicon | `OpenMinion-0.0.1-arm64.dmg` | Unsigned, not notarized; macOS development acceptance only |
+| Windows with an x64 processor | `OpenMinion-win32-x64-0.0.1.zip` | Development package; runtime certification pending |
+| Debian-based Linux on x64 | `openminion-desktop_0.0.1_amd64.deb` | Development package; runtime certification pending |
+| Linux on x64, ZIP distribution | `OpenMinion-linux-x64-0.0.1.zip` | Development package; runtime certification pending |
+
+An Apple Silicon ZIP (`OpenMinion-darwin-arm64-0.0.1.zip`) is also available.
+This release has no Intel Mac, Windows ARM, or Linux ARM package. Building from
+source does not establish support for those platforms.
+
+Verify the download below before opening it. On macOS, open the DMG and copy
+**OpenMinion.app** into **Applications**, then open that copy. For a ZIP, extract
+the entire archive before launching the app; keep its accompanying files
+together. Install a DEB with your distribution's package installer. An operating
+system may block these unsigned builds; they are not a signed stable installer.
+Follow [First Launch](README.md#first-launch) once the application opens.
+
 ## Verify a development download
 
 Download the package for your platform and `SHA256SUMS` from the same official

@@ -8,9 +8,10 @@ settings, and everyday Desktop workflows.
 
 ## Requirements
 
-For a downloaded development app, use macOS with Python 3.11 and network access
-for the first managed-runtime installation. Node.js and npm are not needed.
-Start with [Download and verification](../SUPPORT.md#verify-a-development-download),
+For the current macOS development download, use a Mac with Apple Silicon,
+Python 3.11, and network access for the first managed-runtime installation.
+Node.js and npm are not needed.
+Start with [Package selection and installation](../SUPPORT.md#choose-a-development-download),
 then follow [First Run](#first-run).
 
 To run or contribute from source, also install Node.js 24 and npm 11. The
