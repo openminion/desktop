@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
+import { identitySourceLabel, identityStatusLabel } from "../../src/renderer/identity.js";
 import { mountProfiles } from "../../src/renderer/profiles.js";
 import type { NativeApi } from "../../src/shared/contracts.js";
+import type { IdentityProfileView } from "../../src/shared/identity.js";
 import type { ProfileSettings } from "../../src/shared/profiles.js";
 
-function profilePage() {
+function profilePage(
+  defaultAgent = "first",
+  readProfiles?: (settings: ProfileSettings) => Promise<{ ok: true; value: ProfileSettings }>,
+) {
   const nodes: Element[] = [];
   class Element {
     id = "";
@@ -79,7 +84,7 @@ function profilePage() {
   const settings: ProfileSettings = {
     setupRequired: false,
     revision: "revision",
-    defaultAgent: "first",
+    defaultAgent,
     agents: ["first", "second"].map((id) => ({
       id,
       name: id,
@@ -107,7 +112,10 @@ function profilePage() {
       },
     ],
   }));
-  const identityProfile = {
+  const readProfileSettings = vi.fn(() =>
+    readProfiles ? readProfiles(settings) : Promise.resolve({ ok: true as const, value: settings }),
+  );
+  const identityProfile: IdentityProfileView = {
     agentId: "first",
     displayName: "First",
     source: "yaml",
@@ -118,10 +126,14 @@ function profilePage() {
     profileVersion: "profile-v2",
     sourceSha256: "source-v2",
     validationOk: false,
+    validationErrors: ["role.mission: Field required"],
+    validationWarnings: ["responsibilities work best with three to seven entries"],
+    verificationOk: false,
     sourceStatus: "drifted",
     verificationIssues: ["source YAML does not match the stored profile"],
     generatedStatus: "clean",
     generatedFiles: ["AGENT.md", "SOUL.md"],
+    generatedDriftedFiles: ["AGENT.md"],
     render: {
       text: "Mission: Original",
       purpose: "act",
@@ -149,8 +161,12 @@ function profilePage() {
           profileVersion: "profile-v3",
           sourceSha256: null,
           validationOk: true,
+          validationErrors: [],
+          validationWarnings: [],
+          verificationOk: true,
           sourceStatus: "not_applicable",
           verificationIssues: [],
+          generatedDriftedFiles: [],
         },
       ],
     },
@@ -161,15 +177,16 @@ function profilePage() {
       agentId: "first",
       validationOk: true,
       issues: [],
+      warnings: [],
       render: { ...identityProfile.render, text: "Mission: Verified draft" },
     },
   }));
-  const saveIdentity = vi.fn(async () => ({
+  const saveIdentity = vi.fn<NativeApi["identity"]["save"]>(async () => ({
     ok: true as const,
     value: identityProfile,
   }));
   const api = {
-    profiles: { read: async () => ({ ok: true, value: settings }), save, setup, presets },
+    profiles: { read: readProfileSettings, save, setup, presets },
     identity: {
       read: readIdentity,
       verify: verifyIdentity,
@@ -178,19 +195,42 @@ function profilePage() {
     },
   } as unknown as NativeApi;
   mountProfiles(api, root, vi.fn());
-  return { get, confirm, save, setup, presets, readIdentity, verifyIdentity, saveIdentity };
+  return {
+    get,
+    confirm,
+    save,
+    setup,
+    presets,
+    readProfileSettings,
+    readIdentity,
+    verifyIdentity,
+    saveIdentity,
+  };
 }
 
 describe("identity settings", () => {
+  it("humanizes known identity facts and preserves unknown future values", () => {
+    expect(identitySourceLabel("yaml")).toBe("Direct YAML");
+    expect(identityStatusLabel("not_applicable")).toBe("Not applicable");
+    expect(identitySourceLabel("future_source")).toBe("Unknown");
+    expect(identityStatusLabel("future_status")).toBe("Unknown");
+  });
+
   it("shows health and render completeness without treating the preview as full YAML", async () => {
     const page = profilePage();
     page.get("settings-identity-button").dispatch("click");
     await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
 
-    expect(page.get("identity-source").textContent).toBe("yaml");
-    expect(page.get("identity-source-status").textContent).toBe("drifted");
+    expect(page.get("identity-source").textContent).toBe("Direct YAML");
+    expect(page.get("identity-source-status").textContent).toBe("Changed");
+    expect(page.get("identity-sidecars").textContent).toBe("In sync");
     expect(page.get("identity-validation").textContent).toBe("Needs attention");
-    expect(page.get("identity-issues").textContent).toContain("source YAML does not match");
+    expect(page.get("identity-verification").textContent).toBe("Needs attention");
+    expect(page.get("identity-generated-drift").textContent).toBe("AGENT.md");
+    expect(page.get("identity-issues").textContent).toContain("Validation: role.mission");
+    expect(page.get("identity-issues").textContent).toContain("Verification: source YAML");
+    expect(page.get("identity-generated-note").textContent).toContain("read-only view");
+    expect(page.get("identity-warnings").textContent).toContain("three to seven entries");
     expect(page.get("identity-render-purpose").textContent).toBe("act");
     expect(page.get("identity-render-budget").textContent).toBe("42/180 tokens");
     expect(page.get("identity-render-omitted").textContent).toBe("personality.formatting");
@@ -198,6 +238,116 @@ describe("identity settings", () => {
     expect(page.get("identity-reload").textContent).toBe("Discard draft and refresh source");
     expect(page.get("identity-save").disabled).toBe(true);
   });
+
+  it("selects and labels the default agent without replacing an explicit selection", async () => {
+    const page = profilePage("second");
+    await page.get("show-settings").dispatch("click");
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("second"));
+    expect(page.get("identity-agent").children[1]?.textContent).toContain("default");
+
+    page.get("identity-agent").value = "first";
+    page.get("identity-agent").dispatch("change");
+    await page.get("settings-identity-button").dispatch("click");
+
+    expect(page.get("identity-agent").value).toBe("first");
+  });
+
+  it("loads identity after profile settings resolve when Identity is selected early", async () => {
+    let resolveProfiles!: (value: { ok: true; value: ProfileSettings }) => void;
+    const page = profilePage(
+      "second",
+      () =>
+        new Promise((resolve) => {
+          resolveProfiles = resolve;
+        }),
+    );
+
+    page.get("show-settings").dispatch("click");
+    page.get("settings-identity-button").dispatch("click");
+    expect(page.readIdentity).not.toHaveBeenCalled();
+
+    resolveProfiles({
+      ok: true,
+      value: {
+        setupRequired: false,
+        revision: "revision",
+        defaultAgent: "second",
+        agents: ["first", "second"].map((id) => ({
+          id,
+          name: id,
+          provider: "openai",
+          model: `${id}-model`,
+          baseUrl: "https://example.com/v1",
+          keyConfigured: true,
+        })),
+        credentials: [],
+      },
+    });
+
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("second"));
+    expect(page.readIdentity).toHaveBeenCalledOnce();
+  });
+
+  it("loads identity after an initial profile settings failure settles", async () => {
+    const page = profilePage("second", async () => {
+      throw new Error("profiles unavailable");
+    });
+
+    page.get("show-settings").dispatch("click");
+    page.get("settings-identity-button").dispatch("click");
+
+    await vi.waitFor(() => expect(page.readIdentity).toHaveBeenCalledOnce());
+    expect(page.get("identity-agent").value).toBe("first");
+  });
+
+  it("does not block identity loading on a later profile save", async () => {
+    const page = profilePage();
+    page.get("show-settings").dispatch("click");
+    await vi.waitFor(() => expect(page.readProfileSettings).toHaveBeenCalledOnce());
+    page.save.mockReturnValueOnce(new Promise(() => {}));
+    page.get("profile-model").value = "changed-model";
+    page.get("profile-form").dispatch("submit");
+
+    page.get("settings-identity-button").dispatch("click");
+
+    await vi.waitFor(() => expect(page.readIdentity).toHaveBeenCalledOnce());
+  });
+
+  it.each(["rejected", "unavailable"])(
+    "preserves the draft and gives non-destructive guidance when save is %s",
+    async (failure) => {
+      const page = profilePage();
+      page.get("settings-identity-button").dispatch("click");
+      await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+      const yaml = page.get("identity-yaml");
+      yaml.value += "tone: Precise\n";
+      yaml.dispatch("input");
+      const draft = yaml.value;
+      if (failure === "rejected") {
+        page.saveIdentity.mockResolvedValueOnce({
+          ok: false,
+          error: {
+            code: "stale_identity",
+            message: "Identity changed on disk.",
+            retryable: false,
+            retryAfterMs: null,
+          },
+        });
+      } else {
+        page.saveIdentity.mockRejectedValueOnce(new Error("offline"));
+      }
+
+      await page.get("identity-save").dispatch("click");
+
+      expect(yaml.value).toBe(draft);
+      expect(page.get("identity-status").textContent).toContain("Your draft is still here");
+      if (failure === "rejected")
+        expect(page.get("identity-status").textContent).not.toContain("Retry");
+      else expect(page.get("identity-status").textContent).toContain("Retry");
+      expect(page.get("identity-status").textContent).not.toContain("Reload Settings");
+    },
+  );
 
   it("invalidates verified output on edit and saves only changed non-blank YAML", async () => {
     const page = profilePage();
@@ -280,6 +430,7 @@ describe("identity settings", () => {
         agentId: "first",
         validationOk: false,
         issues: ["mission is required", "risk level is invalid"],
+        warnings: [],
         render: null,
       },
     });
@@ -292,6 +443,30 @@ describe("identity settings", () => {
 
     expect(page.get("identity-issues").textContent).toContain("mission is required");
     expect(page.get("identity-issues").textContent).toContain("risk level is invalid");
+  });
+
+  it("keeps valid draft warnings separate from errors", async () => {
+    const page = profilePage();
+    page.verifyIdentity.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        agentId: "first",
+        validationOk: true,
+        issues: [],
+        warnings: ["responsibilities work best with three to seven entries"],
+        render: null,
+      },
+    });
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+    page.get("identity-yaml").value += "tone: Precise\n";
+    page.get("identity-yaml").dispatch("input");
+
+    await page.get("identity-verify").dispatch("click");
+
+    expect(page.get("identity-validation").textContent).toBe("Draft valid with warnings");
+    expect(page.get("identity-issues").hidden).toBe(true);
+    expect(page.get("identity-warnings").textContent).toContain("three to seven entries");
   });
 
   it("clears prior draft feedback when switching to a read-only profile", async () => {
@@ -310,6 +485,43 @@ describe("identity settings", () => {
     );
     expect(page.get("identity-yaml").disabled).toBe(true);
     expect(page.get("identity-save").disabled).toBe(true);
+    expect(page.get("identity-generated-note").textContent).toContain(
+      "Bundle Markdown is authoritative",
+    );
+
+    page.get("identity-agent").value = "first";
+    page.get("identity-agent").dispatch("change");
+    expect(page.get("identity-validation").textContent).toBe("Unverified draft");
+    expect(page.get("identity-warnings").hidden).toBe(true);
+  });
+
+  it.each([
+    ["missing", "not_applicable", "missing", "authoritative YAML source is missing"],
+    ["external", "not_applicable", "clean", "External YAML is authoritative"],
+    ["inherited", "clean", "clean", "Inherited YAML is read-only"],
+  ])("shows truthful %s YAML guidance", async (_kind, generatedStatus, sourceStatus, expected) => {
+    const page = profilePage();
+    const initial = await page.readIdentity();
+    if (!initial.ok) throw new Error("expected identity fixture");
+    page.readIdentity.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        profiles: [
+          {
+            ...initial.value.profiles[0],
+            editable: false,
+            readOnlyReason: "YAML profile is read-only.",
+            generatedStatus,
+            sourceStatus,
+          },
+        ],
+      },
+    });
+
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+
+    expect(page.get("identity-generated-note").textContent).toContain(expected);
   });
 });
 

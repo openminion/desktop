@@ -631,7 +631,7 @@ describe("renderer computer observation", () => {
     expect(html).toContain('id="identity-verify"');
     expect(html).toContain('id="identity-save"');
     expect(html).toContain('id="identity-preview"');
-    expect(html).toContain('aria-describedby="identity-status identity-issues"');
+    expect(html).toContain('aria-describedby="identity-status identity-issues identity-warnings"');
     expect(html).toMatch(/id="identity-preview"[^>]*readonly/);
   });
 });
@@ -2221,17 +2221,23 @@ describe("renderer status view", () => {
             profileVersion: "profile-v2",
             sourceSha256: "source-v2",
             validationOk: true,
+            validationErrors: ["role.mission: stored validation error"],
+            validationWarnings: ["responsibilities are sparse"],
+            verificationOk: false,
             sourceStatus: "clean",
             verificationIssues: [],
             generatedStatus: "clean",
             generatedFiles: ["AGENT.md"],
+            generatedDriftedFiles: ["AGENT.md"],
             render: {
               text: "Mission: Write clearly.",
               purpose: "act",
               profileVersion: "profile-v2",
               renderVersion: "render-v1",
+              budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
               includedFields: ["role.mission"],
-              omittedFields: [],
+              omittedFields: ["personality.formatting"],
+              warnings: ["non-critical fields omitted to fit budget"],
             },
           },
         ],
@@ -2342,7 +2348,35 @@ describe("renderer status view", () => {
         expect(page.element("command-title").textContent).toBe("Identity verification"),
       );
       expect(page.element("command-result").children[0]?.textContent).toContain(
-        "Verification: valid",
+        "Validation: valid",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Verification: needs attention",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Generated files: AGENT.md",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Generated file drift: AGENT.md",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Source: Direct YAML",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain("Purpose: act");
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Render budget: 42/180 tokens",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Omitted fields: personality.formatting",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Validation warning: responsibilities are sparse",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Validation error: role.mission: stored validation error",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Render warning: non-critical fields omitted to fit budget",
       );
       page.element("composer").value = "/identity reload";
       page.element("composer").dispatch("keydown", { key: "Enter" });
