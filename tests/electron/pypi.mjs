@@ -397,18 +397,20 @@ async function check() {
     ];
     let exposure;
     let priorExposure = "";
+    let stableExposureSamples = 0;
     let exposureStable = false;
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const exposureStatus = await runCommand(executable, exposureArgs, 30_000);
       assert.equal(exposureStatus.exitCode, 0, exposureStatus.stderr);
       exposure = JSON.parse(exposureStatus.stdout).exposure;
       const currentExposure = JSON.stringify(exposure);
-      if (currentExposure === priorExposure) {
+      stableExposureSamples = currentExposure === priorExposure ? stableExposureSamples + 1 : 1;
+      if (stableExposureSamples === 3) {
         exposureStable = true;
         break;
       }
       priorExposure = currentExposure;
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
     assert.ok(exposure, "Daemon tool exposure is available");
     assert.ok(exposureStable, "Daemon tool exposure settles before Desktop parity comparison");
@@ -425,7 +427,10 @@ async function check() {
       assert.ok(row, `Daemon profile ${profile.profile_id} appears in Desktop`);
       assert.ok(row.includes(profile.active ? "active" : "hidden"));
       assert.ok(row.includes(profile.tier));
-      assert.ok(row.includes(profile.dependency_readiness));
+      assert.ok(
+        row.includes(profile.dependency_readiness),
+        `${profile.profile_id}: daemon readiness ${profile.dependency_readiness}; Desktop row ${row}`,
+      );
       for (const dependency of profile.dependency_statuses)
         assert.ok(
           exposureText.includes(`${dependency.dependency_id}: ${dependency.state}`),
