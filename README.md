@@ -230,7 +230,7 @@ owners for changes.
 - [API Compatibility](API_COMPATIBILITY.md): application/runtime contracts
 - [Changelog](CHANGELOG.md): versioned changes
 - [Releasing](RELEASING.md): unsigned builds, versioning, and stable release gates
-- [Public Source Readiness](docs/public-readiness.md): remaining source-publication decisions
+- [Public Source Readiness](docs/public-readiness.md): public launch evidence and remaining acceptance
 
 ## License and Brand-use Boundary
 

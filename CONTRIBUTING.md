@@ -108,7 +108,10 @@ Validation
    any other configured checks to pass. Record skipped or external evidence
    honestly; a green provider-free check does not prove live provider behavior.
 5. After merge, verify the delivered commit is in upstream `dev`, then remove
-   the feature branch and its worktree.
+   the feature branch and its worktree. Upstream automatically deletes merged
+   feature branches; check your fork separately and run `git fetch --prune` to
+   remove stale remote-tracking entries. Keep the protected `main` and `dev`
+   branches.
 
 Normal feature PRs do not target `main`. Maintainers promote reviewed `dev` to
 `main` through [Releasing](RELEASING.md); runtime-certification evidence follows

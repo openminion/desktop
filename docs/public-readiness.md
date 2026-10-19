@@ -38,8 +38,8 @@ exact revisions and dated evidence rather than inferring acceptance from access.
 | Hosted-content disclosure | Review retained Actions logs/artifacts, PR and issue bodies/comments, releases, wiki and attachments; redact or remove confidential material before visibility changes | The 2026-10-18 expanded inventory covers 267 runs, 914 nonempty log files, 73 PRs, 19 comments and 65 retained description revisions. Secret scans passed, but two old PR description revisions still disclose personal paths. Current bodies are clean; remove only the affected revisions; this cleanup remains open after publication. External image bytes and contextual maintainer approval remain outside the scan |
 | License and branding | Confirm authority to publish every source file and bundled asset, including historical versions; retain compatible notices | Apache-2.0, NOTICE and brand boundaries exist; packaging requires both license notices in the application archive. Asset origin does not itself establish publishing rights |
 | Dependency security | Record the full install/build audit, triage unresolved advisories and verify any upgrade with actual package builds | Forge 8.0.1 leaves four high audit reports in one DMG build chain; upstream resolution or explicit maintainer risk disposition remains open |
-| Reproducible contribution | Clean dependency install from the lockfile without private registry, Git credentials or sibling checkouts; both Quality jobs pass | Both Quality jobs passed at `dd3e793` after the switch in [CI attempt 2](https://github.com/openminion/desktop/actions/runs/39235407184/attempts/2). The runner-budget blocker is cleared. An unauthenticated clone of public `main` (`71fc075`) passed `npm ci` and `npm run ci-check`: 411 tests passed, three opt-in tests skipped. This is the older default-branch snapshot, not the pending promotion or paid-provider evidence |
-| Merge controls | Require current Quality checks, up-to-date branches, reviewed promotion, and no force push/deletion on `main`; verify effective settings | API readback on 2026-10-19 confirms both Quality checks, strict freshness, administrator enforcement, and no force push/deletion on `dev` and `main`. Both require a PR. Like CLI, no additional GitHub approval count is imposed |
+| Reproducible contribution | Clean dependency install from the lockfile without private registry, Git credentials or sibling checkouts; both Quality jobs pass | Anonymous public `main` at `7c6ec5b` passed a clean `npm ci` and `npm run ci-check`: 470 tests passed, three opt-in tests skipped. Both Quality jobs passed in [post-merge CI](https://github.com/openminion/desktop/actions/runs/39252639725). The runner-budget blocker is cleared. Initial public-default evidence and promotion revisions are preserved below; paid-provider acceptance is separate |
+| Merge controls | Require current Quality checks, up-to-date branches, reviewed promotion, and no force push/deletion on `main`; verify effective settings | API readback on 2026-10-19 confirms both Quality checks, strict freshness, administrator enforcement, and no force push/deletion on `dev` and `main`. Both require a PR. Like CLI, no additional GitHub approval count is imposed. Only `main` and `dev` remain on the upstream remote; merged feature branches are automatically deleted |
 | Private security reports | Publish a private reporting destination; enable and externally verify GitHub private vulnerability reporting at launch | The maintainer selected `hello@openminion.com` for security fallback and conduct reports on 2026-10-19; both policies name it. GitHub API readback reports reporting enabled. The signed-out Security page shows Report a vulnerability, which reaches GitHub sign-in for the private advisory route; authenticated report submission has not been tested |
 | Public fork policy | Require approval for first-time outside workflows; keep fork PR tokens read-only and secrets unavailable | API readback confirms `first_time_contributors` approval and default read-only workflow permissions. Quality jobs declare `contents: read`; [fork PR #82](https://github.com/openminion/desktop/pull/82) passed both Quality jobs at `4ea5d19` in [CI](https://github.com/openminion/desktop/actions/runs/39249955318). This maintainer-owned fork does not establish first-time outsider approval behavior |
 
@@ -83,14 +83,42 @@ qualification workflow creates evidence PRs, so repository-wide PR creation
 remains enabled for that existing maintenance flow. Untrusted Quality jobs have
 no publishing permissions or provider-secret dependency.
 
-## Visibility switch and acceptance
+## Completed launch evidence
 
-Only an explicit maintainer decision authorizes making the repository public.
+The visibility switch was authorized separately from binary publication.
 GitHub documents that [changing visibility](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/setting-repository-visibility)
-can expose Actions history and logs. A secret scan of Git cannot substitute for
-reviewing that hosted content.
+can expose Actions history and logs. A Git secret scan does not cover that hosted
+content; the disclosure items above remain independently tracked.
 
-After the 2026-10-19 switch:
+The initial anonymous checkout at `71fc075` passed 411 tests with three opt-in
+skips and reported 37 dependency findings. The first public hosted Quality pass
+at `dd3e793` is recorded in [CI attempt 2](https://github.com/openminion/desktop/actions/runs/39235407184/attempts/2).
+Subsequent delivery is complete:
+
+- [PR #83](https://github.com/openminion/desktop/pull/83) promoted the public
+  closeout to `main` at `f7ec39f57143867e323edd88b1b6f18e32515781`.
+- [PR #88](https://github.com/openminion/desktop/pull/88) integrated the four
+  dependency updates into `dev`; [PR #89](https://github.com/openminion/desktop/pull/89)
+  promoted them to `main` at `7c6ec5bf5d739ebea623f565984571d19d8bfbef`.
+- An anonymous fetch of that final revision and a clean `npm ci` with empty npm
+  credential configuration passed. `npm run ci-check` passed formatting, lint,
+  types, public documentation checks, all 470 tests, and build; three opt-in
+  tests were skipped. The remaining four high audit reports are the one DMG
+  dependency chain described above.
+- [Post-merge CI](https://github.com/openminion/desktop/actions/runs/39252639725)
+  passed both Quality jobs at `7c6ec5b`, including macOS package construction and
+  native Electron smoke. Distribution jobs were skipped; this run did not
+  publish binaries or exercise paid providers.
+- [Fork PR #82](https://github.com/openminion/desktop/pull/82) exercised the real
+  fork-to-`dev` path, including commit validation, both Quality jobs and macOS
+  package/native smoke. Read-only Quality permissions and no provider secrets
+  were used. The successful run at `4ea5d19` above is retained as dated evidence;
+  this maintainer-owned fork does not prove first-time outsider approval.
+
+These results apply to the named revisions. Every new PR still needs fresh
+checks and reviewed promotion.
+
+## Remaining launch acceptance
 
 1. Remove the original description revisions of PRs
    [#18](https://github.com/openminion/desktop/pull/18) and
@@ -99,25 +127,12 @@ After the 2026-10-19 switch:
    **Options → Delete revision from history**. Keep the current description and
    PR intact. Editing the body does not remove history. Record sanitized proof
    only. Browser authentication is still required for this cleanup.
-2. Finish the maintainer dispositions above. The two standard hosted Quality
-   jobs now pass without a paid budget increase; require fresh results for each
-   new PR head rather than reusing the pre-switch failures or an older pass.
-3. Merge the reviewed closeout PR to `dev`, then promote through a separate
-   `dev` → `main` PR. Keep both required checks and the reviewed promotion
-   process intact. Record the merge revisions.
-4. Verify private reporting and the public issue chooser from outside the
+2. Finish the publishing-rights and DMG-advisory dispositions above.
+3. Verify private reporting and the public issue chooser from outside the
    maintainer account. Bug and feature templates, blank issues, and support and
-   security links must work on the promoted default branch.
-5. Repeat the anonymous clean install and checks after the reviewed promotion.
-   The first public-default checkout at `71fc075` passed all 411 tests, formatting,
-   lint, types, local documentation-link checks and build. Its install reported
-   37 dependency findings; the combined closeout branch reduces these to four.
-   Do not attribute that reduction to `main` until promotion lands.
-6. The real fork workflow passed for PR #82 at `4ea5d19`: commit-range
-   validation, both Quality jobs and macOS package/native smoke completed.
-   It ran from `wireindevice/desktop` with read-only job permissions and no
-   provider secrets. A first-time outside contributor still needs to exercise
-   the approval policy; do not infer that result from this maintainer-owned fork.
+   security links must work on the default branch.
+4. Observe a first-time outside contributor's fork workflow approval. A
+   maintainer-owned fork or a configured policy alone does not prove that path.
 
 Opening the source does not publish a new binary. Windows/Linux maker proof,
 platform permissions, provider-live behavior, signing and clean-machine

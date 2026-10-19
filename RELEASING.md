@@ -1,7 +1,7 @@
 # OpenMinion Desktop Releasing
 
 Status: unsigned development distribution enabled; stable distribution not enabled
-Last updated: 2026-10-17
+Last updated: 2026-10-19
 
 Purpose: define the unsigned development-package process and the additional
 proof required before OpenMinion Desktop can enable stable distribution.
@@ -24,9 +24,10 @@ PR. It never publishes the Desktop packages or changes the runtime feed.
 
 ## Source visibility and promotion
 
-Opening the source repository is a separate maintainer decision from publishing
-binaries. Complete [Public Source Readiness](docs/public-readiness.md) before
-changing visibility; source changes alone do not authorize that change.
+The source repository is public. [Public Source Readiness](docs/public-readiness.md)
+records the visibility decision, completed launch evidence, and remaining
+acceptance. Public source access does not authorize binary publication or close
+the stable-distribution requirements below.
 
 For a planned promotion, reconcile `dev` with current `main`, open a `dev` →
 `main` PR, and review the complete diff and exact validation evidence. Require
