@@ -316,7 +316,7 @@ function schedulerReadiness(value: unknown): SchedulerReadiness | null {
   const row = requireRecord(value);
   const paused = typeof row.paused === "boolean" ? row.paused : null;
   return {
-    state: optionalString(row.state ?? null) ?? (paused ? "paused" : "running"),
+    state: requireString(row.state),
     hostedBy: optionalString(row.hosted_by ?? null),
     reason: optionalString(row.reason ?? null),
     lastHeartbeatAt: optionalString(row.last_heartbeat_at ?? null),
@@ -337,11 +337,18 @@ function pendingTaskAction(value: unknown): PendingTaskAction {
   };
 }
 
-function taskControlValue(payload: Record<string, unknown>, tasks: unknown[]): TaskControlValue {
+function taskControlValue(
+  payload: Record<string, unknown>,
+  tasks: unknown[],
+  actionResult: TaskControlValue["actionResult"] = null,
+  refreshWarning: string | null = null,
+): TaskControlValue {
   return {
     tasks: tasks.map(runtimeTask),
     pendingActions: requireArray(payload.pending_actions ?? []).map(pendingTaskAction),
     scheduler: schedulerReadiness(payload.scheduler),
+    actionResult,
+    refreshWarning,
   };
 }
 
@@ -1117,7 +1124,12 @@ export class CliClient {
         if (value.expectedUpdatedAt !== undefined)
           throw protocolError("invalid_request", "This operation does not take a revision.");
       }
-      const confirmationActions = ["delete-history", "scheduler-pause", "scheduler-resume"];
+      const confirmationActions = [
+        "cancel",
+        "delete-history",
+        "scheduler-pause",
+        "scheduler-resume",
+      ];
       if (!confirmationActions.includes(action) && value.confirm !== undefined)
         throw protocolError("invalid_request", "This operation does not take confirmation.");
       const taskActions = [
@@ -1209,34 +1221,47 @@ export class CliClient {
               "OpenMinion did not complete this task operation.",
           );
         }
+        const actionResult =
+          action === "run-now"
+            ? {
+                action: "run-now" as const,
+                taskId: requireString(payload.task_id),
+                runId: requireString(payload.run_id),
+                state: optionalString(payload.state ?? null),
+              }
+            : null;
         if (schedulerAction) {
-          const scheduler = {
-            ...requireRecord(payload.scheduler ?? {}),
-            ...requireRecord(payload.scheduler_control ?? {}),
-          };
           payload = requireRecord(await this.#json(["tasks", "list", ...scope]));
           if (payload.ok !== true)
             throw protocolError(
               "task_refresh_failed",
               "The scheduler changed, but OpenMinion could not refresh the task list.",
             );
-          payload.scheduler = {
-            ...requireRecord(payload.scheduler ?? {}),
-            ...scheduler,
-          };
         }
         const refreshTaskList = ["run-now", "update", "delete-history"].includes(action);
         if (refreshTaskList) {
-          payload = requireRecord(await this.#json(["tasks", "list", ...scope]));
-          if (payload.ok !== true)
+          const refreshed = requireRecord(await this.#json(["tasks", "list", ...scope]));
+          if (refreshed.ok !== true && actionResult)
+            return taskControlValue(
+              { pending_actions: [], scheduler: null },
+              [],
+              actionResult,
+              "The run was queued, but OpenMinion could not refresh the task list.",
+            );
+          if (refreshed.ok !== true)
             throw protocolError(
               "task_refresh_failed",
               "The task changed, but OpenMinion could not refresh the task list.",
             );
+          payload = refreshed;
         }
         const list =
           action === "list" || action === "schedule" || schedulerAction || refreshTaskList;
-        return taskControlValue(payload, list ? requireArray(payload.tasks) : [payload.task]);
+        return taskControlValue(
+          payload,
+          list ? requireArray(payload.tasks) : [payload.task],
+          actionResult,
+        );
       } catch (error) {
         if (scheduled)
           throw protocolError(

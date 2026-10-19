@@ -1063,6 +1063,42 @@ describe("PyPI CLI client", () => {
         '{"ok":true,"tasks":[{"id":"task-1","schedule_revision":"revision-2","valid_actions":[]}],"pending_actions":[]}',
     };
 
+    const callsBeforeUnconfirmedCancel = run.mock.calls.length;
+    const unconfirmedCancel = await client.controlTasks({
+      sessionId,
+      action: "cancel",
+      taskId: "task-1",
+    });
+    expect(unconfirmedCancel).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    expect(run).toHaveBeenCalledTimes(callsBeforeUnconfirmedCancel);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        '{"ok":true,"task_id":"task-1","state":"cancelled","task":{"id":"task-1","lifecycle_state":"cancelled","valid_actions":[],"recent_runs":[]}}',
+    });
+    const cancelled = await client.controlTasks({
+      sessionId,
+      action: "cancel",
+      taskId: "task-1",
+      confirm: true,
+    });
+    expect(cancelled).toMatchObject({ ok: true, value: { tasks: [{ id: "task-1" }] } });
+    expect(run.mock.calls.at(-1)?.[1]).toEqual([
+      "tasks",
+      "cancel",
+      "task-1",
+      "--session",
+      sessionId,
+      "--json",
+      "--agent-id",
+      "writer",
+    ]);
+
     run.mockResolvedValueOnce({
       exitCode: 0,
       stderr: "",
@@ -1072,7 +1108,15 @@ describe("PyPI CLI client", () => {
     const runNow = await client.controlTasks({ sessionId, action: "run-now", taskId: "task-1" });
     expect(runNow).toMatchObject({
       ok: true,
-      value: { tasks: [{ id: "task-1", scheduleRevision: "revision-2" }] },
+      value: {
+        tasks: [{ id: "task-1", scheduleRevision: "revision-2" }],
+        actionResult: {
+          action: "run-now",
+          taskId: "task-1",
+          runId: "run-1",
+          state: null,
+        },
+      },
     });
     expect(run.mock.calls.at(-2)?.[1]).toEqual([
       "tasks",
@@ -1084,6 +1128,30 @@ describe("PyPI CLI client", () => {
       "--agent-id",
       "writer",
     ]);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-1","run_id":"run-2"}',
+    });
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":false,"error":{"code":"unavailable"}}',
+    });
+    const runNowWithoutRefresh = await client.controlTasks({
+      sessionId,
+      action: "run-now",
+      taskId: "task-1",
+    });
+    expect(runNowWithoutRefresh).toMatchObject({
+      ok: true,
+      value: {
+        tasks: [],
+        actionResult: { runId: "run-2", taskId: "task-1" },
+        refreshWarning: "The run was queued, but OpenMinion could not refresh the task list.",
+      },
+    });
 
     run.mockResolvedValueOnce({
       exitCode: 0,
@@ -1201,8 +1269,8 @@ describe("PyPI CLI client", () => {
           scheduler: {
             state: "ready",
             paused: false,
-            updatedAt: "scheduler-3",
-            updatedBy: "operator",
+            updatedAt: "scheduler-2",
+            updatedBy: null,
           },
         },
       });
@@ -1217,6 +1285,21 @@ describe("PyPI CLI client", () => {
         "writer",
       ]);
     }
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"scheduler_control":{"paused":false,"updated_at":"scheduler-4"}}',
+    });
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        '{"ok":true,"tasks":[],"pending_actions":[],"scheduler":{"paused":false,"updated_at":"scheduler-4"}}',
+    });
+    await expect(
+      client.controlTasks({ sessionId, action: "scheduler-status" }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "invalid_daemon_response" } });
 
     const calls = run.mock.calls.length;
     for (const input of [

@@ -89,6 +89,13 @@ export type TaskControlValue = {
   tasks: RuntimeTask[];
   pendingActions: PendingTaskAction[];
   scheduler: SchedulerReadiness | null;
+  actionResult?: {
+    action: "run-now";
+    taskId: string;
+    runId: string;
+    state: string | null;
+  } | null;
+  refreshWarning?: string | null;
 };
 
 export type ScheduleInput = {

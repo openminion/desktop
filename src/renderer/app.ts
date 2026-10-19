@@ -1780,11 +1780,16 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     showCommandResult(
       "Tasks",
       [
-        result.value.tasks.length
-          ? "Tasks reported by OpenMinion for the current agent."
-          : "No tasks found.",
+        result.value.refreshWarning
+          ? "Task list unavailable."
+          : result.value.tasks.length
+            ? "Tasks reported by OpenMinion for the current agent."
+            : "No tasks found.",
+        result.value.actionResult &&
+          `Run ${result.value.actionResult.runId} queued for task ${result.value.actionResult.taskId}.`,
+        result.value.refreshWarning,
         result.value.scheduler
-          ? `Scheduler: ${result.value.scheduler.state}. ${schedulerReadinessText(
+          ? `Global scheduler: ${result.value.scheduler.state}. ${schedulerReadinessText(
               result.value.scheduler,
             )}`
           : "",
@@ -1795,6 +1800,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         .filter(Boolean)
         .join("\n"),
     );
+    if (result.value.refreshWarning) {
+      const refresh = root.createElement("button");
+      refresh.type = "button";
+      refresh.textContent = "Refresh work list";
+      refresh.addEventListener("click", () => void runTasks({ action: "list" }));
+      elements.commandResult.append(refresh);
+      return;
+    }
     renderTasks(
       root,
       elements.commandResult,
@@ -2132,12 +2145,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       }
       case "/tasks": {
         if (!args.length) await runTasks({ action: "list" });
-        else if (["pause", "resume", "cancel"].includes(args[0].toLowerCase()) && args.length === 2)
-          await runTasks({
-            action: args[0].toLowerCase() as "pause" | "resume" | "cancel",
-            taskId: args[1],
-          });
         else if (
+          ["pause", "resume", "cancel"].includes(args[0].toLowerCase()) &&
+          args.length === 2
+        ) {
+          const action = args[0].toLowerCase() as "pause" | "resume" | "cancel";
+          const taskId = args[1];
+          if (action === "cancel") {
+            showCommandResult("Cancel task", `Cancel task ${taskId}?`);
+            const confirm = root.createElement("button");
+            confirm.type = "button";
+            confirm.textContent = "Confirm cancel task";
+            confirm.addEventListener(
+              "click",
+              () => void runTasks({ action: "cancel", taskId, confirm: true }),
+            );
+            elements.commandResult.append(confirm);
+          } else await runTasks({ action, taskId });
+        } else if (
           args.length === 1 &&
           !["pause", "resume", "cancel"].includes(args[0].toLowerCase())
         )

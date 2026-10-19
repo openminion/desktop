@@ -23,7 +23,11 @@ import {
 } from "../../src/renderer/app.js";
 import { renderMarkdown } from "../../src/renderer/markdown.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
-import { renderTasks, schedulerReadinessText } from "../../src/renderer/tasks.js";
+import {
+  localDateTimeToIso,
+  renderTasks,
+  schedulerReadinessText,
+} from "../../src/renderer/tasks.js";
 import type {
   ApprovalDecisionV1,
   ApprovalEventV1,
@@ -5745,10 +5749,30 @@ describe("renderer status view", () => {
 });
 
 describe("scheduled task parity", () => {
+  it("rejects a nonexistent local time instead of normalizing it", () => {
+    const originalTimezone = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+      expect(localDateTimeToIso("2026-03-08T02:30")).toBeNull();
+      expect(localDateTimeToIso("2026-03-08T03:30")).toBe("2026-03-08T10:30:00.000Z");
+    } finally {
+      if (originalTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTimezone;
+    }
+  });
+
   it("manages durable tasks while execution readiness is degraded", async () => {
-    const control = vi.fn<NativeApi["tasks"]["control"]>(async () => ({
+    const control = vi.fn<NativeApi["tasks"]["control"]>(async (input) => ({
       ok: true,
       value: {
+        actionResult:
+          input.action === "run-now"
+            ? { action: "run-now", taskId: "task-1", runId: "run-new", state: "queued" }
+            : null,
+        refreshWarning:
+          input.action === "run-now"
+            ? "The run was queued, but OpenMinion could not refresh the task list."
+            : null,
         scheduler: {
           state: "unreachable",
           hostedBy: "daemon",
@@ -5759,74 +5783,77 @@ describe("scheduled task parity", () => {
           updatedAt: "2026-09-30T11:45:00Z",
           updatedBy: "operator",
         },
-        tasks: [
-          {
-            id: "task-1",
-            title: "Review pull requests",
-            status: "active",
-            kind: "scheduled_recurring",
-            schedule: "every:1800000ms",
-            dueAt: "2026-09-30T12:00:00Z",
-            operatorState: "running",
-            resumeAction: "continue",
-            sessionTarget: "isolated",
-            instruction: "Review all open pull requests",
-            updatedAt: "2026-09-30T11:40:00Z",
-            scheduleRevision: "2026-09-30T11:40:00Z",
-            scheduleInput: {
-              kind: "every",
-              value: "30",
-              timezone: "UTC",
-            },
-            validActions: ["pause", "cancel", "run-now", "update", "delete-history"],
-            recentRuns: [
-              {
-                runId: "run-2",
-                state: "failed",
-                summary: null,
-                attempts: 2,
-                dueAt: "2026-09-30T11:29:00Z",
-                availableAt: "2026-09-30T11:30:00Z",
-                startedAt: "2026-09-30T11:30:00Z",
-                finishedAt: "2026-09-30T11:31:00Z",
-                isolatedSessionId: "result-session-2",
-                error: {
-                  code: "PROVIDER_UNAVAILABLE",
-                  message: "Provider unavailable",
-                },
-                delivery: {
-                  state: "not_requested",
-                  mode: "none",
-                  targets: [],
-                  error: null,
-                },
-                deliveryTargets: [],
-              },
-              {
-                runId: "run-1",
-                state: "finished",
-                summary: "Two pull requests reviewed",
-                attempts: 1,
-                dueAt: "2026-09-30T10:59:00Z",
-                availableAt: "2026-09-30T11:00:00Z",
-                startedAt: "2026-09-30T11:00:00Z",
-                finishedAt: "2026-09-30T11:01:00Z",
-                isolatedSessionId: "result-session-1",
-                error: null,
-                delivery: {
-                  state: "failed",
-                  mode: "announce",
-                  targets: ["announce:last"],
-                  error: {
-                    code: "DELIVERY_FAILED",
-                    message: "Destination unavailable",
+        tasks:
+          input.action === "run-now"
+            ? []
+            : [
+                {
+                  id: "task-1",
+                  title: "Review pull requests",
+                  status: "active",
+                  kind: "scheduled_recurring",
+                  schedule: "every:1800000ms",
+                  dueAt: "2026-09-30T12:00:00Z",
+                  operatorState: "running",
+                  resumeAction: "continue",
+                  sessionTarget: "isolated",
+                  instruction: "Review all open pull requests",
+                  updatedAt: "2026-09-30T11:40:00Z",
+                  scheduleRevision: "2026-09-30T11:40:00Z",
+                  scheduleInput: {
+                    kind: "every",
+                    value: "30",
+                    timezone: "UTC",
                   },
+                  validActions: ["pause", "cancel", "run-now", "update", "delete-history"],
+                  recentRuns: [
+                    {
+                      runId: "run-2",
+                      state: "failed",
+                      summary: null,
+                      attempts: 2,
+                      dueAt: "2026-09-30T11:29:00Z",
+                      availableAt: "2026-09-30T11:30:00Z",
+                      startedAt: "2026-09-30T11:30:00Z",
+                      finishedAt: "2026-09-30T11:31:00Z",
+                      isolatedSessionId: "result-session-2",
+                      error: {
+                        code: "PROVIDER_UNAVAILABLE",
+                        message: "Provider unavailable",
+                      },
+                      delivery: {
+                        state: "not_requested",
+                        mode: "none",
+                        targets: [],
+                        error: null,
+                      },
+                      deliveryTargets: [],
+                    },
+                    {
+                      runId: "run-1",
+                      state: "finished",
+                      summary: "Two pull requests reviewed",
+                      attempts: 1,
+                      dueAt: "2026-09-30T10:59:00Z",
+                      availableAt: "2026-09-30T11:00:00Z",
+                      startedAt: "2026-09-30T11:00:00Z",
+                      finishedAt: "2026-09-30T11:01:00Z",
+                      isolatedSessionId: "result-session-1",
+                      error: null,
+                      delivery: {
+                        state: "failed",
+                        mode: "announce",
+                        targets: ["announce:last"],
+                        error: {
+                          code: "DELIVERY_FAILED",
+                          message: "Destination unavailable",
+                        },
+                      },
+                      deliveryTargets: [],
+                    },
+                  ],
                 },
-                deliveryTargets: [],
-              },
-            ],
-          },
-        ],
+              ],
         pendingActions: [
           {
             decisionId: "decision-1",
@@ -5879,7 +5906,7 @@ describe("scheduled task parity", () => {
       );
       const result = page.element("command-result");
       const text = result.descendants().map((item) => item.textContent);
-      expect(text.join("\n")).toContain("Scheduler: unreachable");
+      expect(text.join("\n")).toContain("Global scheduler: unreachable");
       expect(text.join("\n")).toContain("Saved schedules remain manageable");
       expect(text).toEqual(
         expect.arrayContaining([
@@ -5904,6 +5931,48 @@ describe("scheduled task parity", () => {
         }),
       );
       expect(text).not.toEqual(expect.arrayContaining(["Allow", "Deny"]));
+
+      const callsBeforeCancel = control.mock.calls.length;
+      page.element("composer").value = "/tasks cancel task-1";
+      page.element("composer").dispatch("input");
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() => expect(page.element("command-title").textContent).toBe("Cancel task"));
+      expect(control).toHaveBeenCalledTimes(callsBeforeCancel);
+      page
+        .element("command-result")
+        .descendants()
+        .find((item) => item.textContent === "Confirm cancel task")!
+        .click();
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenCalledWith({
+          sessionId: session.sessionId,
+          action: "cancel",
+          taskId: "task-1",
+          confirm: true,
+        }),
+      );
+
+      const currentResult = page.element("command-result");
+      currentResult
+        .descendants()
+        .find((item) => item.textContent === "Run now")!
+        .click();
+      await vi.waitFor(() =>
+        expect(
+          page
+            .element("command-result")
+            .descendants()
+            .some((item) => item.textContent.includes("Run run-new queued for task task-1.")),
+        ).toBe(true),
+      );
+      const partialText = page
+        .element("command-result")
+        .descendants()
+        .map((item) => item.textContent)
+        .join("\n");
+      expect(partialText).toContain("Task list unavailable.");
+      expect(partialText).not.toContain("No tasks found.");
+      expect(partialText).toContain("Refresh work list");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -5924,7 +5993,7 @@ describe("scheduled task parity", () => {
       .descendants()
       .map((item) => item.textContent)
       .join("\n");
-    expect(text).not.toContain("Scheduler:");
+    expect(text).not.toContain("Global scheduler:");
     expect(text).not.toContain("degraded");
     expect(text).toContain("Schedule work");
   });
@@ -5977,7 +6046,7 @@ describe("scheduled task parity", () => {
             instruction: "Review open pull requests",
             scheduleRevision: "task-revision-1",
             scheduleInput: { kind: "every", value: "30", timezone: "UTC" },
-            validActions: ["run-now", "update", "delete-history"],
+            validActions: ["cancel", "run-now", "update", "delete-history"],
             recentRuns: [
               {
                 runId: "run-1",
@@ -6035,6 +6104,15 @@ describe("scheduled task parity", () => {
       confirm: true,
     });
 
+    onAction.mockClear();
+    const cancel = descendants.find((item) => item.textContent === "Cancel")!;
+    cancel.click();
+    expect(cancel.textContent).toBe("Confirm cancel task");
+    expect(cancel.getAttribute("aria-label")).toBe("Confirm cancel task Review pull requests");
+    expect(onAction).not.toHaveBeenCalled();
+    cancel.click();
+    expect(onAction).toHaveBeenCalledWith({ action: "cancel", taskId: "task-1", confirm: true });
+
     const update = descendants.find((item) => item.textContent === "Update")!;
     expect(update.getAttribute("aria-label")).toBe("Update Review pull requests");
     update.click();
@@ -6063,17 +6141,21 @@ describe("scheduled task parity", () => {
 
     descendants.find((item) => item.textContent === "Refresh scheduler status")!.click();
     expect(onAction).toHaveBeenCalledWith({ action: "scheduler-status" });
-    const pause = descendants.find((item) => item.textContent === "Pause scheduler")!;
+    const pause = descendants.find(
+      (item) => item.textContent === "Pause scheduling for all agents",
+    )!;
     pause.click();
     expect(descendants.map((item) => item.textContent).join("\n")).toContain(
       "Enter a reason before pausing the scheduler.",
     );
     const reason = descendants.find(
-      (item) => item.tagName === "input" && item.placeholder === "Reason for pausing dispatch",
+      (item) =>
+        item.tagName === "input" &&
+        item.placeholder === "Reason for pausing all scheduled task dispatch",
     )!;
     reason.value = "Provider maintenance";
     pause.click();
-    expect(pause.textContent).toBe("Confirm pause scheduler");
+    expect(pause.textContent).toBe("Confirm pause for all agents");
     expect(onAction).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: "scheduler-pause" }),
     );

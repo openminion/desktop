@@ -20,6 +20,25 @@ export function schedulerReadinessText(
     : "Saved schedules remain manageable, but execution readiness is degraded.";
 }
 
+export function localDateTimeToIso(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(
+    value,
+  );
+  if (!match) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const expected = match.slice(1, 7).map((part) => Number(part ?? 0));
+  const actual = [
+    date.getFullYear(),
+    date.getMonth() + 1,
+    date.getDate(),
+    date.getHours(),
+    date.getMinutes(),
+    date.getSeconds(),
+  ];
+  return actual.every((part, index) => part === expected[index]) ? date.toISOString() : null;
+}
+
 export function renderDelegation(
   root: Document,
   container: HTMLElement,
@@ -336,7 +355,7 @@ export function renderTasks(
     const readiness = root.createElement("section");
     readiness.className = "task-readiness";
     readiness.textContent = [
-      `Scheduler: ${value.scheduler.state}`,
+      `Global scheduler: ${value.scheduler.state}`,
       schedulerReadinessText(value.scheduler),
       value.scheduler.reason && `Reason: ${value.scheduler.reason}`,
       value.scheduler.lastHeartbeatAt && `Last heartbeat: ${value.scheduler.lastHeartbeatAt}`,
@@ -362,12 +381,12 @@ export function renderTasks(
         const resume = root.createElement("button");
         resume.type = "button";
         resume.className = "secondary-tool";
-        resume.textContent = "Resume scheduler";
+        resume.textContent = "Resume scheduling for all agents";
         resume.disabled = busy;
         resume.addEventListener("click", () => {
           if (resume.dataset.confirmed !== "true") {
             resume.dataset.confirmed = "true";
-            resume.textContent = "Confirm resume scheduler";
+            resume.textContent = "Confirm resume for all agents";
             return;
           }
           onAction({
@@ -379,9 +398,9 @@ export function renderTasks(
         readiness.append(resume);
       } else {
         const reasonLabel = root.createElement("label");
-        reasonLabel.textContent = "Reason for pausing dispatch";
+        reasonLabel.textContent = "Reason for pausing all scheduled task dispatch";
         const reason = root.createElement("input");
-        reason.placeholder = "Reason for pausing dispatch";
+        reason.placeholder = "Reason for pausing all scheduled task dispatch";
         reason.maxLength = 500;
         reason.disabled = busy;
         const reasonError = root.createElement("p");
@@ -389,7 +408,7 @@ export function renderTasks(
         const pause = root.createElement("button");
         pause.type = "button";
         pause.className = "secondary-tool";
-        pause.textContent = "Pause scheduler";
+        pause.textContent = "Pause scheduling for all agents";
         pause.disabled = busy;
         pause.addEventListener("click", () => {
           if (!reason.value.trim()) {
@@ -398,7 +417,7 @@ export function renderTasks(
           }
           if (pause.dataset.confirmed !== "true") {
             pause.dataset.confirmed = "true";
-            pause.textContent = "Confirm pause scheduler";
+            pause.textContent = "Confirm pause for all agents";
             reason.disabled = true;
             return;
           }
@@ -499,15 +518,13 @@ export function renderTasks(
       }[action];
       button.setAttribute("aria-label", `${button.textContent} ${task.title ?? task.id}`);
       button.disabled = busy && action !== "show";
-      if (action === "delete-history") {
+      if (action === "delete-history" || action === "cancel") {
         button.addEventListener("click", () => {
           if (button.dataset.confirmed !== "true") {
             button.dataset.confirmed = "true";
-            button.textContent = "Confirm delete run history";
-            button.setAttribute(
-              "aria-label",
-              `Confirm delete run history ${task.title ?? task.id}`,
-            );
+            button.textContent =
+              action === "cancel" ? "Confirm cancel task" : "Confirm delete run history";
+            button.setAttribute("aria-label", `${button.textContent} ${task.title ?? task.id}`);
             return;
           }
           onAction({ action, taskId: task.id, confirm: true });
@@ -605,12 +622,12 @@ export function renderTasks(
     if (busy || create.disabled) return;
     let value = timing.value;
     if (kind.value === "at") {
-      const date = new Date(value);
-      if (!Number.isFinite(date.getTime())) {
+      const instant = localDateTimeToIso(value);
+      if (!instant) {
         error.textContent = "Choose a valid date and time.";
         return;
       }
-      value = date.toISOString();
+      value = instant;
     }
     create.disabled = true;
     error.textContent = "Creating schedule…";
@@ -753,12 +770,12 @@ function taskUpdateForm(
     if (!task.scheduleRevision) return;
     let value = timing.value;
     if (kind.value === "at") {
-      const date = new Date(value);
-      if (!Number.isFinite(date.getTime())) {
+      const instant = localDateTimeToIso(value);
+      if (!instant) {
         error.textContent = "Choose a valid date and time.";
         return;
       }
-      value = date.toISOString();
+      value = instant;
     }
     const update: TaskUpdateInput = {
       instruction: instruction.value,
