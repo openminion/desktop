@@ -22,8 +22,10 @@ const render = (profileVersion) => ({
   purpose: "act",
   profile_version: profileVersion,
   render_version: "render-v1",
+  budget: { max_tokens: 180, used_tokens: 42, max_chars: 720, used_chars: 168 },
   included_fields: ["role.mission"],
-  omitted_fields: [],
+  omitted_fields: ["personality.formatting"],
+  warnings: ["non-critical fields omitted to fit budget"],
 });
 const readState = () => JSON.parse(readFileSync(statePath, "utf8"));
 const profile = (state) => ({
@@ -43,6 +45,7 @@ const profile = (state) => ({
   generated_sidecars: {
     status: "clean",
     files: ["AGENT.md", "SOUL.md", "README.md"],
+    drifted_files: [],
   },
   render: render(state.profileVersion),
 });

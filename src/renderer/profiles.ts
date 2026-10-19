@@ -1,6 +1,11 @@
 // Profile form and write-only credential entry for the local OpenMinion config.
 import type { DaemonStatus, NativeApi } from "../shared/contracts.js";
-import type { IdentityProfileView, IdentitySettings } from "../shared/identity.js";
+import type {
+  IdentityProfileView,
+  IdentityRenderView,
+  IdentitySettings,
+} from "../shared/identity.js";
+import { identitySourceLabel, identityStatusLabel } from "./identity.js";
 import {
   type ProfileSaveInput,
   type ProfileSettings,
@@ -52,8 +57,27 @@ export function mountProfiles(
   const identityAgent = get<HTMLSelectElement>("identity-agent");
   const identityYaml = get<HTMLTextAreaElement>("identity-yaml");
   const identityMetadata = get<HTMLElement>("identity-metadata");
+  const identitySource = get<HTMLElement>("identity-source");
+  const identityVersion = get<HTMLElement>("identity-version");
+  const identitySourceStatus = get<HTMLElement>("identity-source-status");
+  const identitySidecars = get<HTMLElement>("identity-sidecars");
+  const identityGenerated = get<HTMLElement>("identity-generated");
+  const identityGeneratedDrift = get<HTMLElement>("identity-generated-drift");
+  const identityGeneratedNote = get<HTMLElement>("identity-generated-note");
+  const identityEditability = get<HTMLElement>("identity-editability");
+  const identityValidation = get<HTMLElement>("identity-validation");
+  const identityVerification = get<HTMLElement>("identity-verification");
+  const identityIssues = get<HTMLElement>("identity-issues");
+  const identityWarnings = get<HTMLElement>("identity-warnings");
   const identityStatus = get<HTMLElement>("identity-status");
-  const identityPreview = get<HTMLElement>("identity-preview");
+  const identityRenderMetadata = get<HTMLElement>("identity-render-metadata");
+  const identityRenderPurpose = get<HTMLElement>("identity-render-purpose");
+  const identityRenderBudget = get<HTMLElement>("identity-render-budget");
+  const identityRenderVersion = get<HTMLElement>("identity-render-version");
+  const identityRenderIncluded = get<HTMLElement>("identity-render-included");
+  const identityRenderOmitted = get<HTMLElement>("identity-render-omitted");
+  const identityRenderWarnings = get<HTMLElement>("identity-render-warnings");
+  const identityPreview = get<HTMLTextAreaElement>("identity-preview");
   const identityReload = get<HTMLButtonElement>("identity-reload");
   const identityRuntime = get<HTMLButtonElement>("identity-runtime");
   const identityVerify = get<HTMLButtonElement>("identity-verify");
@@ -61,7 +85,11 @@ export function mountProfiles(
   let returnFocus: HTMLElement = open;
   const sections = ["profiles", "identity", "chat", "runtime"] as const;
   type Section = (typeof sections)[number];
+  let pending = false;
+  let initialProfilesPending = false;
+  let selectedSection: Section = "profiles";
   const selectSection = (selected: Section) => {
+    selectedSection = selected;
     for (const section of sections) {
       get<HTMLElement>(`settings-${section}`).hidden = section !== selected;
       get<HTMLButtonElement>(`settings-${section}-button`).setAttribute(
@@ -74,7 +102,7 @@ export function mountProfiles(
   for (const section of sections) {
     get<HTMLButtonElement>(`settings-${section}-button`).addEventListener("click", () => {
       selectSection(section);
-      if (section === "identity") void loadIdentity();
+      if (section === "identity" && !initialProfilesPending) void loadIdentity();
     });
   }
   let presets: SetupPreset[] = [];
@@ -106,7 +134,6 @@ export function mountProfiles(
   let settings: ProfileSettings | null = null;
   let addingProfile = false;
   let displayedAgent = "";
-  let pending = false;
   let identitySettings: IdentitySettings | null = null;
   let identityPending = false;
   let displayedIdentityAgent = "";
@@ -115,6 +142,74 @@ export function mountProfiles(
     { yaml: string; profileVersion: string; sourceSha256: string | null }
   >();
 
+  const selectedIdentity = (): IdentityProfileView | undefined =>
+    identitySettings?.profiles.find((item) => item.agentId === identityAgent.value);
+  const identityDraftChanged = (profile: IdentityProfileView | undefined) =>
+    Boolean(profile && identityYaml.value !== (profile.authoredYaml ?? ""));
+  const setIdentityIssues = (issues: string[]) => {
+    identityIssues.replaceChildren(
+      ...issues.map((issue) => {
+        const item = root.createElement("li");
+        item.textContent = issue;
+        return item;
+      }),
+    );
+    identityIssues.hidden = issues.length === 0;
+  };
+  const setIdentityWarnings = (warnings: string[]) => {
+    identityWarnings.replaceChildren(
+      ...warnings.map((warning) => {
+        const item = root.createElement("li");
+        item.textContent = warning;
+        return item;
+      }),
+    );
+    identityWarnings.hidden = warnings.length === 0;
+  };
+  const showIdentityRender = (render: IdentityRenderView | null, emptyText: string) => {
+    identityRenderMetadata.hidden = !render;
+    identityPreview.value = render?.text || emptyText;
+    if (!render) return;
+    identityRenderPurpose.textContent = render.purpose;
+    identityRenderBudget.textContent = `${render.budget.usedTokens}/${render.budget.maxTokens} tokens`;
+    identityRenderVersion.textContent = render.renderVersion;
+    identityRenderIncluded.textContent = render.includedFields.join(", ") || "None";
+    identityRenderOmitted.textContent = render.omittedFields.join(", ") || "None";
+    identityRenderWarnings.textContent = render.warnings.join("; ") || "None";
+  };
+  const showIdentityHealth = (profile: IdentityProfileView) => {
+    identityMetadata.hidden = false;
+    identitySource.textContent = identitySourceLabel(profile.source);
+    identityVersion.textContent = `revision ${profile.profileRevision} · ${profile.profileVersion.slice(0, 12)}`;
+    identitySourceStatus.textContent = identityStatusLabel(profile.sourceStatus);
+    identitySidecars.textContent = identityStatusLabel(profile.generatedStatus);
+    identityGenerated.textContent = profile.generatedFiles.join(", ") || "None";
+    identityGeneratedDrift.textContent = profile.generatedDriftedFiles.join(", ") || "None";
+    identityGeneratedNote.textContent =
+      profile.source === "yaml"
+        ? profile.sourceStatus === "missing"
+          ? "The authoritative YAML source is missing. Restore it before reloading this identity."
+          : profile.editable && profile.generatedStatus !== "not_applicable"
+            ? "Generated Markdown is a read-only view of this YAML profile. Saving YAML regenerates it."
+            : profile.generatedStatus === "not_applicable"
+              ? "External YAML is authoritative and read-only in Desktop. Generated Markdown is not managed here."
+              : "Inherited YAML is read-only in Desktop. Edit its authoritative source hierarchy in OpenMinion."
+        : profile.source === "bundle"
+          ? "Bundle Markdown is authoritative and read-only in Desktop."
+          : "Generated Markdown is not managed for this identity source.";
+    identityEditability.textContent = profile.readOnlyReason ?? "Editable direct YAML";
+    identityValidation.textContent = profile.validationOk
+      ? profile.validationWarnings.length
+        ? "Valid with warnings"
+        : "Valid"
+      : "Needs attention";
+    identityVerification.textContent = profile.verificationOk ? "Verified" : "Needs attention";
+    setIdentityIssues([
+      ...profile.validationErrors.map((issue) => `Validation: ${issue}`),
+      ...profile.verificationIssues.map((issue) => `Verification: ${issue}`),
+    ]);
+    setIdentityWarnings(profile.validationWarnings);
+  };
   const setIdentityPending = (value: boolean) => {
     identityPending = value;
     const profile = selectedIdentity();
@@ -122,15 +217,14 @@ export function mountProfiles(
     identityYaml.disabled = value || !profile?.editable;
     identityReload.disabled = value;
     identityVerify.disabled = value || !identityYaml.value.trim();
-    identitySave.disabled = value || !profile?.editable;
+    identitySave.disabled =
+      value || !profile?.editable || !identityYaml.value.trim() || !identityDraftChanged(profile);
   };
 
-  const selectedIdentity = (): IdentityProfileView | undefined =>
-    identitySettings?.profiles.find((item) => item.agentId === identityAgent.value);
   const populateIdentity = () => {
     const profile = selectedIdentity();
     get<HTMLElement>("identity-editor").hidden = !profile;
-    identityReload.textContent = profile ? "Reload from disk" : "Try again";
+    identityReload.textContent = profile ? "Discard draft and refresh source" : "Try again";
     if (profile) identityYaml.after(identityStatus);
     else get<HTMLElement>("identity-availability-actions").before(identityStatus);
     if (!profile) {
@@ -138,8 +232,10 @@ export function mountProfiles(
       identityYaml.disabled = true;
       identityVerify.disabled = true;
       identitySave.disabled = true;
-      identityMetadata.textContent = "No identity profile is available.";
-      identityPreview.textContent = "No identity loaded.";
+      identityMetadata.hidden = true;
+      setIdentityIssues([]);
+      setIdentityWarnings([]);
+      showIdentityRender(null, "No identity loaded.");
       return;
     }
     displayedIdentityAgent = profile.agentId;
@@ -152,26 +248,20 @@ export function mountProfiles(
     if (draft && !currentDraft) {
       identityDrafts.delete(profile.agentId);
       identityStatus.textContent = "Identity changed on disk. The stale local draft was discarded.";
+    } else {
+      identityStatus.textContent = currentDraft ? "Unverified changes." : "";
     }
     identityYaml.value = currentDraft?.yaml ?? profile.authoredYaml ?? "";
-    identityYaml.disabled = !profile.editable || identityPending;
-    identityVerify.disabled = !profile.authoredYaml || identityPending;
-    identitySave.disabled = !profile.editable || identityPending;
-    identityMetadata.textContent = [
-      `Source: ${profile.source}`,
-      `revision ${profile.profileRevision}`,
-      `version ${profile.profileVersion.slice(0, 12)}`,
-      `source ${profile.sourceStatus}`,
-      `sidecars ${profile.generatedStatus}`,
-      profile.generatedFiles.length
-        ? `generated ${profile.generatedFiles.join(", ")}`
-        : "no generated files",
-      profile.readOnlyReason ?? "editable direct YAML",
-      profile.verificationIssues.length
-        ? `issues ${profile.verificationIssues.join("; ")}`
-        : "verification clean",
-    ].join(" · ");
-    identityPreview.textContent = profile.render.text || "Rendered identity is empty.";
+    showIdentityHealth(profile);
+    if (currentDraft) {
+      identityValidation.textContent = "Unverified draft";
+      setIdentityIssues([]);
+      setIdentityWarnings([]);
+      showIdentityRender(null, "Preview is stale. Verify the current draft to refresh it.");
+    } else {
+      showIdentityRender(profile.render, "Rendered identity is empty.");
+    }
+    setIdentityPending(identityPending);
   };
   const loadIdentity = async (discardSelectedDraft = false) => {
     if (identityPending) return;
@@ -188,17 +278,22 @@ export function mountProfiles(
         return;
       }
       const selected = identityAgent.value;
+      const defaultAgent = settings?.defaultAgent ?? "";
       identitySettings = result.value;
       identityAgent.replaceChildren(
         ...result.value.profiles.map((profile) => {
           const option = root.createElement("option");
           option.value = profile.agentId;
-          option.textContent = `${profile.displayName} (${profile.agentId})`;
+          option.textContent = `${profile.displayName} (${profile.agentId})${
+            profile.agentId === defaultAgent ? " · default" : ""
+          }`;
           return option;
         }),
       );
       if (result.value.profiles.some((profile) => profile.agentId === selected))
         identityAgent.value = selected;
+      else if (result.value.profiles.some((profile) => profile.agentId === defaultAgent))
+        identityAgent.value = defaultAgent;
       identityStatus.textContent = result.value.profiles.length
         ? ""
         : "No identity profiles were found for the configured agents.";
@@ -363,6 +458,7 @@ export function mountProfiles(
     selectSection(section);
     dialog.showModal();
     settings = null;
+    initialProfilesPending = true;
     setPending(true);
     status.textContent = "Loading profiles…";
     try {
@@ -377,7 +473,9 @@ export function mountProfiles(
     } catch {
       status.textContent = "Could not load settings. Close and try again.";
     } finally {
+      initialProfilesPending = false;
       setPending(false);
+      if (selectedSection === "identity") void loadIdentity();
     }
   };
   open.addEventListener("click", () => void show());
@@ -429,15 +527,24 @@ export function mountProfiles(
   });
   identityAgent.addEventListener("change", populateIdentity);
   identityYaml.addEventListener("input", () => {
-    const profile = identitySettings?.profiles.find(
-      (item) => item.agentId === displayedIdentityAgent,
-    );
-    if (profile) {
+    const profile = selectedIdentity();
+    if (profile && identityDraftChanged(profile)) {
       identityDrafts.set(displayedIdentityAgent, {
         yaml: identityYaml.value,
         profileVersion: profile.profileVersion,
         sourceSha256: profile.sourceSha256,
       });
+      if (identityStatus.textContent !== "Unverified changes.")
+        identityStatus.textContent = "Unverified changes.";
+      identityValidation.textContent = "Unverified draft";
+      setIdentityIssues([]);
+      setIdentityWarnings([]);
+      showIdentityRender(null, "Preview is stale. Verify the current draft to refresh it.");
+    } else if (profile) {
+      identityDrafts.delete(displayedIdentityAgent);
+      identityStatus.textContent = "";
+      showIdentityHealth(profile);
+      showIdentityRender(profile.render, "Rendered identity is empty.");
     }
     setIdentityPending(identityPending);
   });
@@ -452,17 +559,33 @@ export function mountProfiles(
     identityStatus.textContent = "Verifying draft…";
     try {
       const result = await api.identity.verify({ yaml: identityYaml.value });
-      if (!result.ok) identityStatus.textContent = result.error.message;
-      else {
+      if (!result.ok) {
+        identityStatus.textContent = result.error.message;
+        identityValidation.textContent = "Draft could not be verified";
+        setIdentityIssues([]);
+        setIdentityWarnings([]);
+        showIdentityRender(null, "Draft could not be verified.");
+      } else {
+        identityValidation.textContent = result.value.validationOk
+          ? result.value.warnings.length
+            ? "Draft valid with warnings"
+            : "Draft valid"
+          : "Draft needs attention";
+        setIdentityIssues(result.value.issues);
+        setIdentityWarnings(result.value.warnings);
         identityStatus.textContent = result.value.validationOk
-          ? result.value.issues.length
-            ? `Draft is valid with warnings: ${result.value.issues.join("; ")}`
+          ? result.value.warnings.length
+            ? `Draft is valid with warnings: ${result.value.warnings.join("; ")}`
             : "Draft is valid and renderable."
           : result.value.issues.join("; ");
-        identityPreview.textContent = result.value.render?.text ?? "No rendered preview.";
+        showIdentityRender(result.value.render, "Draft is not renderable.");
       }
     } catch {
       identityStatus.textContent = "Could not verify the identity draft.";
+      identityValidation.textContent = "Draft could not be verified";
+      setIdentityIssues([]);
+      setIdentityWarnings([]);
+      showIdentityRender(null, "Draft could not be verified.");
     } finally {
       setIdentityPending(false);
     }
@@ -478,7 +601,10 @@ export function mountProfiles(
         expectedProfileVersion: profile.profileVersion,
         expectedSourceSha256: profile.sourceSha256 ?? "missing",
       });
-      if (!result.ok) identityStatus.textContent = result.error.message;
+      if (!result.ok)
+        identityStatus.textContent = `${result.error.message} Your draft is still here. ${
+          result.error.retryable ? "Retry, or copy it" : "Copy it"
+        } before refreshing the source.`;
       else {
         identityDrafts.delete(result.value.agentId);
         identitySettings = {
@@ -486,14 +612,15 @@ export function mountProfiles(
             item.agentId === result.value.agentId ? result.value : item,
           ),
         };
+        populateIdentity();
         identityStatus.textContent =
           "Identity saved. Prompt changes apply on the next turn; /identity reload restarts OpenMinion to refresh cached policy and tool constraints.";
       }
     } catch {
-      identityStatus.textContent = "Could not save identity. Reload Settings and try again.";
+      identityStatus.textContent =
+        "Could not save identity. Your draft is still here. Retry, or copy it before refreshing the source.";
     } finally {
       setIdentityPending(false);
-      if (identityStatus.textContent?.startsWith("Identity saved")) populateIdentity();
     }
   });
   removeKey.addEventListener("change", () => {

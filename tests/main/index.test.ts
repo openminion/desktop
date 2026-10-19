@@ -235,6 +235,11 @@ describe("desktop main boundary", () => {
         ok: true,
         value: { sessionId: "session-1", traceId: "trace-1", requestId: "reconnect-1" },
       }),
+      listTurnInputs: vi.fn().mockResolvedValue({ ok: true, value: [] }),
+      enqueueTurnInput: vi.fn(),
+      dropTurnInput: vi.fn(),
+      moveTurnInput: vi.fn(),
+      cancelAndRunNext: vi.fn(),
     };
     const supervisor = {
       inspect: vi.fn().mockResolvedValue({ ok: true, value: { text: "daemon status" } }),
@@ -334,6 +339,11 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.sessionsEvents,
       IPC_CHANNELS.turnsCancel,
       IPC_CHANNELS.turnsReconnect,
+      IPC_CHANNELS.turnsQueueList,
+      IPC_CHANNELS.turnsQueueEnqueue,
+      IPC_CHANNELS.turnsQueueDrop,
+      IPC_CHANNELS.turnsQueueMove,
+      IPC_CHANNELS.turnsCancelAndRunNext,
       IPC_CHANNELS.approvalsDecide,
       IPC_CHANNELS.artifactsList,
       IPC_CHANNELS.artifactsRead,
@@ -395,6 +405,11 @@ describe("desktop main boundary", () => {
     expect(client.submit).not.toHaveBeenCalled();
     for (const channel of [
       IPC_CHANNELS.turnsReconnect,
+      IPC_CHANNELS.turnsQueueList,
+      IPC_CHANNELS.turnsQueueEnqueue,
+      IPC_CHANNELS.turnsQueueDrop,
+      IPC_CHANNELS.turnsQueueMove,
+      IPC_CHANNELS.turnsCancelAndRunNext,
       IPC_CHANNELS.draftsLoad,
       IPC_CHANNELS.draftsSave,
       IPC_CHANNELS.runtimeControl,
@@ -432,13 +447,34 @@ describe("desktop main boundary", () => {
     ).toMatchObject({ ok: false, error: { code: "invalid_request" } });
     const copyText = mocks.ipcHandlers.get(IPC_CHANNELS.copyText)!;
     const { clipboard } = await import("electron");
-    expect(copyText(event, { text: "Wrong shape" })).toMatchObject({ ok: false });
-    expect(copyText(event, "x".repeat(1024 * 1024 + 1))).toMatchObject({ ok: false });
+    expect(await copyText(event, { text: "Wrong shape" })).toMatchObject({ ok: false });
+    expect(await copyText(event, "x".repeat(1024 * 1024 + 1))).toMatchObject({ ok: false });
     expect(clipboard.writeText).not.toHaveBeenCalled();
-    expect(copyText(event, "Local reply")).toEqual({ ok: true, value: null });
+    expect(await copyText(event, "Local reply")).toEqual({ ok: true, value: null });
     expect(clipboard.writeText).toHaveBeenCalledWith("Local reply");
-    expect(copyText({ senderFrame: null }, "Denied")).toMatchObject({ ok: false });
+    expect(await copyText({ senderFrame: null }, "Denied")).toMatchObject({ ok: false });
     expect(clipboard.writeText).toHaveBeenCalledTimes(1);
+    let finishCopy!: () => void;
+    vi.mocked(clipboard.writeText).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCopy = resolve;
+        }),
+    );
+    let copyFinished = false;
+    const pendingCopy = Promise.resolve(copyText(event, "Pending reply")).then((result) => {
+      copyFinished = true;
+      return result;
+    });
+    await Promise.resolve();
+    expect(copyFinished).toBe(false);
+    finishCopy();
+    expect(await pendingCopy).toEqual({ ok: true, value: null });
+    vi.mocked(clipboard.writeText).mockRejectedValueOnce(new Error("Clipboard unavailable"));
+    expect(await copyText(event, "Failed reply")).toMatchObject({
+      ok: false,
+      error: { code: "clipboard_unavailable" },
+    });
     client.create.mockResolvedValue({ ok: true, value: { sessionId: "session-1" } });
     client.load.mockResolvedValue({
       ok: true,
@@ -1463,6 +1499,11 @@ describe("desktop main boundary", () => {
       readArtifact: vi.fn(),
       detachArtifact: vi.fn(),
       restoreArtifact: vi.fn(),
+      listTurnInputs: vi.fn().mockResolvedValue({ ok: true, value: [] }),
+      enqueueTurnInput: vi.fn(),
+      dropTurnInput: vi.fn(),
+      moveTurnInput: vi.fn(),
+      cancelAndRunNext: vi.fn(),
       validateSessionClose: vi.fn(),
       validateTurnSubmission: vi.fn(),
       submit,
@@ -1740,6 +1781,10 @@ class CaptureFixtureDocument {
     "chat-detail",
     "chat-update",
     "chat-elapsed",
+    "turn-queue",
+    "turn-queue-status",
+    "turn-queue-list",
+    "run-next",
     "composer-hint",
     "composer-form",
     "draft-status",

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { app } from "electron";
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "openminion-identity-electron-"));
@@ -98,9 +98,33 @@ async function check() {
       "Verification and save feedback stays directly below the editor",
     );
     assert.equal(await evaluate("document.querySelector('#identity-runtime').hidden"), true);
+    assert.equal(
+      await evaluate("document.querySelector('#identity-source').textContent"),
+      "Direct YAML",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#identity-source-status').textContent"),
+      "In sync",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#identity-sidecars').textContent"),
+      "In sync",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#identity-reload').textContent"),
+      "Discard draft and refresh source",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#identity-render-budget').textContent"),
+      "42/180 tokens",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#identity-render-omitted').textContent"),
+      "personality.formatting",
+    );
     assert.match(
-      await evaluate("document.querySelector('#identity-metadata').textContent"),
-      /source clean/,
+      await evaluate("document.querySelector('#identity-render-warnings').textContent"),
+      /non-critical fields omitted/,
     );
 
     for (const [width, height] of [
@@ -170,9 +194,24 @@ async function check() {
     await waitFor("document.querySelector('#identity-status').textContent.includes('valid')");
     assert.equal(await evaluate("document.querySelector('#identity-agent').disabled"), false);
     assert.match(
-      await evaluate("document.querySelector('#identity-preview').textContent"),
+      await evaluate("document.querySelector('#identity-preview').value"),
       /Verified draft/,
     );
+    const savedYaml = `${editedYaml}note: changed after verify\n`;
+    await evaluate(`(() => {
+    const editor = document.querySelector('#identity-yaml');
+    editor.value = ${JSON.stringify(savedYaml)};
+    editor.dispatchEvent(new Event('input', {bubbles:true}));
+  })()`);
+    assert.equal(
+      await evaluate("document.querySelector('#identity-status').textContent"),
+      "Unverified changes.",
+    );
+    assert.match(
+      await evaluate("document.querySelector('#identity-preview').value"),
+      /Preview is stale/,
+    );
+    assert.equal(await evaluate("document.querySelector('#identity-save').disabled"), false);
     assert.equal(
       await evaluate(`(() => {
       document.querySelector('#identity-save').click();
@@ -187,7 +226,7 @@ async function check() {
     const readback = await evaluate("window.openminion.identity.read()");
     assert.equal(await evaluate("document.querySelector('#identity-agent').disabled"), false);
     assert.equal(readback.ok, true);
-    assert.equal(readback.value.profiles[0].authoredYaml, editedYaml);
+    assert.equal(readback.value.profiles[0].authoredYaml, savedYaml);
 
     writeFileSync(
       statePath,

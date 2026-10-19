@@ -7,6 +7,27 @@ import type { RunCommand } from "../../src/main/installation.js";
 import type { ProfileSaveInput } from "../../src/shared/profiles.js";
 
 const roots: string[] = [];
+function providerCatalog(
+  id: string,
+  label: string,
+  credentialEnv: string | null,
+  baseUrl: string,
+  model: string,
+) {
+  return JSON.stringify({
+    providers: [
+      {
+        id,
+        label,
+        credential_env: credentialEnv,
+        requires_credential: Boolean(credentialEnv),
+        base_url: baseUrl,
+        recommended_models: [model],
+      },
+    ],
+  });
+}
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -61,6 +82,32 @@ async function setup() {
 }
 
 describe("profile settings", () => {
+  it("rejects a provider catalog outside the JSON contract", async () => {
+    const { profiles, run } = await setup();
+    run.mockResolvedValue({ exitCode: 0, stderr: "", stdout: "minimax: MiniMax" });
+
+    await expect(profiles.presets("openminion")).rejects.toThrow("setup_unavailable");
+  });
+
+  it("accepts a credential-free provider from the JSON catalog", async () => {
+    const { profiles, run } = await setup();
+    run.mockResolvedValue({
+      exitCode: 0,
+      stderr: "",
+      stdout: providerCatalog("ollama", "Ollama", null, "http://127.0.0.1:11434", "llama3.1"),
+    });
+
+    await expect(profiles.presets("openminion")).resolves.toEqual([
+      {
+        id: "ollama",
+        label: "Ollama",
+        requiresKey: false,
+        model: "llama3.1",
+        baseUrl: "http://127.0.0.1:11434",
+      },
+    ]);
+  });
+
   it("offers setup for empty profiles and uses the CLI catalog and setup owner with private credentials", async () => {
     const { profiles, path, run, config } = await setup();
     await writeFile(path, JSON.stringify({ ...config, default_agent: "", agents: {} }));
@@ -71,8 +118,13 @@ describe("profile settings", () => {
         return {
           exitCode: 0,
           stderr: "",
-          stdout:
-            "Supported setup providers:\n\nminimax: MiniMax\n  Credential: MINIMAX_API_KEY\n  Endpoint: https://api.minimax.io/v1\n  Recommended models: MiniMax-M2.7\n\n",
+          stdout: providerCatalog(
+            "minimax",
+            "MiniMax",
+            "MINIMAX_API_KEY",
+            "https://api.minimax.io/v1",
+            "MiniMax-M2.7",
+          ),
         };
       const candidate = args[args.indexOf("--config") + 1];
       const value = JSON.parse(await readFile(candidate, "utf8"));
@@ -98,6 +150,7 @@ describe("profile settings", () => {
         baseUrl: "https://api.minimax.io/v1",
       },
     ]);
+    expect(run.mock.calls[0]?.[1]).toEqual(["setup", "--list-providers", "--json"]);
     const saved = await profiles.setup(
       {
         revision: initial.revision,
@@ -128,8 +181,13 @@ describe("profile settings", () => {
         return {
           exitCode: 0,
           stderr: "",
-          stdout:
-            "openai: OpenAI\n  Credential: MODEL_API_KEY\n  Endpoint: https://example.com/v1\n  Recommended models: test-model\n",
+          stdout: providerCatalog(
+            "openai",
+            "OpenAI",
+            "MODEL_API_KEY",
+            "https://example.com/v1",
+            "test-model",
+          ),
         };
       const candidate = args[args.indexOf("--config") + 1];
       const value = JSON.parse(await readFile(candidate, "utf8"));
@@ -218,8 +276,13 @@ describe("profile settings", () => {
           return {
             exitCode: 0,
             stderr: "",
-            stdout:
-              "anthropic: Anthropic\n  Credential: ANTHROPIC_API_KEY\n  Endpoint: https://example.com/v1\n  Recommended models: test-model\n",
+            stdout: providerCatalog(
+              "anthropic",
+              "Anthropic",
+              "ANTHROPIC_API_KEY",
+              "https://example.com/v1",
+              "test-model",
+            ),
           };
         const candidate = args[args.indexOf("--config") + 1];
         const value = JSON.parse(await readFile(candidate, "utf8"));
@@ -267,8 +330,13 @@ describe("profile settings", () => {
         return {
           exitCode: 0,
           stderr: "",
-          stdout:
-            "minimax: MiniMax\n  Credential: MINIMAX_API_KEY\n  Endpoint: https://api.minimax.io/v1\n  Recommended models: MiniMax-M2.7\n",
+          stdout: providerCatalog(
+            "minimax",
+            "MiniMax",
+            "MINIMAX_API_KEY",
+            "https://api.minimax.io/v1",
+            "MiniMax-M2.7",
+          ),
         };
       expect(args).not.toContain("--check-provider");
       expect(timeout).toBe(30_000);
@@ -309,8 +377,13 @@ describe("profile settings", () => {
         ? {
             exitCode: 0,
             stderr: "",
-            stdout:
-              "minimax: MiniMax\n  Credential: MINIMAX_API_KEY\n  Endpoint: https://api.minimax.io/v1\n  Recommended models: MiniMax-M2.7\n",
+            stdout: providerCatalog(
+              "minimax",
+              "MiniMax",
+              "MINIMAX_API_KEY",
+              "https://api.minimax.io/v1",
+              "MiniMax-M2.7",
+            ),
           }
         : { exitCode: 2, stderr: "private-error", stdout: "" },
     );

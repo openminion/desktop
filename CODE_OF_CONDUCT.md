@@ -36,8 +36,9 @@ Possible actions include:
 
 ## Reporting
 
-Report concerns through the maintainers' private contact method or request a
-private reporting channel.
+Report concerns privately to [hello@openminion.com](mailto:hello@openminion.com)
+with the subject “Desktop conduct report”. Include the relevant project space,
+what happened, and any supporting links.
 
 ## Attribution
 

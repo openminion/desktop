@@ -21,13 +21,17 @@ import {
   statusView,
   waitingTime,
 } from "../../src/renderer/app.js";
-import { renderTasks } from "../../src/renderer/tasks.js";
 import { renderMarkdown } from "../../src/renderer/markdown.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
+import {
+  localDateTimeToIso,
+  renderTasks,
+  schedulerReadinessText,
+} from "../../src/renderer/tasks.js";
 import type {
-  ArtifactCatalogItemV1,
   ApprovalDecisionV1,
   ApprovalEventV1,
+  ArtifactCatalogItemV1,
   CaptureEventV1,
   CaptureStateV1,
   ClientResult,
@@ -38,6 +42,7 @@ import type {
   ObservationStatusV1,
   SessionSummaryV1,
   TurnEventV1,
+  TurnInputQueueEntry,
 } from "../../src/shared/contracts.js";
 
 function mount(api: NativeApi, root: Document): Promise<void> {
@@ -84,6 +89,11 @@ function mount(api: NativeApi, root: Document): Promise<void> {
     }),
     control: vi.fn(),
   };
+  api.turns.listQueue ??= async () => ({ ok: true, value: [] });
+  api.turns.enqueue ??= vi.fn();
+  api.turns.drop ??= vi.fn();
+  api.turns.move ??= vi.fn();
+  api.turns.cancelAndRunNext ??= vi.fn();
   return mountRenderer(api, root);
 }
 
@@ -621,6 +631,8 @@ describe("renderer computer observation", () => {
     expect(html).toContain('id="identity-verify"');
     expect(html).toContain('id="identity-save"');
     expect(html).toContain('id="identity-preview"');
+    expect(html).toContain('aria-describedby="identity-status identity-issues identity-warnings"');
+    expect(html).toMatch(/id="identity-preview"[^>]*readonly/);
   });
 });
 
@@ -638,6 +650,197 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it("queues a message during an active turn and can stop to run it next", async () => {
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    let emit!: (event: TurnEventV1) => void;
+    const entry = {
+      queueId: "queue-1",
+      sessionId: "session-1",
+      agentId: "openminion",
+      text: "Run the checks next",
+      status: "queued" as const,
+      statusVersion: 1,
+      createdAt: "2026-08-19T00:00:02Z",
+      traceId: null,
+    };
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.turns.subscribe = vi.fn((listener) => {
+      emit = listener;
+      return vi.fn();
+    });
+    api.turns.listQueue = vi.fn().mockResolvedValue({ ok: true, value: [] });
+    api.turns.enqueue = vi.fn().mockResolvedValue({ ok: true, value: entry });
+    api.turns.submit = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        sessionId: "session-1",
+        traceId: "trace-current",
+        requestId: "request-current",
+      },
+    });
+    api.turns.cancelAndRunNext = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { sessionId: "session-1", traceId: "trace-next", requestId: "request-next" },
+    });
+    const page = new FixtureDocument();
+    await mount(api, page.asDocument());
+    page.element("composer").value = "Start the current turn";
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+    emit({
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-current",
+      requestId: "request-current",
+    });
+
+    page.element("composer").value = entry.text;
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.enqueue).toHaveBeenCalledOnce());
+    expect(api.turns.enqueue).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      agentId: "openminion",
+      text: entry.text,
+    });
+    expect(page.element("turn-queue").hidden).toBe(false);
+    expect(
+      page
+        .element("turn-queue-list")
+        .descendants()
+        .map((item) => item.textContent),
+    ).toContain(entry.text);
+    expect(page.element("run-next").hidden).toBe(false);
+
+    page.element("run-next").click();
+    await vi.waitFor(() => expect(api.turns.cancelAndRunNext).toHaveBeenCalledOnce());
+    expect(api.turns.cancelAndRunNext).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      traceId: "trace-current",
+      agentId: "openminion",
+      expectedQueueId: "queue-1",
+    });
+    emit({
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-next",
+      requestId: "request-next",
+    });
+    emit({
+      schemaVersion: 1,
+      kind: "response",
+      sessionId: "session-1",
+      traceId: "trace-next",
+      finalText: "Queued reply",
+      errors: [],
+      usage: {
+        usageAvailable: false,
+        inputTokens: null,
+        outputTokens: null,
+        totalTokens: null,
+        llmCalls: null,
+        durationMs: null,
+        costUsd: null,
+        costSource: "unavailable",
+      },
+    });
+    emit({
+      schemaVersion: 1,
+      kind: "done",
+      sessionId: "session-1",
+      traceId: "trace-next",
+      outcome: "complete",
+    });
+    await vi.waitFor(() =>
+      expect(
+        page
+          .element("timeline")
+          .descendants()
+          .map((item) => item.textContent),
+      ).toContain("Queued reply"),
+    );
+  });
+
+  it("keeps a late queue response with its original conversation", async () => {
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    let emit!: (event: TurnEventV1) => void;
+    let finishEnqueue!: (result: ClientResult<TurnInputQueueEntry>) => void;
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Other conversation" },
+    ];
+    const api = approvalRendererApi(vi.fn(), sessions);
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.turns.subscribe = vi.fn((listener) => {
+      emit = listener;
+      return vi.fn();
+    });
+    api.turns.listQueue = vi.fn().mockResolvedValue({ ok: true, value: [] });
+    api.turns.submit = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        sessionId: "session-1",
+        traceId: "trace-current",
+        requestId: "request-current",
+      },
+    });
+    api.turns.enqueue = vi.fn(
+      () =>
+        new Promise<ClientResult<TurnInputQueueEntry>>((resolve) => {
+          finishEnqueue = resolve;
+        }),
+    );
+    const page = new FixtureDocument();
+    await mount(api, page.asDocument());
+    page.element("composer").value = "Start";
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+    emit({
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-current",
+      requestId: "request-current",
+    });
+    page.element("composer").value = "Queued elsewhere";
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.enqueue).toHaveBeenCalledOnce());
+
+    page
+      .sessionButtons()
+      .find((button) => button.textContent === "Other conversation")!
+      .click();
+    await vi.waitFor(() =>
+      expect(page.element("current-title").textContent).toBe("Other conversation"),
+    );
+    finishEnqueue({
+      ok: true,
+      value: {
+        queueId: "queue-1",
+        sessionId: "session-1",
+        agentId: "openminion",
+        text: "Queued elsewhere",
+        status: "queued",
+        statusVersion: 1,
+        createdAt: "2026-08-19T00:00:02Z",
+        traceId: null,
+      },
+    });
+
+    await vi.waitFor(() => expect(page.element("turn-queue").hidden).toBe(true));
+    expect(page.element("current-title").textContent).toBe("Other conversation");
+  });
+
   it.each([
     [
       "verified",
@@ -1124,6 +1327,137 @@ describe("renderer status view", () => {
     }
   });
 
+  it("browses the complete stored skill catalog without losing drafts or accepting stale reports", async () => {
+    const session = sessionSummary();
+    const other = { ...session, sessionId: "other" };
+    const read = vi.fn();
+    const api = {
+      app: {
+        info: async () => ({ shellVersion: "test" }),
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+      },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list: async () => ({
+          ok: true,
+          value: { sessions: [session, other], nextCursor: null, hasMore: false },
+        }),
+        load: async ({ sessionId }: { sessionId: string }) => ({
+          ok: true,
+          value: {
+            session: sessionId === other.sessionId ? other : session,
+            messages: [],
+            nextMessageCursor: null,
+            messagesHasMore: false,
+          },
+        }),
+        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      },
+      reports: { read },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    read.mockResolvedValue({ ok: true, value: { kind: "commands", commands: [] } });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const skills = [...Array.from({ length: 24 }, (_, i) => `skill-${i}`), "--help"];
+      const catalog = { ok: true, value: { kind: "skills", agentId: "fresh-agent", skills } };
+      read.mockResolvedValue(catalog);
+      page.element("composer").value = "/skills";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.children).toHaveLength(25),
+      );
+      expect(page.element("command-title").textContent).toBe("Stored skills for fresh-agent");
+      page.element("conversation").scrollHeight = 1000;
+      page.element("conversation").clientHeight = 400;
+      page.element("conversation").dispatch("scroll");
+      expect(page.element("jump-latest").hidden).toBe(true);
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
+      page.element("command-result").children[1]!.click();
+      await vi.waitFor(() =>
+        expect(api.app.copyText).toHaveBeenCalledWith(
+          `Stored skills for fresh-agent:\n${skills.join("\n")}`,
+        ),
+      );
+      page.element("composer").value = "Keep my skill draft";
+      page.element("composer").dispatch("input");
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "skills", text: "Skill: Help reference" },
+      });
+      page.element("command-result").children[0]!.children[24]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "Skill: Help reference",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "--help" });
+      expect(page.element("composer").value).toBe("Keep my skill draft");
+      expect(page.element("command-title").textContent).toBe("Skill details");
+      page.element("command-result").children[2]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.children).toHaveLength(25),
+      );
+      expect(page.element("composer").value).toBe("Keep my skill draft");
+      read.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "report_unavailable",
+          message: "Skill unavailable",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      page.element("command-result").children[0]!.children[24]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Skill unavailable"),
+      );
+      expect(page.element("command-result").children[2]?.textContent).toBe("Back to catalog");
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "skills", agentId: "fresh-agent", skills: [] },
+      });
+      page.element("command-result").children[2]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "No stored skills for this agent.",
+        ),
+      );
+      expect(page.element("composer").value).toBe("Keep my skill draft");
+      let finishSkills!: (value: unknown) => void;
+      for (const action of ["dismiss", "replace", "selection"]) {
+        read.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishSkills = resolve;
+            }),
+        );
+        page.element("composer").value = "/skills";
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        if (action === "dismiss") {
+          page.element("close-command").click();
+          expect(page.element("jump-latest").hidden).toBe(false);
+        } else if (action === "replace") {
+          page.element("composer").value = "/help";
+          page.element("composer").dispatch("keydown", { key: "Enter" });
+        } else {
+          page.sessionButtons()[1]!.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        finishSkills(catalog);
+        await Promise.resolve();
+        expect(page.element("command-result").children[0]?.children).toHaveLength(0);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("reads fresh status without replacing chat and settles across same-session turn completion", async () => {
     const session = sessionSummary();
     const other = { ...session, sessionId: "other", title: "Other" };
@@ -1242,6 +1576,31 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("input");
       page.element("composer-form").dispatch("submit");
       await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "graph", text: "Graph readiness during turn" },
+      });
+      command("/graph status");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "Graph readiness during turn",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
+      expect(page.element("chat-status").textContent).toBe("Working…");
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "skills", agentId: "openminion", skills: ["read-only"] },
+      });
+      command("/skills");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.children[0]?.textContent).toBe(
+          "read-only",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
+      expect(page.element("chat-status").textContent).toBe("Working…");
+
       let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
       read.mockImplementationOnce(
         () =>
@@ -1902,17 +2261,23 @@ describe("renderer status view", () => {
             profileVersion: "profile-v2",
             sourceSha256: "source-v2",
             validationOk: true,
+            validationErrors: ["role.mission: stored validation error"],
+            validationWarnings: ["responsibilities are sparse"],
+            verificationOk: false,
             sourceStatus: "clean",
             verificationIssues: [],
             generatedStatus: "clean",
             generatedFiles: ["AGENT.md"],
+            generatedDriftedFiles: ["AGENT.md"],
             render: {
               text: "Mission: Write clearly.",
               purpose: "act",
               profileVersion: "profile-v2",
               renderVersion: "render-v1",
+              budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
               includedFields: ["role.mission"],
-              omittedFields: [],
+              omittedFields: ["personality.formatting"],
+              warnings: ["non-critical fields omitted to fit budget"],
             },
           },
         ],
@@ -1993,13 +2358,18 @@ describe("renderer status view", () => {
       });
       read.mockResolvedValue({
         ok: true,
-        value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
+        value: {
+          kind: "agents",
+          activeAgentId: "writer",
+          agents: [{ id: "writer", label: "Writer" }],
+        },
       });
       page.element("composer").value = "/agent Writer";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toContain("Writer"),
       );
+      expect(page.element("command-result").children[0]?.textContent).toBe("● writer — Writer");
       expect(read).toHaveBeenLastCalledWith({
         kind: "agents",
         agentFilter: "Writer",
@@ -2018,7 +2388,35 @@ describe("renderer status view", () => {
         expect(page.element("command-title").textContent).toBe("Identity verification"),
       );
       expect(page.element("command-result").children[0]?.textContent).toContain(
-        "Verification: valid",
+        "Validation: valid",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Verification: needs attention",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Generated files: AGENT.md",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Generated file drift: AGENT.md",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Source: Direct YAML",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain("Purpose: act");
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Render budget: 42/180 tokens",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Omitted fields: personality.formatting",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Validation warning: responsibilities are sparse",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Validation error: role.mission: stored validation error",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Render warning: non-critical fields omitted to fit budget",
       );
       page.element("composer").value = "/identity reload";
       page.element("composer").dispatch("keydown", { key: "Enter" });
@@ -2027,20 +2425,13 @@ describe("renderer status view", () => {
       page.element("composer").value = "/identity unknown";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Identity command");
-      read.mockResolvedValue({
-        ok: true,
-        value: { kind: "skills", text: "Skill: Example" },
-      });
+      read.mockResolvedValueOnce({ ok: true, value: { kind: "skills", text: "Skill: Example" } });
       page.element("composer").value = "/skills example";
-      page.element("composer").dispatch("input");
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe("Skill: Example"),
       );
-      expect(read).toHaveBeenLastCalledWith({
-        kind: "skills",
-        skillId: "example",
-      });
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "example" });
       read.mockResolvedValue({
         ok: true,
         value: {
@@ -2068,7 +2459,7 @@ describe("renderer status view", () => {
       );
       expect(read).toHaveBeenLastCalledWith({
         kind: "mcp",
-        agentId: session.activeAgentId,
+        sessionId: session.sessionId,
       });
       let finishReport!: (value: unknown) => void;
       read.mockImplementationOnce(
@@ -2207,7 +2598,7 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Command help");
       expect(page.element("command-result").children[0]?.textContent).toContain(
-        "/graph — Show installed OpenMinion graph help",
+        "/graph — Show graph help or check readiness",
       );
       read.mockResolvedValue({
         ok: true,
@@ -2215,13 +2606,67 @@ describe("renderer status view", () => {
       });
       page.element("composer").value = "/graph";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      expect(page.element("command-title").textContent).toBe("Graph viewer");
+      expect(page.element("command-title").textContent).toBe("Graph help");
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe(
           "usage: openminion graph",
         ),
       );
       expect(read).toHaveBeenLastCalledWith({ kind: "graph" });
+      expect(page.element("command-result").children[2]!.textContent).toBe("Check readiness");
+      page.element("composer").value = "Keep this unsent draft";
+      page.element("composer").dispatch("input");
+      read.mockResolvedValue({
+        ok: true,
+        value: { kind: "graph", text: "GraphFakos installed: no\nConfigured graph sources: none" },
+      });
+      page.element("command-result").children[2]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain(
+          "GraphFakos installed: no",
+        ),
+      );
+      expect(page.element("command-title").textContent).toBe("Graph status");
+      expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
+      expect(page.element("composer").value).toBe("Keep this unsent draft");
+      expect(page.element("command-result").children).toHaveLength(2);
+      const graphReads = read.mock.calls.length;
+      for (const text of [
+        "/graph query test",
+        "/graph status extra",
+        "/graph status --provider custom",
+      ]) {
+        page.element("composer").value = text;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        expect(page.element("command-title").textContent).toBe("Graph commands");
+      }
+      expect(read).toHaveBeenCalledTimes(graphReads);
+      read.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "report_unavailable",
+          message: "Graph unavailable",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      page.element("composer").value = "/graph status";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Graph unavailable"),
+      );
+      read.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishReport = resolve;
+          }),
+      );
+      page.element("composer").value = "/graph status";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      page.element("close-command").click();
+      finishReport({ ok: true, value: { kind: "graph", text: "Late readiness" } });
+      await Promise.resolve();
+      expect(page.element("command-panel").hidden).toBe(true);
       page.element("composer").value = "/editor";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Desktop composer");
@@ -5378,77 +5823,111 @@ describe("renderer status view", () => {
 });
 
 describe("scheduled task parity", () => {
+  it("rejects a nonexistent local time instead of normalizing it", () => {
+    const originalTimezone = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+      expect(localDateTimeToIso("2026-03-08T02:30")).toBeNull();
+      expect(localDateTimeToIso("2026-03-08T03:30")).toBe("2026-03-08T10:30:00.000Z");
+    } finally {
+      if (originalTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTimezone;
+    }
+  });
+
   it("manages durable tasks while execution readiness is degraded", async () => {
-    const control = vi.fn<NativeApi["tasks"]["control"]>(async () => ({
+    const control = vi.fn<NativeApi["tasks"]["control"]>(async (input) => ({
       ok: true,
       value: {
+        actionResult:
+          input.action === "run-now"
+            ? { action: "run-now", taskId: "task-1", runId: "run-new", state: "queued" }
+            : null,
+        refreshWarning:
+          input.action === "run-now"
+            ? "The run was queued, but OpenMinion could not refresh the task list."
+            : null,
         scheduler: {
           state: "unreachable",
           hostedBy: "daemon",
           reason: "daemon_unreachable",
           lastHeartbeatAt: null,
           checkCommand: "openminion service status cron",
+          paused: false,
+          updatedAt: "2026-09-30T11:45:00Z",
+          updatedBy: "operator",
         },
-        tasks: [
-          {
-            id: "task-1",
-            title: "Review pull requests",
-            status: "active",
-            kind: "scheduled_recurring",
-            schedule: "every:1800000ms",
-            dueAt: "2026-09-30T12:00:00Z",
-            operatorState: "running",
-            resumeAction: "continue",
-            sessionTarget: "isolated",
-            validActions: ["pause", "cancel"],
-            recentRuns: [
-              {
-                runId: "run-2",
-                state: "failed",
-                summary: null,
-                attempts: 2,
-                dueAt: "2026-09-30T11:29:00Z",
-                availableAt: "2026-09-30T11:30:00Z",
-                startedAt: "2026-09-30T11:30:00Z",
-                finishedAt: "2026-09-30T11:31:00Z",
-                isolatedSessionId: "result-session-2",
-                error: {
-                  code: "PROVIDER_UNAVAILABLE",
-                  message: "Provider unavailable",
-                },
-                delivery: {
-                  state: "not_requested",
-                  mode: "none",
-                  targets: [],
-                  error: null,
-                },
-                deliveryTargets: [],
-              },
-              {
-                runId: "run-1",
-                state: "finished",
-                summary: "Two pull requests reviewed",
-                attempts: 1,
-                dueAt: "2026-09-30T10:59:00Z",
-                availableAt: "2026-09-30T11:00:00Z",
-                startedAt: "2026-09-30T11:00:00Z",
-                finishedAt: "2026-09-30T11:01:00Z",
-                isolatedSessionId: "result-session-1",
-                error: null,
-                delivery: {
-                  state: "failed",
-                  mode: "announce",
-                  targets: ["announce:last"],
-                  error: {
-                    code: "DELIVERY_FAILED",
-                    message: "Destination unavailable",
+        tasks:
+          input.action === "run-now"
+            ? []
+            : [
+                {
+                  id: "task-1",
+                  title: "Review pull requests",
+                  status: "active",
+                  kind: "scheduled_recurring",
+                  schedule: "every:1800000ms",
+                  dueAt: "2026-09-30T12:00:00Z",
+                  operatorState: "running",
+                  resumeAction: "continue",
+                  sessionTarget: "isolated",
+                  instruction: "Review all open pull requests",
+                  updatedAt: "2026-09-30T11:40:00Z",
+                  scheduleRevision: "2026-09-30T11:40:00Z",
+                  scheduleInput: {
+                    kind: "every",
+                    value: "30",
+                    timezone: "UTC",
                   },
+                  validActions: ["pause", "cancel", "run-now", "update", "delete-history"],
+                  recentRuns: [
+                    {
+                      runId: "run-2",
+                      state: "failed",
+                      summary: null,
+                      attempts: 2,
+                      dueAt: "2026-09-30T11:29:00Z",
+                      availableAt: "2026-09-30T11:30:00Z",
+                      startedAt: "2026-09-30T11:30:00Z",
+                      finishedAt: "2026-09-30T11:31:00Z",
+                      isolatedSessionId: "result-session-2",
+                      error: {
+                        code: "PROVIDER_UNAVAILABLE",
+                        message: "Provider unavailable",
+                      },
+                      delivery: {
+                        state: "not_requested",
+                        mode: "none",
+                        targets: [],
+                        error: null,
+                      },
+                      deliveryTargets: [],
+                    },
+                    {
+                      runId: "run-1",
+                      state: "finished",
+                      summary: "Two pull requests reviewed",
+                      attempts: 1,
+                      dueAt: "2026-09-30T10:59:00Z",
+                      availableAt: "2026-09-30T11:00:00Z",
+                      startedAt: "2026-09-30T11:00:00Z",
+                      finishedAt: "2026-09-30T11:01:00Z",
+                      isolatedSessionId: "result-session-1",
+                      error: null,
+                      delivery: {
+                        state: "failed",
+                        mode: "announce",
+                        targets: ["announce:last"],
+                        error: {
+                          code: "DELIVERY_FAILED",
+                          message: "Destination unavailable",
+                        },
+                      },
+                      deliveryTargets: [],
+                    },
+                  ],
                 },
-                deliveryTargets: [],
-              },
-            ],
-          },
-        ],
+              ],
         pendingActions: [
           {
             decisionId: "decision-1",
@@ -5501,7 +5980,7 @@ describe("scheduled task parity", () => {
       );
       const result = page.element("command-result");
       const text = result.descendants().map((item) => item.textContent);
-      expect(text.join("\n")).toContain("Scheduler: unreachable");
+      expect(text.join("\n")).toContain("Global scheduler: unreachable");
       expect(text.join("\n")).toContain("Saved schedules remain manageable");
       expect(text).toEqual(
         expect.arrayContaining([
@@ -5526,6 +6005,48 @@ describe("scheduled task parity", () => {
         }),
       );
       expect(text).not.toEqual(expect.arrayContaining(["Allow", "Deny"]));
+
+      const callsBeforeCancel = control.mock.calls.length;
+      page.element("composer").value = "/tasks cancel task-1";
+      page.element("composer").dispatch("input");
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() => expect(page.element("command-title").textContent).toBe("Cancel task"));
+      expect(control).toHaveBeenCalledTimes(callsBeforeCancel);
+      page
+        .element("command-result")
+        .descendants()
+        .find((item) => item.textContent === "Confirm cancel task")!
+        .click();
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenCalledWith({
+          sessionId: session.sessionId,
+          action: "cancel",
+          taskId: "task-1",
+          confirm: true,
+        }),
+      );
+
+      const currentResult = page.element("command-result");
+      currentResult
+        .descendants()
+        .find((item) => item.textContent === "Run now")!
+        .click();
+      await vi.waitFor(() =>
+        expect(
+          page
+            .element("command-result")
+            .descendants()
+            .some((item) => item.textContent.includes("Run run-new queued for task task-1.")),
+        ).toBe(true),
+      );
+      const partialText = page
+        .element("command-result")
+        .descendants()
+        .map((item) => item.textContent)
+        .join("\n");
+      expect(partialText).toContain("Task list unavailable.");
+      expect(partialText).not.toContain("No tasks found.");
+      expect(partialText).toContain("Refresh work list");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -5546,14 +6067,254 @@ describe("scheduled task parity", () => {
       .descendants()
       .map((item) => item.textContent)
       .join("\n");
-    expect(text).not.toContain("Scheduler:");
+    expect(text).not.toContain("Global scheduler:");
     expect(text).not.toContain("degraded");
     expect(text).toContain("Schedule work");
+  });
+
+  it("reports paused dispatch before daemon readiness", () => {
+    expect(
+      schedulerReadinessText({
+        state: "ready",
+        hostedBy: "daemon",
+        reason: null,
+        lastHeartbeatAt: "2026-10-18T12:00:00Z",
+        checkCommand: null,
+        paused: true,
+        updatedAt: "scheduler-revision-1",
+        updatedBy: "operator",
+      }),
+    ).toBe("Scheduled work is paused. Saved schedules will not dispatch until resumed.");
+  });
+
+  it("renders exact operational controls, confirms history deletion, and opens run results", async () => {
+    const page = new FixtureDocument();
+    const container = page.createElement("div");
+    const onAction = vi.fn();
+    const onOpenSession = vi.fn(async () => undefined);
+    renderTasks(
+      page.asDocument(),
+      container as unknown as HTMLElement,
+      {
+        scheduler: {
+          state: "ready",
+          hostedBy: "daemon",
+          reason: null,
+          lastHeartbeatAt: "2026-10-18T12:00:00Z",
+          checkCommand: null,
+          paused: false,
+          updatedAt: "scheduler-revision-1",
+          updatedBy: "operator",
+        },
+        tasks: [
+          {
+            id: "task-1",
+            title: "Review pull requests",
+            status: "active",
+            kind: "scheduled_recurring",
+            schedule: "every:1800000ms",
+            dueAt: "2026-10-18T12:30:00Z",
+            operatorState: "running",
+            resumeAction: null,
+            sessionTarget: "isolated",
+            instruction: "Review open pull requests",
+            scheduleRevision: "task-revision-1",
+            scheduleInput: { kind: "every", value: "30", timezone: "UTC" },
+            validActions: ["cancel", "run-now", "update", "delete-history"],
+            recentRuns: [
+              {
+                runId: "run-1",
+                state: "finished",
+                summary: "Review complete",
+                attempts: 1,
+                dueAt: "2026-10-18T11:30:00Z",
+                availableAt: "2026-10-18T11:30:00Z",
+                startedAt: "2026-10-18T11:30:01Z",
+                finishedAt: "2026-10-18T11:31:00Z",
+                isolatedSessionId: "result-session-1",
+                error: null,
+                delivery: null,
+                deliveryTargets: [],
+              },
+              {
+                runId: "run-2",
+                state: "finished",
+                summary: "Second review complete",
+                attempts: 1,
+                dueAt: "2026-10-18T12:00:00Z",
+                availableAt: "2026-10-18T12:00:00Z",
+                startedAt: "2026-10-18T12:00:01Z",
+                finishedAt: "2026-10-18T12:01:00Z",
+                isolatedSessionId: "result-session-2",
+                error: null,
+                delivery: null,
+                deliveryTargets: [],
+              },
+            ],
+          },
+        ],
+        pendingActions: [],
+      },
+      false,
+      onAction,
+      vi.fn(),
+      onOpenSession,
+    );
+    const descendants = container.descendants();
+    descendants.find((item) => item.textContent === "Run now")!.click();
+    expect(onAction).toHaveBeenCalledWith({ action: "run-now", taskId: "task-1" });
+
+    const deleteHistory = descendants.find((item) => item.textContent === "Delete run history")!;
+    deleteHistory.click();
+    expect(deleteHistory.textContent).toBe("Confirm delete run history");
+    expect(deleteHistory.getAttribute("aria-label")).toBe(
+      "Confirm delete run history Review pull requests",
+    );
+    expect(onAction).toHaveBeenCalledTimes(1);
+    deleteHistory.click();
+    expect(onAction).toHaveBeenCalledWith({
+      action: "delete-history",
+      taskId: "task-1",
+      confirm: true,
+    });
+
+    onAction.mockClear();
+    const cancel = descendants.find((item) => item.textContent === "Cancel")!;
+    cancel.click();
+    expect(cancel.textContent).toBe("Confirm cancel task");
+    expect(cancel.getAttribute("aria-label")).toBe("Confirm cancel task Review pull requests");
+    expect(onAction).not.toHaveBeenCalled();
+    cancel.click();
+    expect(onAction).toHaveBeenCalledWith({ action: "cancel", taskId: "task-1", confirm: true });
+
+    const update = descendants.find((item) => item.textContent === "Update")!;
+    expect(update.getAttribute("aria-label")).toBe("Update Review pull requests");
+    update.click();
+    const updateForm = descendants.find(
+      (item) =>
+        item.tagName === "form" &&
+        item.descendants().some((child) => child.textContent === "Save update"),
+    )!;
+    const interval = updateForm
+      .descendants()
+      .find((item) => item.tagName === "input" && item.value === "30")!;
+    expect(interval.step).toBe("any");
+    expect(Number(interval.min) * 60).toBeCloseTo(10);
+    updateForm.dispatch("submit");
+    expect(onAction).toHaveBeenCalledWith({
+      action: "update",
+      taskId: "task-1",
+      update: {
+        instruction: "Review open pull requests",
+        kind: "every",
+        value: "30",
+        timezone: "UTC",
+      },
+      expectedUpdatedAt: "task-revision-1",
+    });
+
+    descendants.find((item) => item.textContent === "Refresh scheduler status")!.click();
+    expect(onAction).toHaveBeenCalledWith({ action: "scheduler-status" });
+    const pause = descendants.find(
+      (item) => item.textContent === "Pause scheduling for all agents",
+    )!;
+    pause.click();
+    expect(descendants.map((item) => item.textContent).join("\n")).toContain(
+      "Enter a reason before pausing the scheduler.",
+    );
+    const reason = descendants.find(
+      (item) =>
+        item.tagName === "input" &&
+        item.placeholder === "Reason for pausing all scheduled task dispatch",
+    )!;
+    reason.value = "Provider maintenance";
+    pause.click();
+    expect(pause.textContent).toBe("Confirm pause for all agents");
+    expect(onAction).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: "scheduler-pause" }),
+    );
+    pause.click();
+    expect(onAction).toHaveBeenCalledWith({
+      action: "scheduler-pause",
+      reason: "Provider maintenance",
+      expectedUpdatedAt: "scheduler-revision-1",
+      confirm: true,
+    });
+
+    const resultButtons = descendants.filter(
+      (item) => item.textContent === "Open result conversation",
+    );
+    expect(resultButtons.map((item) => item.getAttribute("aria-label"))).toEqual([
+      "Open result conversation for run run-1",
+      "Open result conversation for run run-2",
+    ]);
+    resultButtons[1]!.click();
+    await vi.waitFor(() => expect(onOpenSession).toHaveBeenCalledWith("result-session-2"));
+  });
+
+  it("submits a one-time local schedule as the same UTC instant", () => {
+    const page = new FixtureDocument();
+    const container = page.createElement("div");
+    const onAction = vi.fn();
+    const at = "2030-01-01T09:00:00.000Z";
+    const instant = new Date(at);
+    const localValue = new Date(instant.getTime() - instant.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 16);
+    renderTasks(
+      page.asDocument(),
+      container as unknown as HTMLElement,
+      {
+        scheduler: null,
+        tasks: [
+          {
+            id: "task-at",
+            title: "One-time work",
+            status: "active",
+            kind: "scheduled_one_time",
+            schedule: `at:${at}`,
+            dueAt: at,
+            operatorState: "running",
+            resumeAction: null,
+            sessionTarget: "isolated",
+            instruction: "One-time work",
+            scheduleRevision: "revision-at",
+            scheduleInput: { kind: "at", value: localValue, timezone: "UTC" },
+            validActions: ["update"],
+            recentRuns: [],
+          },
+        ],
+        pendingActions: [],
+      },
+      false,
+      onAction,
+      vi.fn(),
+    );
+    const descendants = container.descendants();
+    descendants.find((item) => item.textContent === "Update")!.click();
+    const form = descendants.find(
+      (item) =>
+        item.tagName === "form" &&
+        item.descendants().some((child) => child.textContent === "Save update"),
+    )!;
+    form.dispatch("submit");
+    expect(onAction).toHaveBeenCalledWith({
+      action: "update",
+      taskId: "task-at",
+      update: {
+        instruction: "One-time work",
+        kind: "at",
+        value: at,
+        timezone: "UTC",
+      },
+      expectedUpdatedAt: "revision-at",
+    });
   });
 
   it("keeps conversation copy distinct from scheduled task copy", () => {
     const html = readFileSync(new URL("../../src/renderer/index.html", import.meta.url), "utf8");
     const app = readFileSync(new URL("../../src/renderer/app.ts", import.meta.url), "utf8");
+    const tasks = readFileSync(new URL("../../src/renderer/tasks.ts", import.meta.url), "utf8");
     for (const text of [
       "New task",
       "Search tasks",
@@ -5575,7 +6336,7 @@ describe("scheduled task parity", () => {
     expect(html).toContain("Search conversations");
     expect(html).toContain('aria-label="Conversations"');
     expect(html).toContain('aria-label="Conversation outputs"');
-    expect(`${html}\n${app}`).toContain("Scheduled work");
+    expect(`${html}\n${app}\n${tasks}`).toContain("Scheduled work");
   });
 });
 
@@ -5611,6 +6372,9 @@ class FixtureElement {
   alt = "";
   title = "";
   type = "";
+  min = "";
+  step = "";
+  placeholder = "";
   style: Record<string, string> = {};
   dataset: Record<string, string> = {};
   scrollTop = 0;
@@ -5762,6 +6526,10 @@ class FixtureDocument {
     "chat-detail",
     "chat-update",
     "chat-elapsed",
+    "turn-queue",
+    "turn-queue-status",
+    "turn-queue-list",
+    "run-next",
     "composer-hint",
     "composer-form",
     "composer",

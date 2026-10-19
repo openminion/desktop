@@ -240,7 +240,17 @@ describe("preload surface", () => {
       "close",
       "events",
     ]);
-    expect(Object.keys(api.turns)).toEqual(["submit", "cancel", "reconnect", "subscribe"]);
+    expect(Object.keys(api.turns)).toEqual([
+      "submit",
+      "cancel",
+      "reconnect",
+      "listQueue",
+      "enqueue",
+      "drop",
+      "move",
+      "cancelAndRunNext",
+      "subscribe",
+    ]);
     expect(Object.keys(api.approvals)).toEqual(["decide"]);
     expect(Object.keys(api.artifacts)).toEqual(["list", "read", "detach", "restore"]);
     expect(Object.keys(api.files)).toEqual(["pick", "list", "import", "release"]);
@@ -314,6 +324,21 @@ describe("preload surface", () => {
     await api.sessions.events({ sessionId: "session-1" });
     await api.turns.submit({ sessionId: "session-1", message: "Hello" });
     await api.turns.cancel({ sessionId: "session-1", traceId: "trace-1" });
+    await api.turns.listQueue({ sessionId: "session-1" });
+    await api.turns.enqueue({ sessionId: "session-1", agentId: "writer", text: "Next" });
+    await api.turns.drop({ sessionId: "session-1", queueId: "queue-1", statusVersion: 1 });
+    await api.turns.move({
+      sessionId: "session-1",
+      queueId: "queue-2",
+      statusVersion: 1,
+      beforeQueueId: "queue-1",
+    });
+    await api.turns.cancelAndRunNext({
+      sessionId: "session-1",
+      traceId: "trace-1",
+      agentId: "writer",
+      expectedQueueId: "queue-2",
+    });
     await api.approvals.decide({
       sessionId: "session-1",
       traceId: "trace-1",
@@ -383,74 +408,99 @@ describe("preload surface", () => {
       sessionId: "session-1",
       traceId: "trace-1",
     });
-    expect(invoke).toHaveBeenNthCalledWith(10, IPC_CHANNELS.approvalsDecide, {
+    expect(invoke).toHaveBeenNthCalledWith(10, IPC_CHANNELS.turnsQueueList, {
+      sessionId: "session-1",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(11, IPC_CHANNELS.turnsQueueEnqueue, {
+      sessionId: "session-1",
+      agentId: "writer",
+      text: "Next",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(12, IPC_CHANNELS.turnsQueueDrop, {
+      sessionId: "session-1",
+      queueId: "queue-1",
+      statusVersion: 1,
+    });
+    expect(invoke).toHaveBeenNthCalledWith(13, IPC_CHANNELS.turnsQueueMove, {
+      sessionId: "session-1",
+      queueId: "queue-2",
+      statusVersion: 1,
+      beforeQueueId: "queue-1",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(14, IPC_CHANNELS.turnsCancelAndRunNext, {
+      sessionId: "session-1",
+      traceId: "trace-1",
+      agentId: "writer",
+      expectedQueueId: "queue-2",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(15, IPC_CHANNELS.approvalsDecide, {
       sessionId: "session-1",
       traceId: "trace-1",
       approvalId: "approval-1",
       decision: "allow_once",
     });
-    expect(invoke).toHaveBeenNthCalledWith(11, IPC_CHANNELS.artifactsList, {
+    expect(invoke).toHaveBeenNthCalledWith(16, IPC_CHANNELS.artifactsList, {
       sessionId: "session-1",
       limit: 10,
     });
-    expect(invoke).toHaveBeenNthCalledWith(12, IPC_CHANNELS.artifactsRead, {
+    expect(invoke).toHaveBeenNthCalledWith(17, IPC_CHANNELS.artifactsRead, {
       sessionId: "session-1",
       artifactId: "a".repeat(48),
       limitBytes: 1024,
     });
-    expect(invoke).toHaveBeenNthCalledWith(13, IPC_CHANNELS.artifactsDetach, {
+    expect(invoke).toHaveBeenNthCalledWith(18, IPC_CHANNELS.artifactsDetach, {
       sessionId: "session-1",
       artifactId: "a".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(14, IPC_CHANNELS.artifactsRestore, {
+    expect(invoke).toHaveBeenNthCalledWith(19, IPC_CHANNELS.artifactsRestore, {
       sessionId: "session-1",
       artifactId: "a".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(15, IPC_CHANNELS.filesPick, {
+    expect(invoke).toHaveBeenNthCalledWith(20, IPC_CHANNELS.filesPick, {
       sessionId: "session-1",
       kind: "directory",
     });
-    expect(invoke).toHaveBeenNthCalledWith(16, IPC_CHANNELS.filesList, {
+    expect(invoke).toHaveBeenNthCalledWith(21, IPC_CHANNELS.filesList, {
       sessionId: "session-1",
       grantId: "g".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(17, IPC_CHANNELS.filesImport, {
+    expect(invoke).toHaveBeenNthCalledWith(22, IPC_CHANNELS.filesImport, {
       sessionId: "session-1",
       grantId: "g".repeat(48),
       entryId: "e".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(18, IPC_CHANNELS.filesRelease, {
+    expect(invoke).toHaveBeenNthCalledWith(23, IPC_CHANNELS.filesRelease, {
       sessionId: "session-1",
       grantId: "g".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(19, IPC_CHANNELS.mediaPick, {
+    expect(invoke).toHaveBeenNthCalledWith(24, IPC_CHANNELS.mediaPick, {
       sessionId: "session-1",
       kind: "image",
     });
-    expect(invoke).toHaveBeenNthCalledWith(20, IPC_CHANNELS.mediaRelease, {
+    expect(invoke).toHaveBeenNthCalledWith(25, IPC_CHANNELS.mediaRelease, {
       sessionId: "session-1",
       mediaId: "a".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(21, IPC_CHANNELS.captureStatus);
-    expect(invoke).toHaveBeenNthCalledWith(22, IPC_CHANNELS.captureSources, {
+    expect(invoke).toHaveBeenNthCalledWith(26, IPC_CHANNELS.captureStatus);
+    expect(invoke).toHaveBeenNthCalledWith(27, IPC_CHANNELS.captureSources, {
       sessionId: "session-1",
       sourceKind: "display",
     });
-    expect(invoke).toHaveBeenNthCalledWith(23, IPC_CHANNELS.captureStart, {
+    expect(invoke).toHaveBeenNthCalledWith(28, IPC_CHANNELS.captureStart, {
       sessionId: "session-1",
       candidateId: "c".repeat(48),
       region: null,
     });
-    expect(invoke).toHaveBeenNthCalledWith(24, IPC_CHANNELS.capturePause);
-    expect(invoke).toHaveBeenNthCalledWith(25, IPC_CHANNELS.captureResume);
-    expect(invoke).toHaveBeenNthCalledWith(26, IPC_CHANNELS.captureStop);
-    expect(invoke).toHaveBeenNthCalledWith(27, IPC_CHANNELS.observationStatus);
-    expect(invoke).toHaveBeenNthCalledWith(28, IPC_CHANNELS.observationConfigure, {
+    expect(invoke).toHaveBeenNthCalledWith(29, IPC_CHANNELS.capturePause);
+    expect(invoke).toHaveBeenNthCalledWith(30, IPC_CHANNELS.captureResume);
+    expect(invoke).toHaveBeenNthCalledWith(31, IPC_CHANNELS.captureStop);
+    expect(invoke).toHaveBeenNthCalledWith(32, IPC_CHANNELS.observationStatus);
+    expect(invoke).toHaveBeenNthCalledWith(33, IPC_CHANNELS.observationConfigure, {
       sessionId: "session-1",
       instruction: "Watch for a completed build",
       trigger: "changes",
     });
-    expect(invoke).toHaveBeenNthCalledWith(29, IPC_CHANNELS.observationStop);
+    expect(invoke).toHaveBeenNthCalledWith(34, IPC_CHANNELS.observationStop);
 
     const first = vi.fn();
     const firstUnsubscribe = api.turns.subscribe(first);

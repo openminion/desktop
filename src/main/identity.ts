@@ -11,6 +11,7 @@ import type { CommandResult, RunCommand } from "./installation.js";
 import { protocolError, requireRecord, requireString } from "./openminion-client.js";
 
 const MAX_YAML_BYTES = 256 * 1024;
+const IDENTITY_STATUSES = new Set(["clean", "drifted", "missing", "invalid", "not_applicable"]);
 
 export class IdentitySettingsService {
   constructor(
@@ -44,6 +45,7 @@ export class IdentitySettingsService {
           agentId: "",
           validationOk: false,
           issues: error.issues.length > 0 ? error.issues : [error.message],
+          warnings: [],
           render: null,
         };
       }
@@ -137,6 +139,9 @@ function profileView(value: Record<string, unknown>): IdentityProfileView {
   const validation = record(value.validation);
   const verification = record(value.verification);
   const generated = record(value.generated_sidecars);
+  const verificationOk = verification.ok === true;
+  const sourceStatus = identityStatus(verification.source_status);
+  const generatedStatus = identityStatus(generated.status);
   return {
     agentId: requireString(value.agent_id),
     displayName: requireString(value.display_name),
@@ -144,19 +149,27 @@ function profileView(value: Record<string, unknown>): IdentityProfileView {
     editable: value.editable === true,
     readOnlyReason: typeof value.read_only_reason === "string" ? value.read_only_reason : null,
     authoredYaml: typeof value.authored_yaml === "string" ? value.authored_yaml : null,
-    profileRevision: Number(value.profile_revision) || 0,
+    profileRevision: profileRevision(value.profile_revision),
     profileVersion: requireString(value.profile_version),
     sourceSha256: typeof value.source_sha256 === "string" ? value.source_sha256 : null,
-    validationOk:
-      Object.keys(verification).length > 0 ? verification.ok === true : validation.ok === true,
-    sourceStatus: optionalString(verification.source_status) || "unknown",
-    verificationIssues: Array.isArray(verification.issues)
-      ? verification.issues.map(issueText)
-      : [],
-    generatedStatus: requireString(generated.status),
-    generatedFiles: strings(generated.files),
+    validationOk: validation.ok === true,
+    validationErrors: strings(validation.errors),
+    validationWarnings: strings(validation.warnings),
+    verificationOk,
+    sourceStatus,
+    verificationIssues: verificationMessages({ verificationOk, sourceStatus, generatedStatus }),
+    generatedStatus,
+    generatedFiles: safeRelativeFiles(generated.files),
+    generatedDriftedFiles: safeRelativeFiles(generated.drifted_files),
     render: renderView(record(value.render)),
   };
+}
+
+function profileRevision(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw protocolError("invalid_daemon_response", "Identity profile revision is invalid.");
+  }
+  return value;
 }
 
 function validationView(value: Record<string, unknown>): IdentityValidation {
@@ -164,20 +177,43 @@ function validationView(value: Record<string, unknown>): IdentityValidation {
   return {
     agentId: requireString(value.agent_id),
     validationOk: validation.ok === true,
-    issues: [...strings(validation.errors), ...strings(validation.warnings)],
+    issues: strings(validation.errors),
+    warnings: strings(validation.warnings),
     render: value.render ? renderView(record(value.render)) : null,
   };
 }
 
 function renderView(value: Record<string, unknown>) {
+  const budget = record(value.budget);
   return {
     text: requireString(value.text),
     purpose: requireString(value.purpose),
     profileVersion: requireString(value.profile_version),
     renderVersion: requireString(value.render_version),
+    budget: {
+      maxTokens: renderBudgetNumber(budget.max_tokens, true),
+      usedTokens: renderBudgetNumber(budget.used_tokens),
+      maxChars: renderBudgetNumber(budget.max_chars, true),
+      usedChars: renderBudgetNumber(budget.used_chars),
+    },
     includedFields: strings(value.included_fields),
     omittedFields: strings(value.omitted_fields),
+    warnings: strings(value.warnings),
   };
+}
+
+function renderBudgetNumber(value: unknown, positive = false): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < (positive ? 1 : 0)) {
+    throw protocolError("invalid_daemon_response", "Identity render budget is invalid.");
+  }
+  return value;
+}
+
+function identityStatus(value: unknown): string {
+  const status = requireString(value);
+  if (!IDENTITY_STATUSES.has(status))
+    throw protocolError("invalid_daemon_response", "Identity status is invalid.");
+  return status;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -190,6 +226,37 @@ function strings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function safeRelativeFiles(value: unknown): string[] {
+  return strings(value).filter((path) => {
+    const parts = path.split("/");
+    return (
+      path.length > 0 &&
+      !path.startsWith("/") &&
+      !path.includes("\\") &&
+      !/^[A-Za-z]:/.test(path) &&
+      parts.every((part) => part !== "" && part !== "." && part !== "..")
+    );
+  });
+}
+
+function verificationMessages({
+  verificationOk,
+  sourceStatus,
+  generatedStatus,
+}: {
+  verificationOk: boolean;
+  sourceStatus: string;
+  generatedStatus: string;
+}): string[] {
+  if (verificationOk) return [];
+  const issues: string[] = [];
+  if (!["clean", "not_applicable"].includes(sourceStatus))
+    issues.push("Source files are missing, invalid, or changed.");
+  if (!["clean", "not_applicable"].includes(generatedStatus))
+    issues.push("Generated Markdown is missing, invalid, or changed.");
+  return issues.length > 0 ? issues : ["Identity verification needs attention."];
 }
 
 function parseCommandOutput(value: string, invalid: Error): unknown {

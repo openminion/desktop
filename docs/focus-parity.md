@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-10-06
+Last updated: 2026-10-17
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -41,8 +41,9 @@ differ.
 This is a source assessment, not end-to-end parity certification. The current
 Desktop installs and runs ordinary OpenMinion and connects text turns, saved
 history, skill catalog/detail reads, and skill-learning proposal reads through
-its public CLI/API. The broader Focus command surface, approvals,
-media, and artifacts still require Desktop integration.
+its public CLI/API. Request-bound allow-once/deny approvals are connected;
+broader approval workflows, the remaining Focus command surface, media, and
+artifacts still require integration.
 
 | Surface                  | Current Desktop gap                                                                                                               | Required outcome                                                                                                    |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -54,8 +55,8 @@ media, and artifacts still require Desktop integration.
 | `/status`                | Reports connection and partial session metadata                                                                                   | Include canonical agent, model, session, and working-directory facts                                                |
 | `/clear`, `/copy`        | Visible chat clearing and newest assistant/runtime-supplied tool copying exist; missing raw tool content is not reconstructed                                      | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback          |
 | Tool presentation        | `/quiet`, `/normal`, `/verbose` and `/details` share the saved tool display mode                                                                                       | Normal previews six supplied lines; verbose expands supplied output. `/expand` numbering and missing cold-history output remain open                        |
-| Type-ahead               | Drafts remain unsent during a turn                                                                                                | Match Focus queue admission, inspection, and control through the runtime owner                                      |
-| Recovery                 | Running turns survive task switches in one app                                                                                    | Reattach to the same running turn and pending approvals after restart                                               |
+| Type-ahead               | Ordinary text can enter the shared Core queue during a turn, then be reordered, removed, or started next; attachments remain drafts | Automatic advancement and optional `/queue` presentation remain; bounded restart/effect acceptance passed       |
+| Recovery                 | Running turns survive conversation switches; known traces support explicit reconnect without resubmission                                                                                    | Reattach to the same running turn and pending approvals after restart                                               |
 
 The GUI's Context/files panel is not Focus's context-budget report. Screen
 capture remains a GUI input method. Files, screenshots, cancellation, task
@@ -85,7 +86,7 @@ All canonical command families need coverage:
 | `/new`, `/new session`, `/sessions`, `/session`, `/resume`                                              | Directory-scoped session creation, inventory, binding, and history                                                                                                  |
 | `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Room membership, handoff, messaging, start, and routing                                                                                                             |
 | `/agents`, `/agent`, `/model`, `/effort`                                                                | Agent inspection/selection, configured model choices, effective effort                                                                                              |
-| `/delegate`, `/goal`, `/project`, `/tasks`, `/task`, `/queue`                                           | Delegation start/list/inspection and task controls are connected slices; goal, project, and prompt-queue owners remain pending                                       |
+| `/delegate`, `/goal`, `/project`, `/tasks`, `/task`, `/queue`                                           | Delegation and task controls are connected slices; composer controls consume the Core prompt queue. Goal/project workflows, `/queue` command presentation, and remaining queue acceptance are pending                                       |
 | `/tools`, `/tool`, `/mcp`, `/skills`, `/learning`                                                       | Configured tool, server, skill, and learning-proposal inventory and supported changes                                                                               |
 | `/permissions`, `/readonly`                                                                             | Canonical policy queries, updates, and effective mode                                                                                                               |
 | `/context`, `/context-review`, `/compact`, `/cost`, `/tokens`                                           | Context evidence, supported compaction, live/durable usage, available cost                                                                                          |
@@ -124,23 +125,31 @@ both interfaces at the same installation.
 
 ## Connected Task Controls
 
-On pinned PyPI 0.0.29, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
-CLI calls. Main derives agent scope from the selected canonical session and passes
-its session ID. Focus's task report and these CLI commands share OpenMinion's task
-surface; Desktop does not copy lifecycle transitions, task ownership, or scheduler
-logic. The CLI retains its default inventory limit of 50. GUI buttons come from
-returned `valid_actions`; core validates them again on execution.
+`/tasks` and `/task` use fixed CLI JSON calls. The baseline pinned PyPI 0.0.29
+supports list/show/pause/resume/cancel. A compatible source runtime additionally
+exposes run-now, complete instruction/schedule update with `schedule_revision`,
+terminal-history deletion, and scheduler status/pause/resume. Desktop discovers
+those controls from returned data and does not present scheduler mutations to an
+older runtime that lacks the scheduler revision field. Main derives agent scope
+from the selected canonical session and passes its session ID. Focus's task report
+and these CLI commands share OpenMinion's task surface; Desktop does not copy
+lifecycle transitions, task ownership, scheduler logic, or task persistence. The
+CLI retains its default inventory limit of 50. GUI buttons come from returned
+`valid_actions`; core validates them again on execution.
 
 The renderer receives task presentation fields and scoped pending-approval facts.
 When paired with a compatible source runtime, tool approval cards resolve the
 exact active request through the authenticated approval-resume route, not
 through task lifecycle commands.
 Task changes are fenced against active Desktop turns and Settings updates. Reads
-remain available during a turn. The inline form creates scheduled work using fixed `schedule create` arguments:
+and scheduler-status refresh remain available during a turn. Destructive history
+deletion and scheduler pause/resume require a visible two-step confirmation.
+Completed run rows can open the exact isolated result conversation returned by
+Core. The inline form creates scheduled work using fixed `schedule create` arguments:
 name, instruction, one-time ISO timestamp, interval in minutes, or cron expression
 with timezone. It carries the same session and agent scope, then reads back the
-canonical task list. Core owns schedule validation and execution. Pending
-decisions, non-scheduled task creation and richer run-history inspection still
+canonical task list. Core owns schedule validation, authorization, execution,
+and optimistic revisions. Pending decisions and non-scheduled task creation still
 need integration.
 
 Pinned PyPI 0.0.29 includes `/close`; Desktop routes that command to its
@@ -190,18 +199,24 @@ Detailed status events now reach the renderer. The UI displays the runtime label
 detail, elapsed turn time, and time since the last event after a quiet interval.
 It does not infer tool execution, model thinking, or progress percentages.
 
-Focus model/effort selection, permissions, rooms, prompt queues, and live context
+Focus model/effort selection, permissions, rooms, and live context
 operate on interactive-runtime state. The pinned public CLI/daemon surface does
 not provide a general Focus command dispatcher. Separate CLI reports or config
 changes cannot stand in for those session operations.
 
-The pinned 0.0.29 package contains public session turn-input queue,
+The published 0.1.7 package contains the shared session turn-input queue,
 approval-resume, trace stream attachment, and runtime capability routes. Desktop
-now qualifies and consumes the request-bound approval semantics in source-runtime
-proof. Known-trace response recovery uses status and replay attachment in the
-current Desktop process, with explicit user action and no prompt resubmission.
+now consumes queue list/enqueue/move/drop and cancel-and-run-next through fixed
+typed operations, without a Desktop queue store. It also consumes request-bound
+approval semantics. Known-trace response recovery uses status and replay
+attachment in the current Desktop process, with explicit user action and no
+prompt resubmission.
 A missing retained trace triggers canonical history readback, not an invented
-terminal outcome. App-restart discovery and other workflows still require their own proof before being called connected. An approval grant alone does not
+terminal outcome. The 2026-10-19 native check against published `0.1.7` proved
+queue and draft restoration across two Desktop processes, exact queued-prompt
+removal, and one approved file effect through Stop and run next. It used a
+controlled local provider. Automatic advancement and arbitrary running-turn
+discovery after app restart still require their own proof. An approval grant alone does not
 prove the original pending action resumed. Missing public semantics require an
 explicit generic-owner dependency; Desktop must not import private Python runtime
 code, start another interactive session, or duplicate those owners.
@@ -219,7 +234,7 @@ effects while presenting friendly labels and controls; an instruction to switch
 to CLI does not complete a Desktop-supported workflow.
 
 The 2026-09-12 assessment recorded 44 CLI command families and 243 leaf paths.
-The paired 0.0.29 runtime has 56 built-in Focus commands. Desktop advertises 23
+The paired 0.0.29 runtime has 56 built-in Focus commands. Desktop currently advertises 24
 built-ins with partial semantics.
 Bundled/user/project custom commands and shell intent add separate qualification
 requirements. These counts are a dated source inventory, not execution proof.

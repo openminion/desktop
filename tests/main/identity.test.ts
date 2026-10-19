@@ -35,16 +35,35 @@ const profile = {
   profile_revision: 2,
   profile_version: "profile-v2",
   source_sha256: "source-sha-v2",
-  validation: { ok: true, errors: [], warnings: [] },
-  verification: { ok: false, source_status: "drifted", issues: [{ message: "source drift" }] },
-  generated_sidecars: { status: "clean", files: ["AGENT.md"] },
+  validation: {
+    ok: true,
+    errors: ["role.mission: Field required"],
+    warnings: ["responsibilities are sparse"],
+  },
+  verification: {
+    ok: false,
+    source_status: "drifted",
+    issues: [{ message: "Traceback at /private/identity/ops/profile.yaml" }],
+  },
+  generated_sidecars: {
+    status: "drifted",
+    files: ["AGENT.md", "../secret.md", "/private/generated.md", "C:\\secret.md"],
+    drifted_files: ["AGENT.md", "../secret.md"],
+  },
   render: {
     text: "Operate safely.",
     purpose: "act",
     profile_version: "profile-v2",
     render_version: "render-v1",
+    budget: {
+      max_tokens: 180,
+      used_tokens: 42,
+      max_chars: 720,
+      used_chars: 168,
+    },
     included_fields: ["role.mission"],
-    omitted_fields: [],
+    omitted_fields: ["personality.formatting"],
+    warnings: ["non-critical fields omitted to fit budget"],
   },
 };
 
@@ -64,14 +83,77 @@ describe("identity settings service", () => {
       source: "yaml",
       profileVersion: "profile-v2",
       sourceSha256: "source-sha-v2",
-      generatedStatus: "clean",
+      generatedStatus: "drifted",
       generatedFiles: ["AGENT.md"],
+      generatedDriftedFiles: ["AGENT.md"],
       sourceStatus: "drifted",
-      verificationIssues: ["source drift"],
+      validationOk: true,
+      validationErrors: ["role.mission: Field required"],
+      verificationOk: false,
+      verificationIssues: [
+        "Source files are missing, invalid, or changed.",
+        "Generated Markdown is missing, invalid, or changed.",
+      ],
+      validationWarnings: ["responsibilities are sparse"],
+      render: {
+        purpose: "act",
+        budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
+        omittedFields: ["personality.formatting"],
+        warnings: ["non-critical fields omitted to fit budget"],
+      },
     });
-    expect(JSON.stringify(result)).not.toMatch(/source_path|\/private|secret/);
+    expect(JSON.stringify(result)).not.toMatch(/source_path|\/private|secret|Traceback/);
     expect(run.mock.calls[0][1]).toContain("inspect");
   });
+
+  it.each([
+    ["missing", undefined],
+    ["string", "2"],
+    ["zero", 0],
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["non-finite", Number.POSITIVE_INFINITY],
+  ])("rejects a %s profile revision", async (_label, revision) => {
+    const { service, run } = await setup();
+    run.mockResolvedValue({
+      exitCode: 0,
+      stdout: JSON.stringify({ profiles: [{ ...profile, profile_revision: revision }] }),
+      stderr: "",
+    });
+
+    await expect(service.read("openminion")).rejects.toMatchObject({
+      clientError: {
+        code: "invalid_daemon_response",
+        message: "Identity profile revision is invalid.",
+      },
+    });
+  });
+
+  it.each(["future", "/private/identity/status"])(
+    "rejects an unknown %s identity status",
+    async (status) => {
+      const { service, run } = await setup();
+      run.mockResolvedValue({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          profiles: [
+            {
+              ...profile,
+              verification: { ...profile.verification, source_status: status },
+            },
+          ],
+        }),
+        stderr: "",
+      });
+
+      await expect(service.read("openminion")).rejects.toMatchObject({
+        clientError: {
+          code: "invalid_daemon_response",
+          message: "Identity status is invalid.",
+        },
+      });
+    },
+  );
 
   it("verifies a private draft and removes it after the command", async () => {
     const { root, service, run } = await setup();
@@ -84,7 +166,7 @@ describe("identity settings service", () => {
         stdout: JSON.stringify({
           ok: true,
           agent_id: "ops",
-          validation: { ok: true, errors: [], warnings: [] },
+          validation: { ok: true, errors: [], warnings: ["responsibilities are sparse"] },
           render: profile.render,
         }),
       };
@@ -93,7 +175,44 @@ describe("identity settings service", () => {
     const result = await service.verify({ yaml: "agent_id: ops\n" }, "openminion");
 
     expect(result.validationOk).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(result.warnings).toEqual(["responsibilities are sparse"]);
+    expect(result.render).toMatchObject({
+      budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
+      warnings: ["non-critical fields omitted to fit budget"],
+    });
     expect(await readdir(join(root, "data", "desktop-drafts"))).toEqual([]);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["non-numeric", "180"],
+    ["zero", 0],
+    ["fractional", 1.5],
+  ])("rejects a %s required render budget", async (_label, maxTokens) => {
+    const { service, run } = await setup();
+    run.mockResolvedValue({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        profiles: [
+          {
+            ...profile,
+            render: {
+              ...profile.render,
+              budget: { ...profile.render.budget, max_tokens: maxTokens },
+            },
+          },
+        ],
+      }),
+      stderr: "",
+    });
+
+    await expect(service.read("openminion")).rejects.toMatchObject({
+      clientError: {
+        code: "invalid_daemon_response",
+        message: "Identity render budget is invalid.",
+      },
+    });
   });
 
   it("returns field-level validation issues without treating them as a bridge failure", async () => {
