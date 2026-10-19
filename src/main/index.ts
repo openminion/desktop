@@ -72,6 +72,20 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.runtimeControl, (event, input: unknown) =>
     !isAppInvocation(event) ? forbiddenResult() : supervisor.controlRuntime(input),
   );
+  ipcMain.handle(IPC_CHANNELS.draftsLoad, (event) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.loadDrafts()
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
+  ipcMain.handle(IPC_CHANNELS.draftsSave, (event, input: unknown) =>
+    !isAppInvocation(event)
+      ? forbiddenResult()
+      : store
+        ? store.saveDraft(input)
+        : failure("storage_unavailable", "Desktop storage is unavailable."),
+  );
   ipcMain.handle(IPC_CHANNELS.chatNamesLoad, (event, input: unknown) =>
     !isAppInvocation(event)
       ? forbiddenResult()
@@ -149,7 +163,18 @@ export function registerIpcHandlers(
       }
       let deliveryActive = true;
       const result = await supervisor.client.submit(submittedInput, (turnEvent: TurnEventV1) => {
-        if (turnEvent.kind === "done") settleManualTurn();
+        if (turnEvent.kind === "started" && turnInput.draftRevision && store) {
+          const consumed = store.consumeDraft({
+            sessionId: turnInput.sessionId,
+            revision: turnInput.draftRevision,
+          });
+          if (!consumed.ok) turnEvent = { ...turnEvent, draftError: consumed.error.message };
+        }
+        if (
+          turnEvent.kind === "done" ||
+          (turnEvent.kind === "connection" && turnEvent.state === "unavailable")
+        )
+          settleManualTurn();
         const observationDelivery = prepared?.ok
           ? observation.acceptTurnEvent(prepared.value, turnEvent)
           : true;
@@ -237,6 +262,12 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.tasksControl, (event, input: unknown) =>
     isAppInvocation(event) ? supervisor.client.controlTasks(input) : forbiddenResult(),
   );
+  ipcMain.handle(IPC_CHANNELS.delegationControl, (event, input: unknown) =>
+    isAppInvocation(event) ? supervisor.client.controlDelegation(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.toolsControl, (event, input: unknown) =>
+    isAppInvocation(event) ? supervisor.client.controlTools(input) : forbiddenResult(),
+  );
   ipcMain.handle(IPC_CHANNELS.reportsRead, (event, input: unknown) =>
     isAppInvocation(event) ? supervisor.client.readReport(input) : forbiddenResult(),
   );
@@ -280,22 +311,29 @@ export function registerIpcHandlers(
       }
     },
   );
-  ipcMain.handle(IPC_CHANNELS.copyText, (event, text: unknown): ClientResult<null> => {
-    if (!isAppInvocation(event)) return forbiddenResult();
-    if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 1024 * 1024) {
-      return {
-        ok: false,
-        error: {
-          code: "invalid_request",
-          message: "Choose up to 1 MB of text to copy.",
-          retryable: false,
-          retryAfterMs: null,
-        },
-      };
-    }
-    clipboard.writeText(text);
-    return { ok: true, value: null };
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.copyText,
+    async (event, text: unknown): Promise<ClientResult<null>> => {
+      if (!isAppInvocation(event)) return forbiddenResult();
+      if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 1024 * 1024) {
+        return {
+          ok: false,
+          error: {
+            code: "invalid_request",
+            message: "Choose up to 1 MB of text to copy.",
+            retryable: false,
+            retryAfterMs: null,
+          },
+        };
+      }
+      try {
+        await clipboard.writeText(text);
+        return { ok: true, value: null };
+      } catch {
+        return failure("clipboard_unavailable", "Could not copy text to the clipboard.");
+      }
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.profilesRead, (event) =>
     isAppInvocation(event) ? supervisor.readProfiles() : forbiddenResult(),
   );
@@ -307,6 +345,9 @@ export function registerIpcHandlers(
   );
   ipcMain.handle(IPC_CHANNELS.identitySave, (event, input: unknown) =>
     isAppInvocation(event) ? supervisor.saveIdentity(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.identityReload, (event) =>
+    isAppInvocation(event) ? supervisor.reloadIdentity() : forbiddenResult(),
   );
   ipcMain.handle(IPC_CHANNELS.profilesPresets, (event) =>
     isAppInvocation(event) ? supervisor.setupPresets() : forbiddenResult(),
@@ -386,6 +427,38 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.turnsCancel, (event, input) =>
     isAppInvocation(event) ? supervisor.client.cancel(input) : forbiddenResult(),
   );
+  ipcMain.handle(IPC_CHANNELS.turnsReconnect, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.reconnect(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsQueueList, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.listTurnInputs(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsQueueEnqueue, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.enqueueTurnInput(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsQueueDrop, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.dropTurnInput(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsQueueMove, (event, input) =>
+    isAppInvocation(event) ? supervisor.client.moveTurnInput(input) : forbiddenResult(),
+  );
+  ipcMain.handle(IPC_CHANNELS.turnsCancelAndRunNext, (event, input) => {
+    const sourceFrame = event.senderFrame;
+    if (sourceFrame === null || !isAppInvocation(event)) return forbiddenResult();
+    let deliveryActive = true;
+    return supervisor.client.cancelAndRunNext(input, (turnEvent) => {
+      if (!deliveryActive) return;
+      if (sourceFrame.detached || event.sender.mainFrame !== sourceFrame) {
+        deliveryActive = false;
+        return;
+      }
+      try {
+        sourceFrame.send(IPC_CHANNELS.turnEvent, turnEvent);
+      } catch {
+        deliveryActive = false;
+      }
+    });
+  });
   ipcMain.handle(IPC_CHANNELS.approvalsDecide, (event, input) =>
     isAppInvocation(event) ? supervisor.client.decide(input) : forbiddenResult(),
   );

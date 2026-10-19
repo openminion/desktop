@@ -1,15 +1,8 @@
-## Summary
-
 - Describe the user-visible or repository outcome.
+- Note any affected ownership, compatibility, or evidence boundary.
 
-## Validation
+Validation
+- `npm run ci-check` — result
+- Add exact package, native, or daemon checks required by the change, with results.
 
-- [ ] `npm run ci-check`
-- [ ] `npm run package` when packaging or runtime assets changed
-- [ ] Native capture or real-daemon integration when the affected boundary requires it
-
-## Boundaries
-
-- [ ] The daemon remains authoritative for agent, session, policy, and credential state
-- [ ] Renderer authority remains limited to the reviewed preload contract
-- [ ] User-facing claims match the evidence in this change
+<!-- Target dev for feature work. Keep unverified or skipped evidence explicit. -->

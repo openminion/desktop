@@ -13,7 +13,14 @@ import type {
   SetupPreset,
 } from "./profiles.js";
 import type { ReportInput, ReportValue } from "./reports.js";
-import type { TaskControlInput, TaskControlValue } from "./tasks.js";
+import type {
+  DelegationControlInput,
+  DelegationControlValue,
+  TaskControlInput,
+  TaskControlValue,
+} from "./tasks.js";
+export type ToolDisplay = "quiet" | "normal" | "verbose";
+
 export type DaemonState =
   | "idle"
   | "probing"
@@ -62,6 +69,9 @@ export type SessionSummaryV1 = {
   createdAt: string;
   updatedAt: string;
   activeAgentId: string | null;
+  channel?: string | null;
+  messageCount?: number | null;
+  updatedLabel?: string | null;
   model: { provider: string | null; modelId: string | null };
   projectId: string | null;
   eventCursor: string;
@@ -95,6 +105,7 @@ export type SessionEventV1 = {
 export type TurnStartedV1 = {
   schemaVersion: 1;
   kind: "started";
+  draftError?: string;
   requestId: string;
   traceId: string;
   sessionId: string;
@@ -151,6 +162,15 @@ export type TurnErrorV1 = {
   error: ErrorV1;
 };
 
+export type TurnConnectionV1 = {
+  schemaVersion: 1;
+  kind: "connection";
+  sessionId: string;
+  traceId: string;
+  state: "disconnected" | "reconnected" | "unavailable";
+  error: ErrorV1 | null;
+};
+
 export type TurnDoneV1 = {
   schemaVersion: 1;
   kind: "done";
@@ -172,17 +192,12 @@ export type ToolProgressV1 = {
   ok: boolean | null;
   durationMs: number | null;
   exitCode: number | null;
+  content?: string;
+  truncated?: boolean;
 };
 
 export type ApprovalDecision = "allow_once" | "deny";
-export type ApprovalOutcome =
-  | "pending"
-  | "applied"
-  | "denied"
-  | "expired"
-  | "cancelled"
-  | "interrupted"
-  | "event_failed";
+export type ApprovalOutcome = "pending" | "applied" | "denied" | "expired" | "cancelled";
 
 export type ApprovalEventV1 = {
   schemaVersion: 1;
@@ -192,8 +207,7 @@ export type ApprovalEventV1 = {
   traceId: string;
   approvalId: string;
   toolName: string;
-  callId: string;
-  argumentKeys: string[];
+  consentPreview: string;
   requestedAt: string | null;
   expiresAt: string | null;
   decision: ApprovalDecision | null;
@@ -206,9 +220,8 @@ export type ApprovalDecisionV1 = {
   approvalId: string;
   sessionId: string;
   traceId: string;
-  callId: string;
   decision: ApprovalDecision;
-  outcome: "applied" | "denied" | "already_applied" | "already_denied";
+  outcome: "applied" | "denied";
   resolvedAt: string;
 };
 
@@ -218,6 +231,7 @@ export type TurnEventV1 =
   | TurnResponseV1
   | TurnErrorV1
   | TurnDoneV1
+  | TurnConnectionV1
   | ToolProgressV1
   | ApprovalEventV1;
 
@@ -239,6 +253,7 @@ export type SessionEventsInput = {
   limit?: number;
 };
 export type TurnSubmitInput = {
+  draftRevision?: string;
   sessionId: string;
   message: string;
   attachmentIds?: string[];
@@ -311,6 +326,44 @@ export type ObservationStatusV1 = {
   updatedAt: string;
 };
 export type TurnCancelInput = { sessionId: string; traceId: string };
+export type TurnInputQueueStatus =
+  | "queued"
+  | "reserved"
+  | "running"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "dropped"
+  | "steer_deferred";
+export type TurnInputQueueEntry = {
+  queueId: string;
+  sessionId: string;
+  agentId: string;
+  text: string;
+  status: TurnInputQueueStatus;
+  statusVersion: number;
+  createdAt: string;
+  traceId: string | null;
+};
+export type TurnInputListInput = { sessionId: string };
+export type TurnInputEnqueueInput = {
+  sessionId: string;
+  agentId: string;
+  text: string;
+};
+export type TurnInputDropInput = {
+  sessionId: string;
+  queueId: string;
+  statusVersion: number;
+};
+export type TurnInputMoveInput = TurnInputDropInput & {
+  beforeQueueId?: string;
+  afterQueueId?: string;
+};
+export type TurnInputRunNextInput = TurnCancelInput & {
+  agentId: string;
+  expectedQueueId: string;
+};
 export type ApprovalDecisionInput = {
   sessionId: string;
   traceId: string;
@@ -608,6 +661,8 @@ export type CaptureEventV1 =
   | { schemaVersion: 1; kind: "state"; value: CaptureStateV1 }
   | CaptureFrameV1;
 
+export type ChatDraft = { sessionId: string; text: string };
+
 export type ChatName = { sessionId: string; title: string };
 
 export type RuntimePin = {
@@ -642,6 +697,22 @@ export type RuntimeUpdateStatus = {
     | "unmanaged";
 };
 
+export type ToolProfileInput = {
+  sessionId: string;
+  action: "activate" | "deactivate";
+  profileId: string;
+  targetId?: string;
+  taskId?: string;
+  targetKind?: string;
+  credentialScopes?: string[];
+  dependencies?: string[];
+  approved?: boolean;
+  ttlSeconds?: number;
+  reason?: string;
+  approvedBy?: string;
+  policySource?: string;
+};
+
 export type NativeApi = {
   runtime: {
     status(): Promise<RuntimeUpdateStatus>;
@@ -649,19 +720,29 @@ export type NativeApi = {
     stage(): Promise<ClientResult<RuntimeUpdateStatus>>;
     control(input: RuntimeControlInput): Promise<ClientResult<RuntimeUpdateStatus>>;
   };
+  drafts: {
+    load(): Promise<ClientResult<ChatDraft[]>>;
+    save(input: ChatDraft & { clearUnbound?: true }): Promise<ClientResult<string>>;
+  };
   chatNames: {
     load(legacyNames: ChatName[]): Promise<ClientResult<ChatName[]>>;
     save(input: { sessionId: string; title: string | null }): Promise<ClientResult<null>>;
   };
   presentation: {
-    load(): Promise<ClientResult<{ quietTools: boolean }>>;
-    save(input: { quietTools: boolean }): Promise<ClientResult<null>>;
+    load(): Promise<ClientResult<{ toolDisplay: ToolDisplay }>>;
+    save(input: { toolDisplay: ToolDisplay }): Promise<ClientResult<null>>;
+  };
+  tools: {
+    control(input: ToolProfileInput): Promise<ClientResult<{ text: string }>>;
   };
   reports: {
     read(input: ReportInput): Promise<ClientResult<ReportValue>>;
   };
   tasks: {
     control(input: TaskControlInput): Promise<ClientResult<TaskControlValue>>;
+  };
+  delegation: {
+    control(input: DelegationControlInput): Promise<ClientResult<DelegationControlValue>>;
   };
   profiles: {
     presets(): Promise<ClientResult<SetupPreset[]>>;
@@ -678,6 +759,7 @@ export type NativeApi = {
     read(): Promise<ClientResult<IdentitySettings>>;
     verify(input: IdentityVerifyInput): Promise<ClientResult<IdentityValidation>>;
     save(input: IdentitySaveInput): Promise<ClientResult<IdentityProfileView>>;
+    reload(): Promise<ClientResult<IdentitySettings>>;
   };
   app: {
     info(): Promise<AppInfo>;
@@ -700,6 +782,12 @@ export type NativeApi = {
   turns: {
     submit(input: TurnSubmitInput): Promise<ClientResult<TurnSubmitValue>>;
     cancel(input: TurnCancelInput): Promise<ClientResult<TurnCancellationValue>>;
+    reconnect(input: TurnCancelInput): Promise<ClientResult<TurnSubmitValue>>;
+    listQueue(input: TurnInputListInput): Promise<ClientResult<TurnInputQueueEntry[]>>;
+    enqueue(input: TurnInputEnqueueInput): Promise<ClientResult<TurnInputQueueEntry>>;
+    drop(input: TurnInputDropInput): Promise<ClientResult<TurnInputQueueEntry>>;
+    move(input: TurnInputMoveInput): Promise<ClientResult<TurnInputQueueEntry>>;
+    cancelAndRunNext(input: TurnInputRunNextInput): Promise<ClientResult<TurnSubmitValue>>;
     subscribe(listener: (event: TurnEventV1) => void): () => void;
   };
   approvals: {
@@ -745,13 +833,17 @@ export const IPC_CHANNELS = {
   runtimeCheck: "desktop:runtime:check",
   runtimeStage: "desktop:runtime:stage",
   runtimeControl: "desktop:runtime:control",
+  draftsLoad: "desktop:drafts:load",
+  draftsSave: "desktop:drafts:save",
   chatNamesLoad: "desktop:chat-names:load",
   chatNamesSave: "desktop:chat-names:save",
   presentationLoad: "desktop:presentation:load",
   presentationSave: "desktop:presentation:save",
   reportsRead: "openminion:reports:read",
+  toolsControl: "openminion:tools:control",
   sessionsExport: "openminion:sessions:export",
   tasksControl: "openminion:tasks:control",
+  delegationControl: "openminion:delegation:control",
   profilesRead: "openminion:profiles:read",
   profilesPresets: "openminion:profiles:presets",
   profilesSetup: "openminion:profiles:setup",
@@ -760,6 +852,7 @@ export const IPC_CHANNELS = {
   identityRead: "openminion:identity:read",
   identityVerify: "openminion:identity:verify",
   identitySave: "openminion:identity:save",
+  identityReload: "openminion:identity:reload",
   copyText: "openminion:copy-text",
   openLink: "openminion:open-link",
   daemonInspect: "openminion:daemon-inspect",
@@ -772,6 +865,12 @@ export const IPC_CHANNELS = {
   sessionsEvents: "openminion:sessions-events",
   turnsSubmit: "openminion:turns-submit",
   turnsCancel: "openminion:turns-cancel",
+  turnsReconnect: "openminion:turns-reconnect",
+  turnsQueueList: "openminion:turns-queue-list",
+  turnsQueueEnqueue: "openminion:turns-queue-enqueue",
+  turnsQueueDrop: "openminion:turns-queue-drop",
+  turnsQueueMove: "openminion:turns-queue-move",
+  turnsCancelAndRunNext: "openminion:turns-cancel-and-run-next",
   approvalsDecide: "openminion:approvals-decide",
   artifactsList: "openminion:artifacts-list",
   artifactsRead: "openminion:artifacts-read",

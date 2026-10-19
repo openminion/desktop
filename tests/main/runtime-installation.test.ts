@@ -242,6 +242,10 @@ it("downloads both promoted binary executables and stages their shared identity"
   });
   vi.stubGlobal("fetch", fetch);
   const command = vi.fn<RunCommand>(async (path, args) => {
+    if (path === "/usr/bin/codesign" || path === "/usr/sbin/spctl") {
+      expect(args.at(-1)).toContain("/runtime/staged/");
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
     expect(path).toContain("/runtime/staged/");
     expect(args).toEqual(["--version"]);
     return { exitCode: 0, stdout: "1.0.0", stderr: "" };
@@ -256,6 +260,74 @@ it("downloads both promoted binary executables and stages their shared identity"
   expect(await readFile(join(dirname(staged.executable), "openminiond"))).toEqual(daemon);
   expect(staged.sha256).toBe(runtimeOfferDigest(item));
   expect(fetch).toHaveBeenCalledTimes(4);
+  expect(command.mock.calls.filter(([path]) => path === "/usr/bin/codesign")).toHaveLength(2);
+  expect(command.mock.calls.filter(([path]) => path === "/usr/sbin/spctl")).toHaveLength(2);
+});
+
+it("removes a binary candidate when native trust verification fails", async () => {
+  const { root, store } = await fixture();
+  const item = binaryOffer(Buffer.from("cli"), Buffer.from("daemon"));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string | URL) => {
+      if (String(url).startsWith("https://github.com/"))
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: `https://release-assets.githubusercontent.com/${String(url).endsWith("openminiond") ? "openminiond" : "openminion"}?token=fixed`,
+          },
+        });
+      return new Response(String(url).includes("openminiond") ? "daemon" : "cli");
+    }),
+  );
+  const command = vi.fn<RunCommand>(async (path) => ({
+    exitCode: path === "/usr/sbin/spctl" ? 1 : 0,
+    stdout: "",
+    stderr: "",
+  }));
+  await expect(
+    new OpenMinionInstallation({
+      runtimeRoot: join(root, "runtime"),
+      store,
+      platform: "darwin",
+      runCommand: command,
+    }).stage(item),
+  ).rejects.toThrow("runtime_native_trust_failed");
+  expect(command.mock.calls.some(([, args]) => args[0] === "--version")).toBe(false);
+  expect(store.runtimeState().pending).toBeNull();
+});
+
+it("requires valid Authenticode status before running Windows binaries", async () => {
+  const { root, store } = await fixture();
+  const item = binaryOffer(Buffer.from("cli"), Buffer.from("daemon"), "win32", "x64");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string | URL) => {
+      if (String(url).startsWith("https://github.com/"))
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: `https://release-assets.githubusercontent.com/${String(url).endsWith("openminiond") ? "openminiond" : "openminion"}?token=fixed`,
+          },
+        });
+      return new Response(String(url).includes("openminiond") ? "daemon" : "cli");
+    }),
+  );
+  const command = vi.fn<RunCommand>(async (path, args, _timeout, environment) => {
+    if (path === "powershell.exe") {
+      expect(args.at(-1)).toContain("Get-AuthenticodeSignature -LiteralPath");
+      expect(environment?.OPENMINION_NATIVE_PATH).toMatch(/openminiond?\.exe$/);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+    return { exitCode: 0, stdout: "1.0.0", stderr: "" };
+  });
+  await new OpenMinionInstallation({
+    runtimeRoot: join(root, "runtime"),
+    store,
+    platform: "win32",
+    runCommand: command,
+  }).stage(item);
+  expect(command.mock.calls.filter(([path]) => path === "powershell.exe")).toHaveLength(2);
 });
 
 it("rejects binary downloads redirected outside GitHub release assets", async () => {
@@ -311,11 +383,16 @@ it("rolls back the paired runtime when the daemon bytes fail verification", asyn
   expect(store.runtimeState().pending).toBeNull();
 });
 
-function binaryOffer(cli: Buffer, daemon: Buffer): RuntimeOffer {
+function binaryOffer(
+  cli: Buffer,
+  daemon: Buffer,
+  platform: "darwin" | "win32" = "darwin",
+  arch: "arm64" | "x64" = "arm64",
+): RuntimeOffer {
   const base = "https://github.com/openminion/runtime/releases/download/runtime-v1.0.0-build.1";
   const target = {
-    platform: "darwin" as const,
-    arch: "arm64" as const,
+    platform,
+    arch,
     format: "executables" as const,
     min_os_version: "14.0",
     verification_id: "native.macos.1",
@@ -351,6 +428,12 @@ function binaryOffer(cli: Buffer, daemon: Buffer): RuntimeOffer {
       source_commit: "a".repeat(40),
       release_notes_url: "https://github.com/openminion/openminion/releases/tag/v1.0.0",
       desktop_compatibility: { min_version: "0.0.0", max_version_exclusive: "2.0.0" },
+      certification: {
+        repository: "openminion/desktop",
+        commit: "b".repeat(40),
+        path: "releases/runtime-certification/v1/binary-qualification/1.0.0/desktop-test.json",
+        sha256: "c".repeat(64),
+      },
       artifacts: [target],
     },
   };

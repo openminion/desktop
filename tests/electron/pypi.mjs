@@ -166,7 +166,7 @@ async function check() {
       "[...document.querySelectorAll('#diagnostics-result button')].some(button => button.textContent === 'Copied')",
     );
     assert.equal(
-      clipboard.readText(),
+      await clipboard.readText(),
       await evaluate("document.querySelector('.diagnostic-output').textContent"),
     );
     for (const [width, height] of [
@@ -317,9 +317,9 @@ async function check() {
       await fill(text);
       await evaluate("document.querySelector('#send').click()");
       await waitFor(
-        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)} && !/Loading from OpenMinion|Preparing the saved conversation/.test(document.querySelector('#command-result').textContent)`,
+        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)} && !/Loading from OpenMinion|Preparing the saved conversation|Reading identity|Reloading identity/.test(document.querySelector('#command-result').textContent)`,
       );
-      return evaluate("document.querySelector('#command-result').textContent");
+      return evaluate("document.querySelector('#command-result p').textContent");
     };
     const agents = await evaluate("window.openminion.reports.read({kind:'agents'})");
     assert.equal(agents.ok, true, JSON.stringify(agents));
@@ -379,23 +379,123 @@ async function check() {
         .tools.map((tool) => tool.name)
         .sort(),
     );
-    assert.ok((await reportCommand("/tool", "Tools")).includes(tools.value.tools[0].name));
-    const cliSkills = await runCommand(executable, [...args, "skill", "list", "--json"], 30_000);
+    const exposureStatus = await runCommand(
+      executable,
+      [
+        ...args,
+        "tools",
+        "exposure",
+        "status",
+        "--session",
+        sessionId,
+        "--runtime-source",
+        "daemon",
+      ],
+      30_000,
+    );
+    assert.equal(exposureStatus.exitCode, 0, exposureStatus.stderr);
+    const exposure = JSON.parse(exposureStatus.stdout).exposure;
+    await fill("/tools status");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-title').textContent === 'Tools' && document.querySelector('#command-result p').textContent.startsWith('Tool exposure profiles:')",
+    );
+    const exposureText = await evaluate("document.querySelector('#command-result p').textContent");
+    for (const profile of exposure.profiles) {
+      const row = exposureText
+        .split("\n")
+        .find((line) => line.includes(` ${profile.profile_id} (`));
+      assert.ok(row, `Daemon profile ${profile.profile_id} appears in Desktop`);
+      assert.ok(row.includes(profile.active ? "active" : "hidden"));
+      assert.ok(row.includes(profile.tier));
+      assert.ok(
+        row.includes(profile.dependency_readiness),
+        `${profile.profile_id}: daemon readiness ${profile.dependency_readiness}; Desktop row ${row}`,
+      );
+      for (const dependency of profile.dependency_statuses)
+        assert.ok(
+          exposureText.includes(`${dependency.dependency_id}: ${dependency.state}`),
+          `Daemon dependency ${dependency.dependency_id} (${dependency.state}) is missing from Desktop status`,
+        );
+    }
+    for (const tool of exposure.unprofiled_dependency_tools)
+      assert.ok(exposureText.includes(`${tool.tool_name}: ${tool.dependency_readiness}`));
+    if (exposure.security_lab && exposure.security_lab.state !== "not_configured")
+      assert.ok(exposureText.includes(`Security lab: ${exposure.security_lab.state}`));
+    assert.equal(await reportCommand("/tool", "Tools"), exposureText);
+    const daemonTools = await runCommand(
+      executable,
+      [...args, "tools", "list", "--runtime-source", "daemon"],
+      30_000,
+    );
+    assert.equal(daemonTools.exitCode, 0, daemonTools.stderr);
+    const expectedToolList = JSON.parse(daemonTools.stdout)
+      .tools.sort((a, b) => a.name.localeCompare(b.name))
+      .map((tool) => `${tool.name}${tool.enabled ? "" : " · disabled"}`)
+      .join("\n");
+    await fill("/tool list");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-title').textContent === 'Tools' && document.querySelector('#command-result p').textContent !== 'Loading from OpenMinion…'",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('#command-result p').textContent"),
+      expectedToolList || "No tools.",
+    );
+    assert.equal(
+      (await evaluate(`window.openminion.sessions.load({sessionId:${JSON.stringify(sessionId)}})`))
+        .value.messages.length,
+      2,
+      "Native tool inspection does not submit another conversation message",
+    );
+    console.log(
+      "PASS: native /tools status and /tool list match the pinned daemon's public exposure and inventory without sending a turn.",
+    );
+    const skillSession = await runCommand(
+      executable,
+      [...args, "sessions", "show", sessionId, "--json"],
+      30_000,
+    );
+    assert.equal(skillSession.exitCode, 0);
+    const skillAgent = JSON.parse(skillSession.stdout).agent;
+    assert.ok(skillAgent);
+    const cliSkills = await runCommand(
+      executable,
+      [
+        ...args,
+        "skill",
+        "list",
+        "--agent-id",
+        skillAgent,
+        "--json",
+        "--config",
+        join(root, "agents.json"),
+      ],
+      30_000,
+    );
     assert.equal(cliSkills.exitCode, 0);
     const skillIds = JSON.parse(cliSkills.stdout).skills.map((skill) => skill.skill_id);
-    const skillText = await reportCommand("/skills", "Skills");
+    const skillText = await reportCommand("/skills", `Stored skills for ${skillAgent}`);
+    assert.deepEqual(
+      await evaluate(
+        "[...document.querySelectorAll('.skill-catalog button')].map(button => button.textContent)",
+      ),
+      skillIds,
+    );
     if (skillIds.length) {
-      assert.ok(skillText.includes(skillIds[0]));
-      assert.ok((await reportCommand(`/skills ${skillIds[0]}`, "Skills")).includes(skillIds[0]));
-    } else assert.equal(skillText, "(no skills)");
+      assert.ok(
+        (await reportCommand(`/skills ${skillIds[0]}`, "Skill details")).includes(skillIds[0]),
+      );
+    } else assert.equal(skillText, "No stored skills for this agent.");
     assert.ok((await reportCommand("/learning", "Skill learning")).startsWith("Skill learning:"));
     const mcpText = await reportCommand("/mcp", "MCP");
     assert.ok(mcpText.startsWith("MCP:\n"));
+    assert.ok(mcpText.includes(`  agent       ${skillAgent}\n`));
     assert.ok(mcpText.includes("configured"));
     assert.ok(mcpText.includes("registered"));
     const graphHelp = await runCommand(executable, [...args, "graph", "--help"], 30_000);
     assert.equal(graphHelp.exitCode, 0);
-    assert.equal(await reportCommand("/graph", "Graph viewer"), graphHelp.stdout);
+    assert.equal(await reportCommand("/graph", "Graph help"), graphHelp.stdout);
     const tokens = await runCommand(
       executable,
       [...args, "status", "tokens", "--session-id", sessionId],
@@ -434,11 +534,48 @@ async function check() {
       await fill("/export");
       await evaluate("document.querySelector('#send').click()");
       await waitFor(
-        "document.querySelector('#command-result').textContent === 'Export cancelled.'",
+        "document.querySelector('#command-result p').textContent === 'Export cancelled.'",
       );
     } finally {
       dialog.showSaveDialog = saveDialog;
     }
+    const identityPath = join(root, "desktop-identity.yaml");
+    await writeFile(
+      identityPath,
+      `agent_id: openminion
+display_name: OpenMinion
+profile_revision: 1
+role:
+  mission: Prove Desktop identity parity.
+  responsibilities: [Assist the operator.]
+personality:
+  tone: direct
+  verbosity: normal
+risk:
+  risk_level: low
+tool_posture:
+  tool_use: restricted
+`,
+    );
+    const identityUpsert = await runCommand(
+      executable,
+      [...args, "identity", "upsert", identityPath],
+      30_000,
+    );
+    assert.equal(identityUpsert.exitCode, 0, identityUpsert.stderr);
+    assert.match(await reportCommand("/identity", "Identity"), /Prove Desktop identity parity/);
+    assert.match(
+      await reportCommand("/identity verify", "Identity verification"),
+      /Verification: needs attention/,
+    );
+    assert.match(
+      await reportCommand("/identity reload", "Identity reloaded"),
+      /Prove Desktop identity parity/,
+    );
+    await waitFor("document.querySelector('#connection-label').textContent === 'Connected'");
+    console.log(
+      "PASS: canonical identity show, verification and app-owned daemon reload work through Desktop.",
+    );
     await evaluate("document.querySelector('#close-command').click()");
     console.log(
       "PASS: Desktop subset names/aliases exist in installed Focus; daemon tools, canonical tokens, and native transcript export checked.",
@@ -620,6 +757,8 @@ async function check() {
     const multiple = await evaluate("window.openminion.sessions.list({})");
     assert.equal(multiple.value.sessions.length, 2);
     const secondId = multiple.value.sessions.find((item) => item.sessionId !== sessionId).sessionId;
+    await fill("Superseded command draft");
+    await key("K", [process.platform === "darwin" ? "meta" : "control"]);
     await fill("Unsent draft for second task");
     await evaluate("document.querySelectorAll('#session-list button')[1].click()");
     await waitFor(
@@ -1230,14 +1369,14 @@ async function check() {
     await waitFor(
       "[...document.querySelectorAll('.message.user .message-copy')].at(-1).textContent === 'Copied'",
     );
-    assert.equal(clipboard.readText(), "Render the next fixture reply");
+    assert.equal(await clipboard.readText(), "Render the next fixture reply");
     await evaluate(
       "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).click()",
     );
     await waitFor(
       "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).textContent === 'Copied'",
     );
-    assert.equal(clipboard.readText(), providerText);
+    assert.equal(await clipboard.readText(), providerText);
     await waitFor(
       "[...document.querySelectorAll('.message.assistant .message-copy')].at(-1).textContent === 'Copy'",
     );

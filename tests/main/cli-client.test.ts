@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CliClient } from "../../src/main/cli-client.js";
+import { DesktopStore } from "../../src/main/desktop-store.js";
 import { runCommand } from "../../src/main/installation.js";
 import type { TurnEventV1 } from "../../src/shared/contracts.js";
 
@@ -13,6 +14,493 @@ afterEach(async () => {
 });
 
 describe("PyPI CLI client", () => {
+  it("preserves canonical session catalog and detail metadata without inventing missing facts", async () => {
+    let facts: Record<string, unknown> = { channel: "cli", turns: 0, age: "2m" };
+    const run = vi.fn(async (_executable: string, args: readonly string[]) => ({
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        args[1] === "export"
+          ? ""
+          : JSON.stringify(
+              args[1] === "list"
+                ? [{ ...session("saved"), ...facts }]
+                : { ...session("saved"), ...facts },
+            ),
+    }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    expect(await client.list({})).toMatchObject({
+      ok: true,
+      value: {
+        sessions: [
+          {
+            channel: "cli",
+            messageCount: 0,
+            updatedLabel: "2m",
+          },
+        ],
+      },
+    });
+    expect(await client.load({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: {
+        session: {
+          channel: "cli",
+          messageCount: 0,
+          updatedLabel: null,
+          updatedAt: now,
+        },
+      },
+    });
+    facts = {};
+    expect(await client.list({})).toMatchObject({
+      ok: true,
+      value: {
+        sessions: [
+          {
+            channel: null,
+            messageCount: null,
+            updatedLabel: null,
+          },
+        ],
+      },
+    });
+    for (const invalid of ["2", -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      facts = { turns: invalid };
+      expect(await client.list({})).toMatchObject({
+        ok: false,
+        error: { code: "invalid_daemon_response" },
+      });
+    }
+    for (const invalid of [{ channel: 1 }, { age: false }]) {
+      facts = invalid;
+      expect(await client.list({})).toMatchObject({ ok: false });
+    }
+  });
+
+  it("reads persisted status without exporting history and keeps draft status local", async () => {
+    let row = { ...session("saved"), channel: "cli", turns: 8, metadata: { secret: "private" } };
+    const run = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: JSON.stringify(row) }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const result = await client.readReport({ kind: "status", sessionId: "saved" });
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        kind: "status",
+        session: {
+          sessionId: "saved",
+          channel: "cli",
+          messageCount: 8,
+          updatedAt: now,
+          model: { provider: null, modelId: null },
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("private");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenLastCalledWith(
+      "openminion",
+      ["sessions", "show", "saved", "--json"],
+      expect.any(Number),
+    );
+    const draft = await client.create({});
+    if (!draft.ok) throw new Error("Draft not created");
+    run.mockClear();
+    expect(
+      await client.readReport({ kind: "status", sessionId: draft.value.sessionId }),
+    ).toMatchObject({ ok: true, value: { kind: "status", session: { isDraft: true } } });
+    for (const input of [
+      { kind: "status" },
+      { kind: "status", sessionId: "--help" },
+      { kind: "status", sessionId: "saved\0" },
+      { kind: "status", sessionId: "saved", toolView: "status" },
+      { kind: "status", sessionId: "saved", agentFilter: undefined },
+    ])
+      expect(await client.readReport(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(run).not.toHaveBeenCalled();
+    row = { ...row, id: "other" };
+    expect(await client.readReport({ kind: "status", sessionId: "saved" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    row = { ...row, id: "saved", turns: -1 };
+    expect(await client.readReport({ kind: "status", sessionId: "saved" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    run.mockResolvedValueOnce({ exitCode: 1, stderr: "Session unavailable", stdout: "" });
+    expect(await client.readReport({ kind: "status", sessionId: "saved" })).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("uses authenticated session custom-command routes without exposing private fields", async () => {
+    const requests: {
+      path: string | undefined;
+      token: string | string[] | undefined;
+      body: string;
+    }[] = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        requests.push({ path: req.url, token: req.headers["x-ipc-token"], body });
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify(
+            req.method === "GET"
+              ? {
+                  ok: true,
+                  session_id: "saved",
+                  commands: [
+                    {
+                      name: "/summarize",
+                      description: "Summarize",
+                      usage: "/summarize <text>",
+                      private: "not exposed",
+                    },
+                  ],
+                }
+              : {
+                  ok: true,
+                  session_id: "saved",
+                  name: "/summarize",
+                  prompt: "Summarize first  second",
+                  private: "not exposed",
+                },
+          ),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("No server address");
+    const run = vi.fn(async (_executable: string, args: readonly string[]) => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify(
+        args[0] === "daemon"
+          ? { reachable: true, host: "127.0.0.1", port: address.port }
+          : { runtime: { ipc_token: "private-test-token" } },
+      ),
+    }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    expect(await client.readReport({ kind: "commands", sessionId: "saved" })).toEqual({
+      ok: true,
+      value: {
+        kind: "commands",
+        commands: [{ name: "/summarize", description: "Summarize", usage: "/summarize <text>" }],
+      },
+    });
+    expect(
+      await client.readReport({
+        kind: "command",
+        sessionId: "saved",
+        commandName: "/summarize",
+        arguments: "first  second",
+      }),
+    ).toEqual({ ok: true, value: { kind: "command", prompt: "Summarize first  second" } });
+    expect(requests).toEqual([
+      { path: "/v1/sessions/saved/custom-commands", token: "private-test-token", body: "" },
+      {
+        path: "/v1/sessions/saved/custom-commands/summarize/render",
+        token: "private-test-token",
+        body: JSON.stringify({ arguments: "first  second" }),
+      },
+    ]);
+    for (const invalid of [
+      { kind: "command", sessionId: "saved", commandName: "../private", arguments: "" },
+      { kind: "commands", sessionId: "saved", arguments: "hidden" },
+      { kind: "tokens", sessionId: "saved", commandName: "/hidden" },
+    ])
+      expect(await client.readReport(invalid)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(requests).toHaveLength(2);
+  });
+
+  it("changes tool exposure through scoped authenticated operations without implicit approval", async () => {
+    const fixture = await executableFixture();
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    expect(
+      await client.controlTools({
+        sessionId: "saved",
+        action: "activate",
+        profileId: "web",
+        targetId: "example.com",
+        taskId: "work-1",
+        ttlSeconds: 60,
+        credentialScopes: ["search"],
+        dependencies: ["network"],
+        reason: "Research",
+      }),
+    ).toEqual({ ok: true, value: { text: "Activated: web (audit-1)" } });
+    const activation = fixture.requests.find(
+      (item) => item.path === "/v1/tools/exposure/activate",
+    )!;
+    expect(activation.body).toEqual({
+      session_id: "saved",
+      profile_id: "web",
+      target_id: "example.com",
+      task_id: "work-1",
+      ttl_seconds: 60,
+      credential_scopes: ["search"],
+      dependencies: ["network"],
+      activation_reason: "Research",
+    });
+    expect(activation.token).toBe("test-private-token");
+    expect(
+      await client.controlTools({
+        sessionId: "saved",
+        action: "deactivate",
+        profileId: "web",
+        targetId: "example.com",
+        taskId: "work-1",
+      }),
+    ).toEqual({ ok: true, value: { text: "Deactivated: web" } });
+    const before = fixture.requests.length;
+    for (const input of [
+      { action: "activate", approved: "true" },
+      { action: "activate", credentialScopes: ["search", 42] },
+      { action: "activate", ttlSeconds: -1 },
+      { action: "deactivate", approved: true },
+      { action: "activate", apiKey: "do not forward" },
+    ])
+      expect(
+        await client.controlTools({ sessionId: "saved", profileId: "web", ...input }),
+      ).toMatchObject({ ok: false });
+    expect(fixture.requests).toHaveLength(before);
+  });
+
+  it("does not run delegation commands on a runtime without the scoped contract", async () => {
+    const run = vi.fn().mockResolvedValue({ exitCode: 0, stdout: "--limit --json", stderr: "" });
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("No draft");
+    expect(
+      await client.controlDelegation({ sessionId: created.value.sessionId, action: "list" }),
+    ).toMatchObject({ ok: false, error: { code: "delegation_unavailable" } });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      "openminion",
+      ["agent", "delegate-list", "--help"],
+      30_000,
+    );
+    run.mockClear();
+    expect(
+      await client.controlDelegation({
+        sessionId: created.value.sessionId,
+        action: "resume",
+        taskId: "task-1",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "unsupported_operation" } });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "all 25 skills",
+      payload: {
+        ok: true,
+        skills: Array.from({ length: 25 }, (_, i) => ({
+          skill_id: `skill-${i}`,
+          private: "hidden",
+        })),
+      },
+      expected: {
+        ok: true,
+        value: { kind: "skills", skills: Array.from({ length: 25 }, (_, i) => `skill-${i}`) },
+      },
+    },
+    {
+      label: "empty catalog",
+      payload: { ok: true, skills: [] },
+      expected: { ok: true, value: { kind: "skills", skills: [] } },
+    },
+    {
+      label: "unavailable catalog",
+      payload: { ok: false },
+      expected: { ok: false, error: { code: "report_unavailable" } },
+    },
+    {
+      label: "malformed skill",
+      payload: { ok: true, skills: [{ skill_id: 7 }] },
+      expected: { ok: false, error: { code: "invalid_daemon_response" } },
+    },
+  ])("reads $label without truncating or inventing records", async ({ payload, expected }) => {
+    const fixture = await executableFixture("normal", {}, { list: payload });
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    expect(await client.readReport({ kind: "skills" })).toMatchObject(expected);
+  });
+
+  it("scopes stored skills to fresh session facts and the same draft default as chat", async () => {
+    const fixture = await executableFixture();
+    let row = session("saved");
+    let failed = false;
+    const run = vi.fn(async (executable: string, args: readonly string[], timeout: number) => {
+      if (args[1] === "sessions")
+        return failed
+          ? { exitCode: 1, stderr: "Session unavailable", stdout: "" }
+          : { exitCode: 0, stderr: "", stdout: JSON.stringify(row) };
+      return runCommand(executable, args, timeout);
+    });
+    const client = new CliClient(
+      () => ({ executable: fixture.executable, args: fixture.args }),
+      run,
+    );
+    for (const agent of ["writer", "reviewer+notes&scope=other"]) {
+      row = { ...row, agent };
+      expect(await client.readReport({ kind: "skills", sessionId: "saved" })).toMatchObject({
+        ok: true,
+        value: { kind: "skills", agentId: agent, skills: ["example"] },
+      });
+      expect(fixture.requests.at(-1)).toMatchObject({
+        path: `/v1/skills?agent_id=${encodeURIComponent(agent)}`,
+        token: "test-private-token",
+      });
+    }
+    for (const agentId of [undefined, "draft-agent"]) {
+      const draft = await client.create(agentId ? { agentId } : {});
+      if (!draft.ok) throw new Error("Draft not created");
+      run.mockClear();
+      expect(
+        await client.readReport({ kind: "skills", sessionId: draft.value.sessionId }),
+      ).toMatchObject({
+        ok: true,
+        value: { agentId: agentId ?? "writer" },
+      });
+      expect(run.mock.calls.some(([, args]) => args[1] === "sessions")).toBe(false);
+      expect(fixture.requests.at(-1)?.path).toBe(`/v1/skills?agent_id=${agentId ?? "writer"}`);
+    }
+    row = { ...row, id: "different" };
+    const reads = fixture.requests.length;
+    expect(await client.readReport({ kind: "skills", sessionId: "saved" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    failed = true;
+    expect(await client.readReport({ kind: "skills", sessionId: "saved" })).toMatchObject({
+      ok: false,
+    });
+    expect(fixture.requests).toHaveLength(reads);
+    expect(run.mock.calls.some(([, args]) => args.includes("export"))).toBe(false);
+  });
+
+  it.each(["agents", "mcp"])(
+    "reads fresh %s scope without trusting renderer agent IDs",
+    async (kind) => {
+      const fixture = await executableFixture();
+      let row = session("saved");
+      let failed = false;
+      const run = vi.fn(async (executable: string, args: readonly string[], timeout: number) => {
+        if (args[1] === "sessions")
+          return failed
+            ? { exitCode: 1, stderr: "Session unavailable", stdout: "" }
+            : { exitCode: 0, stderr: "", stdout: JSON.stringify(row) };
+        return runCommand(executable, args, timeout);
+      });
+      const client = new CliClient(
+        () => ({ executable: fixture.executable, args: fixture.args }),
+        run,
+      );
+      for (const agent of ["writer", "reviewer+notes&scope=other"]) {
+        row = { ...row, agent };
+        const result = await client.readReport({ kind, sessionId: "saved" });
+        expect(result).toMatchObject({
+          ok: true,
+          value:
+            kind === "agents"
+              ? { activeAgentId: agent }
+              : { text: expect.stringContaining(`  agent       ${agent}`) },
+        });
+        expect(fixture.requests.at(-1)).toMatchObject({
+          path:
+            kind === "agents"
+              ? "/v1/agents"
+              : `/v1/runtime/capabilities?agent_id=${encodeURIComponent(agent)}`,
+          token: "test-private-token",
+        });
+      }
+      for (const agentId of [undefined, "draft-agent"]) {
+        const draft = await client.create(agentId ? { agentId } : {});
+        if (!draft.ok) throw new Error("Draft not created");
+        run.mockClear();
+        const result = await client.readReport({ kind, sessionId: draft.value.sessionId });
+        expect(result).toMatchObject({
+          ok: true,
+          value:
+            kind === "agents"
+              ? { activeAgentId: agentId ?? "writer" }
+              : { text: expect.stringContaining(`  agent       ${agentId ?? "writer"}`) },
+        });
+        expect(run.mock.calls.some(([, args]) => args[1] === "sessions")).toBe(false);
+      }
+      expect(await client.readReport({ kind })).toMatchObject({
+        ok: true,
+        value:
+          kind === "agents"
+            ? { activeAgentId: null }
+            : { text: expect.not.stringContaining("  agent ") },
+      });
+      expect(fixture.requests.at(-1)?.path).toBe(
+        kind === "agents" ? "/v1/agents" : "/v1/runtime/capabilities",
+      );
+      const reads = fixture.requests.length;
+      for (const extra of [
+        { sessionId: "--help" },
+        { sessionId: "saved\0" },
+        { agentId: "writer" },
+        { proposalId: "proposal" },
+      ])
+        expect(await client.readReport({ kind, ...extra })).toMatchObject({
+          ok: false,
+          error: { code: "invalid_request" },
+        });
+      row = { ...row, id: "different" };
+      expect(await client.readReport({ kind, sessionId: "saved" })).toMatchObject({
+        ok: false,
+        error: { code: "invalid_daemon_response" },
+      });
+      failed = true;
+      expect(await client.readReport({ kind, sessionId: "saved" })).toMatchObject({ ok: false });
+      expect(fixture.requests).toHaveLength(reads);
+      expect(run.mock.calls.some(([, args]) => args.includes("export"))).toBe(false);
+    },
+  );
+
+  it("rejects a different skill identity and unrelated skill report inputs", async () => {
+    const fixture = await executableFixture(
+      "normal",
+      {},
+      { detail: { ok: true, skill: { skill_id: "other" } } },
+    );
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    expect(await client.readReport({ kind: "skills", skillId: "example" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    const reads = fixture.requests.length;
+    for (const extra of [
+      { sessionId: "session", skillId: "example" },
+      { sessionId: "--help" },
+      { sessionId: "saved\0" },
+      { agentId: "writer" },
+      { arguments: "extra" },
+    ]) {
+      expect(await client.readReport({ kind: "skills", ...extra })).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    }
+    expect(fixture.requests).toHaveLength(reads);
+  });
+
   it("reads authenticated inventories and excludes private discovery fields", async () => {
     const fixture = await executableFixture();
     const client = new CliClient(() => ({
@@ -21,7 +509,7 @@ describe("PyPI CLI client", () => {
     }));
     expect(await client.readReport({ kind: "agents" })).toEqual({
       ok: true,
-      value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
+      value: { kind: "agents", activeAgentId: null, agents: [{ id: "writer", label: "Writer" }] },
     });
     expect(await client.readReport({ kind: "agents", agentFilter: "Writer" })).toMatchObject({
       ok: true,
@@ -45,7 +533,8 @@ describe("PyPI CLI client", () => {
       ok: true,
       value: {
         kind: "skills",
-        text: "Skills:\n  - example · catalog\nUse /skills <skill-id> to view details.",
+        agentId: null,
+        skills: ["example"],
       },
     });
     expect(await client.readReport({ kind: "skills", skillId: "example" })).toMatchObject({
@@ -98,12 +587,13 @@ describe("PyPI CLI client", () => {
       ok: false,
       error: { code: "invalid_request" },
     });
-    expect(await client.readReport({ kind: "mcp", agentId: "writer" })).toEqual({
+    expect(await client.readReport({ kind: "mcp", sessionId: "saved" })).toEqual({
       ok: true,
       value: {
         kind: "mcp",
         text: [
           "MCP:",
+          "  agent       writer",
           "  configured  local",
           "  exposed     local",
           "  tools       2 exposed · 3 registered",
@@ -121,6 +611,89 @@ describe("PyPI CLI client", () => {
     });
     expect(fixture.requests).toHaveLength(10);
     expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
+  });
+
+  it("reads scoped tool exposure and rejects invalid selectors", async () => {
+    const fixture = await executableFixture();
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    for (const sessionId of [undefined, "session/one"])
+      expect(
+        await client.readReport({
+          kind: "tools",
+          toolView: "status",
+          ...(sessionId ? { sessionId } : {}),
+        }),
+      ).toEqual({
+        ok: true,
+        value: {
+          kind: "tools",
+          text: "Tool exposure profiles:\n  active  web (standard)  degraded\n    browser: missing · Install browser\nOther tool dependencies:\n  exec: ready (shell)",
+        },
+      });
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      "/v1/tools/exposure",
+      "/v1/tools/exposure?session_id=session%2Fone",
+    ]);
+    expect(await client.readReport({ kind: "tools", toolView: "list" })).toMatchObject({
+      ok: true,
+      value: { tools: expect.any(Array) },
+    });
+    for (const input of [
+      { kind: "agents", toolView: "status" },
+      { kind: "tools", toolView: "activate" },
+      { kind: "tools", toolView: ["status"] },
+      { kind: "tools", toolView: { value: "status" } },
+      { kind: "tools", toolView: "status", sessionId: "" },
+    ])
+      expect(await client.readReport(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(fixture.requests).toHaveLength(3);
+  });
+
+  it("reads graph readiness with fixed configuration and rejects unrelated authority", async () => {
+    const run = vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stdout: "GraphFakos installed: no\nNext: install viewer",
+      stderr: "",
+    });
+    const client = new CliClient(
+      () => ({ executable: "openminion", args: ["--config", "/private/config"] }),
+      run,
+    );
+    expect(await client.readReport({ kind: "graph", graphView: "status" })).toEqual({
+      ok: true,
+      value: { kind: "graph", text: "GraphFakos installed: no\nNext: install viewer" },
+    });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      "openminion",
+      ["--config", "/private/config", "graph", "status"],
+      30_000,
+    );
+    for (const input of [
+      { kind: "graph", graphView: "refresh" },
+      { kind: "graph", graphView: ["status"] },
+      { kind: "graph", graphView: "status", sessionId: "session-1" },
+      { kind: "graph", graphView: "status", provider: "custom" },
+      { kind: "graph", graphView: "status", path: "/private" },
+      { kind: "graph", graphView: "status", agentFilter: undefined },
+      { kind: "tokens", graphView: "status", sessionId: "session-1" },
+    ])
+      expect(await client.readReport(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(run).toHaveBeenCalledTimes(1);
+    run.mockResolvedValueOnce({ exitCode: 1, stdout: "", stderr: "Private failure" });
+    expect(await client.readReport({ kind: "graph", graphView: "status" })).toMatchObject({
+      ok: false,
+      error: { code: "report_unavailable", message: "OpenMinion could not read the graph report." },
+    });
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it("uses canonical token formatting and transcript export without renderer paths", async () => {
@@ -477,6 +1050,229 @@ describe("PyPI CLI client", () => {
     }
   });
 
+  it("runs fixed session-scoped delegation operations and projects safe inspection facts", async () => {
+    const run = vi.fn();
+    const client = new CliClient(
+      () => ({ executable: "openminion", args: ["--config", "/private/config.json"] }),
+      (executable, args, timeout) =>
+        args.at(-1) === "--help"
+          ? Promise.resolve({ exitCode: 0, stderr: "", stdout: "--parent-agent-id --session-id" })
+          : run(executable, args, timeout),
+    );
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        ok: true,
+        mode: "async",
+        status: "running",
+        agent_id: "reviewer",
+        task_id: "task-1",
+        trace_id: "a2a-trace-1",
+        content: "Delegated A2A job is still running.",
+        outputs: {},
+      }),
+    });
+
+    expect(
+      await client.controlDelegation({
+        sessionId,
+        action: "async",
+        targetAgentId: "reviewer",
+        instruction: "Review the bounded change.",
+        timeoutSeconds: 90,
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        action: "async",
+        status: "running",
+        taskId: "task-1",
+        a2aTraceId: "a2a-trace-1",
+      },
+    });
+    expect(run.mock.calls.at(-1)).toEqual([
+      "openminion",
+      [
+        "--config",
+        "/private/config.json",
+        "agent",
+        "delegate",
+        "--target-agent-id=reviewer",
+        "--instruction=Review the bounded change.",
+        "--mode",
+        "async",
+        "--timeout-seconds",
+        "90",
+        "--parent-agent-id",
+        "writer",
+        "--session-id",
+        sessionId,
+        "--json",
+      ],
+      100_000,
+    ]);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        ok: true,
+        mode: "inspect",
+        status: "running",
+        task_id: "task-1",
+        trace_id: "a2a-trace-1",
+        outputs: {
+          support: "supported",
+          authority: "session_task_owner",
+          task: {
+            task_id: "task-1",
+            trace_id: "a2a-trace-1",
+            agent_id: "reviewer",
+            method: "delegate",
+            state: "RUNNING",
+            current_step: "working",
+            progress: 0.5,
+            created_at: "2026-10-07T00:00:00Z",
+            updated_at: "2026-10-07T00:00:01Z",
+            private_result: "never return this",
+          },
+          links: {
+            invocation_id: "invocation-1",
+            source_execution_id: "execution-1",
+            handoff_id: "handoff-1",
+            credential: "never return this",
+          },
+          timeline: [
+            {
+              timestamp: "2026-10-07T00:00:00Z",
+              message_id: "message-1",
+              a2a_trace_id: "a2a-trace-1",
+              from_agent: "writer",
+              to_agent: "reviewer",
+              type: "job.start",
+              method: "delegate",
+              status: "JOB_QUEUED",
+              task_id: "task-1",
+              private_prompt: "never return this",
+            },
+          ],
+          child_session: { status: "available", session_id: "child-session" },
+          raw_content: { status: "unavailable", content: "never return this" },
+        },
+      }),
+    });
+
+    const inspected = await client.controlDelegation({
+      sessionId,
+      action: "inspect",
+      taskId: "task-1",
+    });
+    expect(inspected).toMatchObject({
+      ok: true,
+      value: {
+        inspection: {
+          authority: "session_task_owner",
+          links: {
+            invocationId: "invocation-1",
+            sourceExecutionId: "execution-1",
+            handoffId: "handoff-1",
+          },
+          childSession: { status: "available", sessionId: "child-session" },
+          rawContentStatus: "unavailable",
+        },
+      },
+    });
+    expect(JSON.stringify(inspected)).not.toContain("never return this");
+    expect(run.mock.calls.at(-1)?.[1]).toEqual([
+      "--config",
+      "/private/config.json",
+      "agent",
+      "delegate-inspect",
+      "--task-id",
+      "task-1",
+      "--parent-agent-id",
+      "writer",
+      "--session-id",
+      sessionId,
+      "--json",
+    ]);
+    const calls = run.mock.calls.length;
+    for (const input of [
+      { sessionId, action: "inspect", taskId: "--help" },
+      { sessionId, action: "inspect", taskId: "task-1", instruction: "hidden" },
+      { sessionId, action: "async", targetAgentId: "reviewer", instruction: "" },
+      { sessionId, action: "shell", args: ["--config", "/other"] },
+    ])
+      expect(await client.controlDelegation(input)).toMatchObject({ ok: false });
+    expect(run).toHaveBeenCalledTimes(calls);
+  });
+
+  it.each(["SUCCESS", "FAILED"])(
+    "drops terminal %s child prose from delegation inspection",
+    async (state) => {
+      const run = vi.fn();
+      const client = new CliClient(
+        () => ({ executable: "openminion", args: [] }),
+        (executable, args, timeout) =>
+          args.at(-1) === "--help"
+            ? Promise.resolve({ exitCode: 0, stderr: "", stdout: "--parent-agent-id --session-id" })
+            : run(executable, args, timeout),
+      );
+      const created = await client.create({ agentId: "writer" });
+      if (!created.ok) throw new Error("Draft not created");
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          ok: true,
+          mode: "inspect",
+          status: "success",
+          task_id: "task-terminal",
+          trace_id: "a2a-trace-terminal",
+          content: "PRIVATE TERMINAL CHILD PROSE",
+          outputs: {
+            support: "supported",
+            authority: "session_task_owner",
+            task: {
+              task_id: "task-terminal",
+              trace_id: "a2a-trace-terminal",
+              agent_id: "reviewer",
+              method: "delegate",
+              state,
+            },
+            links: {
+              invocation_id: "",
+              source_execution_id: "",
+              handoff_id: "",
+            },
+            timeline: [],
+            child_session: { status: "not_recorded" },
+            raw_content: { status: "unavailable" },
+          },
+        }),
+      });
+
+      const inspected = await client.controlDelegation({
+        sessionId: created.value.sessionId,
+        action: "inspect",
+        taskId: "task-terminal",
+      });
+
+      expect(inspected).toMatchObject({
+        ok: true,
+        value: {
+          content: null,
+          inspection: { task: { state }, rawContentStatus: "unavailable" },
+        },
+      });
+      expect(JSON.stringify(inspected)).not.toContain("PRIVATE TERMINAL CHILD PROSE");
+    },
+  );
+
   it("loads saved CLI task scope without consulting the daemon", async () => {
     const run = vi.fn(async (_executable: string, args: readonly string[]) => {
       if (args[0] === "sessions" && args[1] === "show")
@@ -831,6 +1627,36 @@ describe("PyPI CLI client", () => {
                 agent_id: "writer",
               },
             },
+            {
+              type: "event",
+              id: "e2",
+              event_type: "approval.requested",
+              created_at: now,
+              payload: {
+                trace_id: "trace",
+                approval_id: "approval-1",
+                tool_name: "exec.run",
+                consent_preview: 'exec.run(command="npm test")',
+                requested_at: now,
+                expires_at: "2026-09-08T00:00:50Z",
+                outcome: "pending",
+              },
+            },
+            {
+              type: "event",
+              id: "e3",
+              event_type: "approval.resolved",
+              created_at: now,
+              payload: {
+                trace_id: "trace",
+                approval_id: "approval-1",
+                tool_name: "exec.run",
+                consent_preview: 'exec.run(command="npm test")',
+                decision: "allow_once",
+                outcome: "applied",
+                resolved_at: now,
+              },
+            },
           ]
             .map((row) => {
               if (format === "metadata" && row.stats) {
@@ -901,6 +1727,23 @@ describe("PyPI CLI client", () => {
             state: "completed",
             facts: { agent_id: "writer" },
           },
+          {
+            eventType: "approval.requested",
+            facts: {
+              approval_id: "approval-1",
+              consent_preview: 'exec.run(command="npm test")',
+              outcome: "pending",
+            },
+          },
+          {
+            eventType: "approval.resolved",
+            facts: {
+              approval_id: "approval-1",
+              consent_preview: 'exec.run(command="npm test")',
+              decision: "allow_once",
+              outcome: "applied",
+            },
+          },
         ],
       },
     });
@@ -914,6 +1757,89 @@ describe("PyPI CLI client", () => {
         ([, args]) => args[0] === "--config" && args[1] === "/config with spaces.json",
       ),
     ).toBe(true);
+  });
+
+  it("restores transient session identity and draft text, then removes an unsent closed conversation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "desktop-cli-drafts-"));
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const run = vi.fn().mockResolvedValue({ exitCode: 0, stdout: "[]", stderr: "" });
+    const context = () => ({ executable: "openminion", args: [] });
+    let store = new DesktopStore(root);
+    try {
+      const client = new CliClient(context, run, store);
+      const created = await client.create({ agentId: "writer", title: "Unsent idea" });
+      if (!created.ok) throw new Error("Draft not created");
+      const sessionId = created.value.sessionId;
+      expect(store.saveDraft({ sessionId, text: "Keep my exact draft\nsecond line" }).ok).toBe(
+        true,
+      );
+      store.close();
+      store = new DesktopStore(root);
+      const restarted = new CliClient(context, run, store);
+      expect(await restarted.load({ sessionId })).toMatchObject({
+        ok: true,
+        value: { session: created.value, messages: [] },
+      });
+      expect(run).not.toHaveBeenCalled();
+      expect(await restarted.list({})).toMatchObject({
+        ok: true,
+        value: { sessions: [created.value] },
+      });
+      expect(store.loadDrafts()).toEqual({
+        ok: true,
+        value: [{ sessionId, text: "Keep my exact draft\nsecond line" }],
+      });
+      const callsBeforeClose = run.mock.calls.length;
+      expect(await restarted.close({ sessionId })).toMatchObject({
+        ok: true,
+        value: { sessionId, status: "closed" },
+      });
+      expect(run).toHaveBeenCalledTimes(callsBeforeClose);
+      expect(store.draftSessions()).toEqual([]);
+      expect(store.loadDrafts()).toEqual({ ok: true, value: [] });
+      expect(await new CliClient(context, run, store).list({})).toMatchObject({
+        ok: true,
+        value: { sessions: [] },
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("promotes a discovered runtime session without duplicating its identity or losing a newer draft", async () => {
+    const root = await mkdtemp(join(tmpdir(), "desktop-cli-promote-"));
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const store = new DesktopStore(root);
+    const run = vi.fn();
+    const context = () => ({ executable: "openminion", args: [] });
+    try {
+      const client = new CliClient(context, run, store);
+      const created = await client.create({ agentId: "writer" });
+      if (!created.ok) throw new Error("Draft not created");
+      const sessionId = created.value.sessionId;
+      expect(store.saveDraft({ sessionId, text: "Next unsent message" }).ok).toBe(true);
+      run.mockResolvedValue({
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify([
+          { id: sessionId, name: "Runtime conversation", status: "idle", agent: "writer" },
+        ]),
+      });
+      const listed = await client.list({});
+      expect(listed).toMatchObject({
+        ok: true,
+        value: { sessions: [{ sessionId, title: "Runtime conversation" }] },
+      });
+      if (listed.ok) expect(listed.value.sessions).toHaveLength(1);
+      expect(store.draftSessions()).toEqual([]);
+      expect(store.loadDrafts()).toEqual({
+        ok: true,
+        value: [{ sessionId, text: "Next unsent message" }],
+      });
+      expect(await new CliClient(context, run, store).list({})).toEqual(listed);
+    } finally {
+      store.close();
+    }
   });
 
   it("streams through the authenticated API and acknowledges displayed replies", async () => {
@@ -957,6 +1883,7 @@ describe("PyPI CLI client", () => {
     expect(JSON.stringify(events)).not.toContain("private diagnostic");
     const recorded = fixture.requests[0]!;
     expect(recorded.body.input_text).toBe("literal $(touch nope) `secret`\nsecond line");
+    expect(recorded.body.approval_transport).toBe("turn_stream");
     expect(recorded.token).toBe("test-private-token");
     expect(recorded.body.inbound_metadata).toEqual({
       caller_handles_delivery: "true",
@@ -966,6 +1893,197 @@ describe("PyPI CLI client", () => {
       ok: true,
       value: { session: { sessionId }, messages: [{ body: "Reply" }] },
     });
+  });
+
+  it.each([
+    ["allow_once", "applied", true],
+    ["deny", "denied", false],
+  ] as const)("streams tool and approval events for %s", async (decision, outcome, ok) => {
+    const fixture = await executableFixture("approval");
+    const events: TurnEventV1[] = [];
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const submitted = await client.submit(
+      { sessionId: created.value.sessionId, message: "run tests" },
+      (event) => events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "approval",
+          phase: "requested",
+          approvalId: "approval-1",
+          consentPreview: 'exec.run(command="npm test")',
+          outcome: "pending",
+        }),
+      ),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: "tool",
+        phase: "started",
+        toolName: "exec.run",
+        callId: "call-1",
+      }),
+    );
+
+    expect(
+      await client.decide({
+        sessionId: submitted.value.sessionId,
+        traceId: submitted.value.traceId,
+        approvalId: "approval-1",
+        decision,
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: { decision, outcome, approvalId: "approval-1" },
+    });
+    expect(fixture.requests[1]?.body).toEqual({
+      session_id: submitted.value.sessionId,
+      trace_id: submitted.value.traceId,
+      approval_id: "approval-1",
+      decision,
+    });
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "approval",
+          phase: "resolved",
+          decision,
+          outcome,
+        }),
+      ),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: "tool",
+        phase: "completed",
+        ok,
+        exitCode: null,
+      }),
+    );
+  });
+
+  it.each([
+    [{}, true],
+    [{ content: "" }, true],
+    [{ content: "  full tool output\nsecond line\n", truncated: false }, true],
+    [{ content: "partial output", truncated: true }, true],
+    [{ content: { unexpected: "payload" } }, false],
+    [{ content: "output", truncated: "false" }, false],
+  ] as const)("preserves only runtime-supplied tool content %j", async (toolOutput, valid) => {
+    const fixture = await executableFixture("approval", toolOutput);
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit(
+      { sessionId: created.value.sessionId, message: "run tests" },
+      (event) => events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() => expect(events.some((event) => event.kind === "approval")).toBe(true));
+    expect(events.find((event) => event.kind === "tool")).not.toHaveProperty("content");
+    await client.decide({
+      sessionId: submitted.value.sessionId,
+      traceId: submitted.value.traceId,
+      approvalId: "approval-1",
+      decision: "allow_once",
+    });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: valid ? "complete" : "error" }),
+    );
+    const completed = events.find((event) => event.kind === "tool" && event.phase === "completed");
+    if (valid) {
+      expect(completed).toMatchObject(toolOutput);
+      expect(completed && "content" in completed).toBe("content" in toolOutput);
+      expect(completed && "truncated" in completed).toBe("truncated" in toolOutput);
+    } else {
+      expect(completed).toBeUndefined();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "error",
+          error: expect.objectContaining({ code: "daemon_stream_failed" }),
+        }),
+      );
+    }
+  });
+
+  it("preserves typed retryable approval errors", async () => {
+    const fixture = await executableFixture("approval-retryable");
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const submitted = await client.submit(
+      { sessionId: created.value.sessionId, message: "run tests" },
+      vi.fn(),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    expect(
+      await client.decide({
+        sessionId: submitted.value.sessionId,
+        traceId: submitted.value.traceId,
+        approvalId: "approval-1",
+        decision: "allow_once",
+      }),
+    ).toEqual({
+      ok: false,
+      error: {
+        code: "approval_temporarily_unavailable",
+        message: "Try the approval again.",
+        retryable: true,
+        retryAfterMs: 250,
+      },
+    });
+  });
+
+  it("accepts expiry settlement without a human decision", async () => {
+    const fixture = await executableFixture("approval-expired");
+    const events: TurnEventV1[] = [];
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    const submitted = await client.submit(
+      { sessionId: created.value.sessionId, message: "run tests" },
+      (event) => events.push(event),
+    );
+    expect(submitted.ok).toBe(true);
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "approval",
+          phase: "resolved",
+          decision: null,
+          outcome: "expired",
+        }),
+      ),
+    );
+    expect(events).toContainEqual(expect.objectContaining({ kind: "done", outcome: "complete" }));
+  });
+
+  it("keeps ordinary chat compatible when approvals are not advertised", async () => {
+    const fixture = await executableFixture("missing-approval-capability");
+    const client = new CliClient(() => ({
+      executable: fixture.executable,
+      args: fixture.args,
+    }));
+    const created = await client.create({});
+    if (!created.ok) throw new Error("Draft not created");
+    expect(
+      await client.submit({ sessionId: created.value.sessionId, message: "hello" }, vi.fn()),
+    ).toMatchObject({ ok: true });
+    expect(fixture.requests[0]?.body.approval_transport).toBe("turn_stream");
   });
 
   it("preserves the saved agent and surfaces canonical stream errors", async () => {
@@ -1024,6 +2142,260 @@ describe("PyPI CLI client", () => {
     });
   });
 
+  it("reattaches a known trace without resending, deduplicates replay, and preserves cancellation scope", async () => {
+    const fixture = await executableFixture("reconnect");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    const identity = { sessionId: "saved", traceId: submitted.value.traceId };
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({
+        kind: "connection",
+        state: "disconnected",
+        error: { retryable: true },
+      }),
+    );
+    expect(events.some((event) => event.kind === "done" || event.kind === "error")).toBe(false);
+    expect(
+      await client.submit({ sessionId: "saved", message: "duplicate" }, vi.fn()),
+    ).toMatchObject({ ok: false, error: { code: "session_turn_active" } });
+    expect(await client.reconnect({ ...identity, traceId: "other" })).toMatchObject({
+      ok: false,
+      error: { code: "trace_not_found" },
+    });
+    expect(await client.reconnect({ ...identity, afterSequence: 900 } as never)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    const reconnect = client.reconnect(identity);
+    expect(await client.reconnect(identity)).toMatchObject({
+      ok: false,
+      error: { code: "stream_connected" },
+    });
+    expect(await reconnect).toMatchObject({ ok: true, value: identity });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+    );
+    expect(events.filter((event) => event.kind === "started")).toHaveLength(1);
+    expect(
+      events.filter((event) => event.kind === "connection").map((event) => event.state),
+    ).toEqual(["disconnected", "reconnected"]);
+    expect(
+      events
+        .filter((event) => event.kind === "progress" && event.progressKind === "text")
+        .map((event) => event.text),
+    ).toEqual(["Before ", "after"]);
+    expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+    expect(fixture.requests.filter((request) => request.path?.includes("/stream?"))).toMatchObject([
+      { path: `/v1/turn/${identity.traceId}/stream?after_sequence=1`, token: "test-private-token" },
+    ]);
+    expect(await client.cancel(identity)).toMatchObject({
+      ok: false,
+      error: { code: "trace_not_found" },
+    });
+  });
+
+  it("keeps cancellation available while disconnected without claiming completion", async () => {
+    const fixture = await executableFixture("reconnect-missing");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+    );
+    const identity = { sessionId: "saved", traceId: submitted.value.traceId };
+    expect(await client.cancel(identity)).toMatchObject({
+      ok: true,
+      value: { state: "requested", terminal: false },
+    });
+    expect(events.some((event) => event.kind === "done")).toBe(false);
+    expect(await client.reconnect(identity)).toMatchObject({
+      ok: false,
+      error: { code: "trace_not_found" },
+    });
+    expect(events.at(-1)).toMatchObject({ kind: "connection", state: "unavailable" });
+  });
+
+  it("replays a pending approval and routes its decision through the original turn", async () => {
+    const fixture = await executableFixture("reconnect-approval");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+    );
+    const identity = { sessionId: "saved", traceId: submitted.value.traceId };
+    expect(await client.reconnect(identity)).toMatchObject({ ok: true });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "approval", phase: "requested" }),
+    );
+    expect(
+      await client.decide({ ...identity, approvalId: "approval-1", decision: "allow_once" }),
+    ).toMatchObject({ ok: true });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+    );
+    expect(events.filter((event) => event.kind === "approval").map((event) => event.phase)).toEqual(
+      ["requested", "resolved"],
+    );
+    expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+  });
+
+  it.each([
+    ["reconnect-missing", "trace_not_found", "unavailable"],
+    ["reconnect-attach-missing", "trace_not_found", "unavailable"],
+    ["reconnect-gap", "stream_replay_gap", "disconnected"],
+    ["reconnect-gap-race", "stream_replay_gap", "disconnected"],
+    ["reconnect-wrong-session", "stream_identity_mismatch", "disconnected"],
+  ])("keeps unknown outcomes truthful for %s", async (mode, code, state) => {
+    const fixture = await executableFixture(mode);
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+    );
+    expect(
+      await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+    ).toMatchObject({ ok: false, error: { code } });
+    expect(events.at(-1)).toMatchObject({ kind: "connection", state, error: { code } });
+    expect(events.some((event) => event.kind === "done" || event.kind === "error")).toBe(false);
+    expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+    if (state === "unavailable")
+      expect(await client.load({ sessionId: "saved" })).toMatchObject({
+        ok: true,
+        value: { messages: [expect.objectContaining({ body: "Reply" })] },
+      });
+  });
+
+  it("retains an accepted response when reconnecting only the terminal tail", async () => {
+    const fixture = await executableFixture("reconnect-response-tail");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const events: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+      events.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+    );
+    expect(events.filter((event) => event.kind === "response")).toHaveLength(1);
+    expect(
+      await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+    ).toMatchObject({ ok: true });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+    );
+    expect(events.filter((event) => event.kind === "response")).toHaveLength(1);
+    expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+  });
+
+  it.each(["reconnect-cursor-missing", "reconnect-cursor-wrong"])(
+    "rejects corrupt replay cursors for %s",
+    async (mode) => {
+      const fixture = await executableFixture(mode);
+      const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+      const events: TurnEventV1[] = [];
+      const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+        events.push(event),
+      );
+      if (!submitted.ok) throw new Error("Turn not accepted");
+      await vi.waitFor(() =>
+        expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+      );
+      await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId });
+      await vi.waitFor(() =>
+        expect(events.at(-1)).toMatchObject({
+          kind: "connection",
+          state: "disconnected",
+          error: { code: "invalid_daemon_response", retryable: false },
+        }),
+      );
+      expect(
+        events
+          .filter((event) => event.kind === "progress" && event.progressKind === "text")
+          .map((event) => event.text),
+      ).toEqual(["Before "]);
+      expect(events.some((event) => event.kind === "done")).toBe(false);
+    },
+  );
+
+  it.each(["reconnect-no-cursor", "reconnect-no-capability"])(
+    "does not guess replay support for %s",
+    async (mode) => {
+      const fixture = await executableFixture(mode);
+      const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+      const events: TurnEventV1[] = [];
+      const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+        events.push(event),
+      );
+      if (!submitted.ok) throw new Error("Turn not accepted");
+      await vi.waitFor(() =>
+        expect(events.at(-1)).toMatchObject({
+          kind: "connection",
+          state: "disconnected",
+          error: { retryable: false },
+        }),
+      );
+      expect(
+        await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+      ).toMatchObject({ ok: false, error: { code: "stream_replay_unavailable" } });
+      expect(fixture.requests).toHaveLength(2);
+      expect(fixture.requests.at(-1)?.path).toBe(`/v1/turn/${submitted.value.traceId}/status`);
+    },
+  );
+
+  it.each(["reconnect-no-cursor", "reconnect-no-capability", "reconnect-gap"])(
+    "can explicitly check status after replay is unavailable for %s",
+    async (mode) => {
+      const fixture = await executableFixture(mode);
+      const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+      const events: TurnEventV1[] = [];
+      const submitted = await client.submit({ sessionId: "saved", message: "once" }, (event) =>
+        events.push(event),
+      );
+      if (!submitted.ok) throw new Error("Turn not accepted");
+      await vi.waitFor(() =>
+        expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" }),
+      );
+      expect(
+        await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+      ).toMatchObject({ ok: false });
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "disconnected" });
+      fixture.expireTrace();
+      expect(
+        await client.reconnect({ sessionId: "saved", traceId: submitted.value.traceId }),
+      ).toMatchObject({
+        ok: false,
+        error: { code: "trace_not_found" },
+      });
+      expect(events.at(-1)).toMatchObject({ kind: "connection", state: "unavailable" });
+      expect(events.some((event) => event.kind === "done" || event.kind === "error")).toBe(false);
+      expect(client.beginConfiguration()).toBe(true);
+      client.endConfiguration();
+      expect(await client.load({ sessionId: "saved" })).toMatchObject({
+        ok: true,
+        value: { messages: [expect.objectContaining({ body: "Reply" })] },
+      });
+      expect(fixture.requests.filter((request) => request.body.input_text)).toHaveLength(1);
+      expect(fixture.requests.filter((request) => request.path?.includes("/stream?"))).toHaveLength(
+        0,
+      );
+    },
+  );
+
   it("cancels through the ordinary authenticated daemon endpoint and fences duplicate sends", async () => {
     const fixture = await executableFixture("wait");
     const client = new CliClient(() => ({
@@ -1057,6 +2429,78 @@ describe("PyPI CLI client", () => {
       }),
     );
   });
+
+  it("manages queued prompts and starts the next prompt through the shared daemon contract", async () => {
+    const fixture = await executableFixture("wait");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const currentEvents: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "current" }, (event) =>
+      currentEvents.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+
+    const first = await client.enqueueTurnInput({
+      sessionId: "saved",
+      agentId: "writer",
+      text: "first queued prompt",
+    });
+    const second = await client.enqueueTurnInput({
+      sessionId: "saved",
+      agentId: "writer",
+      text: "second queued prompt",
+    });
+    if (!first.ok || !second.ok) throw new Error("Prompt not queued");
+    expect(await client.listTurnInputs({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: [
+        { queueId: first.value.queueId, text: "first queued prompt", status: "queued" },
+        { queueId: second.value.queueId, text: "second queued prompt", status: "queued" },
+      ],
+    });
+
+    const moved = await client.moveTurnInput({
+      sessionId: "saved",
+      queueId: second.value.queueId,
+      statusVersion: second.value.statusVersion,
+      beforeQueueId: first.value.queueId,
+    });
+    if (!moved.ok) throw new Error("Prompt not moved");
+    expect(await client.listTurnInputs({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: [{ queueId: second.value.queueId }, { queueId: first.value.queueId }],
+    });
+
+    const dropped = await client.dropTurnInput({
+      sessionId: "saved",
+      queueId: first.value.queueId,
+      statusVersion: first.value.statusVersion,
+    });
+    expect(dropped).toMatchObject({ ok: true, value: { status: "dropped" } });
+
+    const nextEvents: TurnEventV1[] = [];
+    const next = await client.cancelAndRunNext(
+      {
+        sessionId: "saved",
+        traceId: submitted.value.traceId,
+        agentId: "writer",
+        expectedQueueId: second.value.queueId,
+      },
+      (event) => nextEvents.push(event),
+    );
+    expect(next).toMatchObject({ ok: true, value: { sessionId: "saved" } });
+    await vi.waitFor(() =>
+      expect(nextEvents.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+    );
+    expect(nextEvents).toContainEqual(
+      expect.objectContaining({ kind: "response", finalText: "Next reply" }),
+    );
+    expect(fixture.requests).toContainEqual(
+      expect.objectContaining({
+        method: "GET",
+        path: "/v1/sessions/saved/turn-inputs?status=queued&status=steer_deferred",
+      }),
+    );
+  });
 });
 
 const now = "2026-09-08T00:00:00Z";
@@ -1071,19 +2515,202 @@ function session(id: string) {
   };
 }
 
-async function executableFixture(mode = "normal") {
+async function executableFixture(
+  mode = "normal",
+  toolOutput: Record<string, unknown> = {},
+  skillResponses: { list?: unknown; detail?: unknown } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "desktop-cli-test-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const requests: Array<{
     body: Record<string, unknown>;
     token: string | string[] | undefined;
+    path?: string;
+    method?: string;
   }> = [];
   let complete: ((cancelled: boolean) => void) | null = null;
+  let emitSse: ((event: string, value: unknown) => void) | null = null;
+  let activeSessionId = "";
   let traceId = "";
+  let nextTraceId = "";
+  let traceExpired = false;
+  let queueSequence = 0;
+  const queue: Record<string, unknown>[] = [];
   const server = createServer((req, res) => {
     if (req.method === "GET") {
-      requests.push({ body: {}, token: req.headers["x-ipc-token"] });
+      requests.push({
+        body: {},
+        token: req.headers["x-ipc-token"],
+        path: req.url,
+        method: req.method,
+      });
       res.setHeader("Content-Type", "application/json");
+      if (req.url?.startsWith("/v1/sessions/saved/turn-inputs")) {
+        res.end(
+          JSON.stringify({
+            ok: true,
+            entries: queue.filter((entry) => entry.status === "queued"),
+          }),
+        );
+        return;
+      }
+      if (nextTraceId && req.url === `/v1/turn/${nextTraceId}/stream?after_sequence=0`) {
+        res.setHeader("Content-Type", "text/event-stream");
+        const output = (event: string, value: unknown) =>
+          res.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
+        output("meta", {
+          session_id: "saved",
+          trace_id: nextTraceId,
+          request_id: "request-next",
+          stream_schema_version: "openminion.turn-stream.v1",
+          capabilities: ["active_turn_replay"],
+        });
+        output("chunk", {
+          trace_id: nextTraceId,
+          kind: "final_text",
+          data: { text: "Next reply" },
+          ts: now,
+        });
+        output("response", { trace_id: nextTraceId, final_text: "Next reply", errors: [] });
+        output("done", { trace_id: nextTraceId, status: "complete" });
+        res.end();
+        return;
+      }
+      if (
+        req.url === `/v1/turn/${traceId}/status` ||
+        req.url?.startsWith(`/v1/turn/${traceId}/stream?`)
+      ) {
+        const attaching = req.url.includes("/stream?");
+        if (
+          traceExpired ||
+          mode === "reconnect-missing" ||
+          (attaching && mode === "reconnect-attach-missing")
+        ) {
+          res.statusCode = 404;
+          res.end(
+            JSON.stringify({
+              ok: false,
+              error: {
+                code: "trace_not_found",
+                message: "Active trace not found",
+                retryable: false,
+              },
+            }),
+          );
+        } else if (!attaching) {
+          res.end(
+            JSON.stringify({
+              ok: true,
+              trace_id: traceId,
+              session_id: mode === "reconnect-wrong-session" ? "other" : activeSessionId,
+              agent_id: "writer",
+              status: null,
+              stream: {
+                schema_version: "openminion.turn-stream.v1",
+                replay_floor_sequence: mode === "reconnect-gap" ? 4 : 1,
+              },
+            }),
+          );
+        } else {
+          res.setHeader("Content-Type", "text/event-stream");
+          const output = (event: string, data: Record<string, unknown>) =>
+            res.write(
+              `${data.event_id ? `id: ${data.event_id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+            );
+          output("meta", {
+            session_id: activeSessionId,
+            trace_id: traceId,
+            request_id: "attach-1",
+            stream_schema_version: "openminion.turn-stream.v1",
+            capabilities: ["active_turn_replay"],
+            replay_floor_sequence: mode === "reconnect-gap-race" ? 4 : 1,
+          });
+          if (mode === "reconnect-response-tail") {
+            output("done", { trace_id: traceId, status: "complete" });
+            res.end();
+            return;
+          }
+          for (const [sequence, text] of [
+            [1, "Before "],
+            [2, "after"],
+          ] as const)
+            output("chunk", {
+              trace_id: traceId,
+              ...(mode === "reconnect-cursor-missing" && sequence === 2
+                ? {}
+                : {
+                    sequence,
+                    event_id:
+                      mode === "reconnect-cursor-wrong" && sequence === 2
+                        ? "other:2"
+                        : `${traceId}:${sequence}`,
+                  }),
+              kind: "final_text",
+              data: { text },
+              ts: now,
+            });
+          complete = () => {
+            output("response", { trace_id: traceId, final_text: "Before after", errors: [] });
+            output("done", { trace_id: traceId, status: "complete" });
+            res.end();
+          };
+          if (mode === "reconnect-approval") {
+            emitSse = (event, value) => output(event, value as Record<string, unknown>);
+            output("chunk", {
+              trace_id: traceId,
+              sequence: 3,
+              event_id: `${traceId}:3`,
+              kind: "approval",
+              data: {
+                phase: "requested",
+                session_id: activeSessionId,
+                trace_id: traceId,
+                approval_id: "approval-1",
+                tool_name: "exec.run",
+                consent_preview: "Run a command",
+                outcome: "pending",
+                requested_at: now,
+                expires_at: "2027-01-01T00:00:00Z",
+              },
+            });
+          } else complete(false);
+        }
+        return;
+      }
+      if (req.url?.startsWith("/v1/tools/exposure")) {
+        res.end(
+          JSON.stringify({
+            ok: true,
+            exposure: {
+              profiles: [
+                {
+                  profile_id: "web",
+                  tier: "standard",
+                  active: true,
+                  dependency_readiness: "degraded",
+                  private: "not exposed",
+                  dependency_statuses: [
+                    {
+                      dependency_id: "browser",
+                      state: "missing",
+                      setup_hints: [{ label: "Install browser" }],
+                    },
+                  ],
+                },
+              ],
+              unprofiled_dependency_tools: [
+                {
+                  tool_name: "exec",
+                  dependency_readiness: "ready",
+                  dependency_statuses: [{ dependency_id: "shell" }],
+                },
+              ],
+              ...(req.url.includes("?") ? { security_lab: { state: "not_configured" } } : {}),
+            },
+          }),
+        );
+        return;
+      }
       res.end(
         JSON.stringify(
           req.url === "/v1/agents"
@@ -1097,7 +2724,8 @@ async function executableFixture(mode = "normal") {
                   },
                 ],
               }
-            : req.url === "/v1/runtime/capabilities?agent_id=writer"
+            : req.url === "/v1/runtime/capabilities" ||
+                req.url?.startsWith("/v1/runtime/capabilities?")
               ? {
                   ok: true,
                   capabilities: {
@@ -1112,13 +2740,13 @@ async function executableFixture(mode = "normal") {
                     mcp: { failed_servers: {} },
                   },
                 }
-              : req.url === "/v1/skills"
-                ? {
+              : req.url === "/v1/skills" || req.url?.startsWith("/v1/skills?")
+                ? (skillResponses.list ?? {
                     ok: true,
                     skills: [{ skill_id: "example", private: "private" }],
-                  }
+                  })
                 : req.url === "/v1/skills/example"
-                  ? {
+                  ? (skillResponses.detail ?? {
                       ok: true,
                       skill: {
                         skill_id: "example",
@@ -1132,7 +2760,7 @@ async function executableFixture(mode = "normal") {
                         sections: { instructions: "Use the approved tool." },
                         private: "private",
                       },
-                    }
+                    })
                   : req.url === "/v1/skills/suggestions/status"
                     ? {
                         ok: true,
@@ -1191,7 +2819,82 @@ async function executableFixture(mode = "normal") {
     });
     req.on("end", () => {
       const body = JSON.parse(data);
-      requests.push({ body, token: req.headers["x-ipc-token"] });
+      requests.push({
+        body,
+        token: req.headers["x-ipc-token"],
+        path: req.url,
+        method: req.method,
+      });
+      if (req.url === "/v1/sessions/saved/turn-inputs") {
+        queueSequence += 1;
+        const entry = {
+          queue_id: `queue-${queueSequence}`,
+          session_id: "saved",
+          agent_id: body.agent_id,
+          text: body.text,
+          intent: "queue_next",
+          source_client: body.source_client,
+          idempotency_key: body.idempotency_key,
+          priority: 0,
+          metadata: {},
+          status: "queued",
+          status_version: 1,
+          created_at: now,
+          trace_id: null,
+        };
+        queue.push(entry);
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, entry }));
+        return;
+      }
+      const queuePath = req.url?.match(/^\/v1\/sessions\/saved\/turn-inputs\/([^/]+)$/);
+      if (req.method === "DELETE" && queuePath) {
+        const entry = queue.find((item) => item.queue_id === queuePath[1]);
+        if (!entry) throw new Error("Queue fixture entry not found");
+        entry.status = "dropped";
+        entry.status_version = Number(entry.status_version) + 1;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, entry }));
+        return;
+      }
+      const movePath = req.url?.match(/^\/v1\/sessions\/saved\/turn-inputs\/([^/]+)\/move$/);
+      if (movePath) {
+        const index = queue.findIndex((item) => item.queue_id === movePath[1]);
+        const before = queue.findIndex((item) => item.queue_id === body.before_queue_id);
+        if (index < 0 || before < 0) throw new Error("Queue fixture move target not found");
+        const [entry] = queue.splice(index, 1);
+        queue.splice(
+          queue.findIndex((item) => item.queue_id === body.before_queue_id),
+          0,
+          entry!,
+        );
+        entry!.status_version = Number(entry!.status_version) + 1;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, entry }));
+        return;
+      }
+      if (req.url === `/v1/turn/${traceId}/cancel-and-run-next`) {
+        const entry = queue.find((item) => item.queue_id === body.expected_queue_id);
+        if (!entry) throw new Error("Queue fixture next entry not found");
+        nextTraceId = "trace-next";
+        entry.status = "running";
+        entry.status_version = Number(entry.status_version) + 1;
+        entry.trace_id = nextTraceId;
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            ok: true,
+            cancelled: true,
+            trace_id: traceId,
+            next_trace_id: nextTraceId,
+            entry,
+          }),
+        );
+        complete?.(true);
+        return;
+      }
       if (req.url?.endsWith("/cancel")) {
         expect(req.url).toBe(`/v1/turn/${traceId}/cancel`);
         expect(req.headers["x-ipc-token"]).toBe("test-private-token");
@@ -1200,17 +2903,122 @@ async function executableFixture(mode = "normal") {
         complete?.(true);
         return;
       }
+      if (req.url === "/v1/approvals/resume") {
+        expect(req.headers["x-ipc-token"]).toBe("test-private-token");
+        res.setHeader("Content-Type", "application/json");
+        if (mode === "approval-retryable") {
+          res.statusCode = 503;
+          res.end(
+            JSON.stringify({
+              ok: false,
+              error: {
+                code: "approval_temporarily_unavailable",
+                message: "Try the approval again.",
+                retryable: true,
+                retry_after_ms: 250,
+              },
+            }),
+          );
+          return;
+        }
+        const outcome = body.decision === "allow_once" ? "applied" : "denied";
+        emitSse?.("chunk", {
+          trace_id: traceId,
+          ...(mode === "reconnect-approval" ? { sequence: 4, event_id: `${traceId}:4` } : {}),
+          kind: "approval",
+          data: {
+            phase: "resolved",
+            session_id: activeSessionId,
+            trace_id: traceId,
+            approval_id: "approval-1",
+            tool_name: "exec.run",
+            consent_preview: 'exec.run(command="npm test")',
+            requested_at: null,
+            expires_at: null,
+            decision: body.decision,
+            outcome,
+            resolved_at: now,
+          },
+          ts: now,
+        });
+        emitSse?.("chunk", {
+          trace_id: traceId,
+          ...(mode === "reconnect-approval" ? { sequence: 5, event_id: `${traceId}:5` } : {}),
+          kind: "tool_completed",
+          data: {
+            tool_name: "exec.run",
+            call_id: "call-1",
+            state: outcome === "applied" ? "ok" : "denied",
+            ok: outcome === "applied",
+            duration_ms: 12,
+            ...toolOutput,
+          },
+          ts: now,
+        });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            session_id: activeSessionId,
+            trace_id: traceId,
+            approval_id: "approval-1",
+            decision: body.decision,
+            outcome,
+            resolved_at: now,
+          }),
+        );
+        complete?.(false);
+        return;
+      }
+      if (req.url === "/v1/tools/exposure/activate") {
+        requests.push({ path: req.url, body, token: req.headers["x-ipc-token"] });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            activation: { profile_id: "web", audit_id: "audit-1", private: "not exposed" },
+          }),
+        );
+        return;
+      }
+      if (req.url === "/v1/tools/exposure/deactivate") {
+        requests.push({ path: req.url, body, token: req.headers["x-ipc-token"] });
+        res.end(JSON.stringify({ ok: true, deactivated: true }));
+        return;
+      }
       expect(req.url).toBe("/v1/turn/stream");
       traceId = body.trace_id;
+      activeSessionId = body.session_id;
       res.setHeader("Content-Type", "text/event-stream");
       const output = (event: string, value: unknown) =>
         res.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
+      emitSse = output;
       output("meta", {
         session_id: mode === "wrong-session" ? "different" : body.session_id,
         trace_id: traceId,
         request_id: "request-1",
         stream_schema_version: "openminion.turn-stream.v1",
+        capabilities:
+          mode === "missing-approval-capability"
+            ? ["active_turn_replay"]
+            : mode === "reconnect-no-capability"
+              ? []
+              : ["active_turn_replay", "approval_interaction_v1"],
       });
+      if (mode.startsWith("reconnect")) {
+        const cursor =
+          mode === "reconnect-no-cursor" ? {} : { sequence: 1, event_id: `${traceId}:1` };
+        if (mode !== "reconnect-no-cursor") res.write(`id: ${traceId}:1\n`);
+        output("chunk", {
+          trace_id: traceId,
+          ...cursor,
+          kind: "final_text",
+          data: { text: "Before " },
+          ts: now,
+        });
+        if (mode === "reconnect-response-tail")
+          output("response", { trace_id: traceId, final_text: "Before ", errors: [] });
+        res.end();
+        return;
+      }
       for (const data of [
         {
           status_key: "executing",
@@ -1262,6 +3070,55 @@ async function executableFixture(mode = "normal") {
         output("done", { trace_id: traceId, status: "complete" });
         res.end();
       };
+      if (mode === "approval" || mode === "approval-retryable" || mode === "approval-expired") {
+        output("chunk", {
+          trace_id: traceId,
+          kind: "tool_started",
+          data: {
+            tool_name: "exec.run",
+            call_id: "call-1",
+            state: "running",
+          },
+          ts: now,
+        });
+        output("chunk", {
+          trace_id: traceId,
+          kind: "approval",
+          data: {
+            phase: "requested",
+            session_id: body.session_id,
+            trace_id: traceId,
+            approval_id: "approval-1",
+            tool_name: "exec.run",
+            consent_preview: 'exec.run(command="npm test")',
+            requested_at: now,
+            expires_at: "2026-09-08T00:00:50Z",
+            decision: null,
+            outcome: "pending",
+            resolved_at: null,
+          },
+          ts: now,
+        });
+        if (mode === "approval-expired") {
+          output("chunk", {
+            trace_id: traceId,
+            kind: "approval",
+            data: {
+              phase: "resolved",
+              session_id: body.session_id,
+              trace_id: traceId,
+              approval_id: "approval-1",
+              tool_name: "exec.run",
+              consent_preview: 'exec.run(command="npm test")',
+              decision: null,
+              outcome: "expired",
+              resolved_at: now,
+            },
+            ts: now,
+          });
+          complete(false);
+        }
+      }
       if (mode === "error") {
         output("error", {
           code: "turn_failed",
@@ -1271,7 +3128,13 @@ async function executableFixture(mode = "normal") {
         });
         output("done", { trace_id: traceId, status: "error" });
         res.end();
-      } else if (mode !== "wait") complete(false);
+      } else if (
+        mode !== "wait" &&
+        mode !== "approval" &&
+        mode !== "approval-retryable" &&
+        mode !== "approval-expired"
+      )
+        complete(false);
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -1299,5 +3162,13 @@ else if (args[0] === 'export') output({type:'message',id:'reply',role:'outbound'
 else process.exit(1);
 `,
   );
-  return { root, executable: process.execPath, args: [executable], requests };
+  return {
+    root,
+    executable: process.execPath,
+    args: [executable],
+    requests,
+    expireTrace: () => {
+      traceExpired = true;
+    },
+  };
 }

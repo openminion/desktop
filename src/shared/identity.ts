@@ -3,8 +3,15 @@ export type IdentityRenderView = {
   purpose: string;
   profileVersion: string;
   renderVersion: string;
+  budget: {
+    maxTokens: number;
+    usedTokens: number;
+    maxChars: number;
+    usedChars: number;
+  };
   includedFields: string[];
   omittedFields: string[];
+  warnings: string[];
 };
 
 export type IdentityProfileView = {

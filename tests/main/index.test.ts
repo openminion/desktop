@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DesktopStore } from "../../src/main/desktop-store.js";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { type CapturePlatform, CaptureService } from "../../src/main/capture.js";
 import { mount } from "../../src/renderer/app.js";
@@ -178,6 +182,10 @@ describe("desktop main boundary", () => {
       controlTasks: vi
         .fn()
         .mockResolvedValue({ ok: true, value: { tasks: [], pendingActions: 0 } }),
+      controlDelegation: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { action: "inspect", status: "running", tasks: [], inspection: null },
+      }),
       list: vi.fn(),
       create: vi.fn(),
       load: vi.fn(),
@@ -223,11 +231,21 @@ describe("desktop main boundary", () => {
             },
       ),
       submit: vi.fn(),
+      reconnect: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { sessionId: "session-1", traceId: "trace-1", requestId: "reconnect-1" },
+      }),
+      listTurnInputs: vi.fn().mockResolvedValue({ ok: true, value: [] }),
+      enqueueTurnInput: vi.fn(),
+      dropTurnInput: vi.fn(),
+      moveTurnInput: vi.fn(),
+      cancelAndRunNext: vi.fn(),
     };
     const supervisor = {
       inspect: vi.fn().mockResolvedValue({ ok: true, value: { text: "daemon status" } }),
       status: vi.fn().mockResolvedValue({ state: "ready" }),
       retry: vi.fn().mockResolvedValue({ state: "probing" }),
+      reloadIdentity: vi.fn().mockResolvedValue({ ok: true, value: { profiles: [] } }),
       client,
     };
     const media = { pick: vi.fn(), release: vi.fn() };
@@ -289,11 +307,15 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.runtimeCheck,
       IPC_CHANNELS.runtimeStage,
       IPC_CHANNELS.runtimeControl,
+      IPC_CHANNELS.draftsLoad,
+      IPC_CHANNELS.draftsSave,
       IPC_CHANNELS.chatNamesLoad,
       IPC_CHANNELS.chatNamesSave,
       IPC_CHANNELS.presentationLoad,
       IPC_CHANNELS.presentationSave,
       IPC_CHANNELS.tasksControl,
+      IPC_CHANNELS.delegationControl,
+      IPC_CHANNELS.toolsControl,
       IPC_CHANNELS.reportsRead,
       IPC_CHANNELS.sessionsExport,
       IPC_CHANNELS.openLink,
@@ -302,6 +324,7 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.identityRead,
       IPC_CHANNELS.identityVerify,
       IPC_CHANNELS.identitySave,
+      IPC_CHANNELS.identityReload,
       IPC_CHANNELS.profilesPresets,
       IPC_CHANNELS.profilesSetup,
       IPC_CHANNELS.profilesSave,
@@ -315,6 +338,12 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.sessionsClose,
       IPC_CHANNELS.sessionsEvents,
       IPC_CHANNELS.turnsCancel,
+      IPC_CHANNELS.turnsReconnect,
+      IPC_CHANNELS.turnsQueueList,
+      IPC_CHANNELS.turnsQueueEnqueue,
+      IPC_CHANNELS.turnsQueueDrop,
+      IPC_CHANNELS.turnsQueueMove,
+      IPC_CHANNELS.turnsCancelAndRunNext,
       IPC_CHANNELS.approvalsDecide,
       IPC_CHANNELS.artifactsList,
       IPC_CHANNELS.artifactsRead,
@@ -358,7 +387,31 @@ describe("desktop main boundary", () => {
       action: "list",
     });
     expect(client.controlTasks).toHaveBeenCalledWith({ sessionId: "session-1", action: "list" });
+    await mocks.ipcHandlers.get(IPC_CHANNELS.delegationControl)!(event, {
+      sessionId: "session-1",
+      action: "inspect",
+      taskId: "task-1",
+    });
+    expect(client.controlDelegation).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      action: "inspect",
+      taskId: "task-1",
+    });
+    const turnIdentity = { sessionId: "session-1", traceId: "trace-1" };
+    expect(
+      await mocks.ipcHandlers.get(IPC_CHANNELS.turnsReconnect)!(event, turnIdentity),
+    ).toMatchObject({ ok: true, value: turnIdentity });
+    expect(client.reconnect).toHaveBeenCalledExactlyOnceWith(turnIdentity);
+    expect(client.submit).not.toHaveBeenCalled();
     for (const channel of [
+      IPC_CHANNELS.turnsReconnect,
+      IPC_CHANNELS.turnsQueueList,
+      IPC_CHANNELS.turnsQueueEnqueue,
+      IPC_CHANNELS.turnsQueueDrop,
+      IPC_CHANNELS.turnsQueueMove,
+      IPC_CHANNELS.turnsCancelAndRunNext,
+      IPC_CHANNELS.draftsLoad,
+      IPC_CHANNELS.draftsSave,
       IPC_CHANNELS.runtimeControl,
       IPC_CHANNELS.daemonInspect,
       IPC_CHANNELS.chatNamesLoad,
@@ -366,9 +419,15 @@ describe("desktop main boundary", () => {
       IPC_CHANNELS.presentationLoad,
       IPC_CHANNELS.presentationSave,
       IPC_CHANNELS.tasksControl,
+      IPC_CHANNELS.delegationControl,
+      IPC_CHANNELS.toolsControl,
       IPC_CHANNELS.reportsRead,
       IPC_CHANNELS.sessionsExport,
       IPC_CHANNELS.profilesRead,
+      IPC_CHANNELS.identityRead,
+      IPC_CHANNELS.identityVerify,
+      IPC_CHANNELS.identitySave,
+      IPC_CHANNELS.identityReload,
       IPC_CHANNELS.profilesPresets,
       IPC_CHANNELS.profilesSetup,
       IPC_CHANNELS.profilesSave,
@@ -381,18 +440,41 @@ describe("desktop main boundary", () => {
         ),
       ).toMatchObject({ ok: false, error: { code: "forbidden" } });
     }
+    await mocks.ipcHandlers.get(IPC_CHANNELS.identityReload)!(event);
+    expect(supervisor.reloadIdentity).toHaveBeenCalledOnce();
     expect(
       await mocks.ipcHandlers.get(IPC_CHANNELS.profilesImport)!(event, { path: "/arbitrary" }),
     ).toMatchObject({ ok: false, error: { code: "invalid_request" } });
     const copyText = mocks.ipcHandlers.get(IPC_CHANNELS.copyText)!;
     const { clipboard } = await import("electron");
-    expect(copyText(event, { text: "Wrong shape" })).toMatchObject({ ok: false });
-    expect(copyText(event, "x".repeat(1024 * 1024 + 1))).toMatchObject({ ok: false });
+    expect(await copyText(event, { text: "Wrong shape" })).toMatchObject({ ok: false });
+    expect(await copyText(event, "x".repeat(1024 * 1024 + 1))).toMatchObject({ ok: false });
     expect(clipboard.writeText).not.toHaveBeenCalled();
-    expect(copyText(event, "Local reply")).toEqual({ ok: true, value: null });
+    expect(await copyText(event, "Local reply")).toEqual({ ok: true, value: null });
     expect(clipboard.writeText).toHaveBeenCalledWith("Local reply");
-    expect(copyText({ senderFrame: null }, "Denied")).toMatchObject({ ok: false });
+    expect(await copyText({ senderFrame: null }, "Denied")).toMatchObject({ ok: false });
     expect(clipboard.writeText).toHaveBeenCalledTimes(1);
+    let finishCopy!: () => void;
+    vi.mocked(clipboard.writeText).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCopy = resolve;
+        }),
+    );
+    let copyFinished = false;
+    const pendingCopy = Promise.resolve(copyText(event, "Pending reply")).then((result) => {
+      copyFinished = true;
+      return result;
+    });
+    await Promise.resolve();
+    expect(copyFinished).toBe(false);
+    finishCopy();
+    expect(await pendingCopy).toEqual({ ok: true, value: null });
+    vi.mocked(clipboard.writeText).mockRejectedValueOnce(new Error("Clipboard unavailable"));
+    expect(await copyText(event, "Failed reply")).toMatchObject({
+      ok: false,
+      error: { code: "clipboard_unavailable" },
+    });
     client.create.mockResolvedValue({ ok: true, value: { sessionId: "session-1" } });
     client.load.mockResolvedValue({
       ok: true,
@@ -797,6 +879,102 @@ describe("desktop main boundary", () => {
     expect(JSON.stringify(mainFrame.send.mock.calls)).not.toMatch(
       /secret|credential|endpoint|v1\//i,
     );
+  });
+
+  it("clears only the accepted draft revision before delivery and preserves newer text", async () => {
+    const root = mkdtempSync(join(tmpdir(), "desktop-draft-ipc-"));
+    const store = new DesktopStore(root);
+    let emit!: (event: TurnEventV1) => void;
+    const client = {
+      validateTurnSubmission: (input: unknown) => ({
+        ok: true,
+        value: { sessionId: "session-1", input },
+      }),
+      submit: vi.fn(async (_input, listener) => {
+        emit = listener;
+        return {
+          ok: true,
+          value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+        };
+      }),
+    };
+    const observation = {
+      connectTurnOwner: vi.fn(),
+      preemptAutomaticForManual: async () => true,
+      beginManualTurn: () => ({ admitted: true, token: Symbol("turn") }),
+      endManualTurn: vi.fn(),
+    };
+    desktop.registerIpcHandlers(
+      { client } as never,
+      {} as never,
+      { fenceSession: vi.fn() } as never,
+      {} as never,
+      observation as never,
+      store,
+    );
+    const frame = { url: "openminion://app/", detached: false, send: vi.fn() };
+    const invocation = { senderFrame: frame, sender: { mainFrame: frame } };
+    const started: TurnEventV1 = {
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      requestId: "request-1",
+    };
+    const submit = async () => {
+      const saved = store.saveDraft({ sessionId: "session-1", text: "Same text" });
+      if (!saved.ok) throw new Error(saved.error.message);
+      await mocks.ipcHandlers.get(IPC_CHANNELS.turnsSubmit)!(invocation, {
+        sessionId: "session-1",
+        message: "Same text",
+        draftRevision: saved.value,
+      });
+    };
+    try {
+      await submit();
+      expect(store.loadDrafts()).toEqual({
+        ok: true,
+        value: [{ sessionId: "session-1", text: "Same text" }],
+      });
+      emit(started);
+      expect(store.loadDrafts()).toEqual({ ok: true, value: [] });
+      expect(frame.send).toHaveBeenLastCalledWith(IPC_CHANNELS.turnEvent, started);
+      await submit();
+      store.saveDraft({ sessionId: "session-1", text: "Same text" });
+      emit(started);
+      expect(store.loadDrafts()).toEqual({
+        ok: true,
+        value: [{ sessionId: "session-1", text: "Same text" }],
+      });
+      const consume = vi.spyOn(store, "consumeDraft");
+      emit({
+        schemaVersion: 1,
+        kind: "connection",
+        sessionId: "session-1",
+        traceId: "trace-1",
+        state: "reconnected",
+        error: null,
+      });
+      expect(consume).not.toHaveBeenCalled();
+      consume.mockReturnValueOnce({
+        ok: false,
+        error: {
+          code: "storage_unavailable",
+          message: "Accepted, but saved draft could not be cleared.",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      emit(started);
+      expect(frame.send).toHaveBeenLastCalledWith(IPC_CHANNELS.turnEvent, {
+        ...started,
+        draftError: "Accepted, but saved draft could not be cleared.",
+      });
+      consume.mockRestore();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("closes local resources before stopping the daemon on application quit", async () => {
@@ -1321,6 +1499,11 @@ describe("desktop main boundary", () => {
       readArtifact: vi.fn(),
       detachArtifact: vi.fn(),
       restoreArtifact: vi.fn(),
+      listTurnInputs: vi.fn().mockResolvedValue({ ok: true, value: [] }),
+      enqueueTurnInput: vi.fn(),
+      dropTurnInput: vi.fn(),
+      moveTurnInput: vi.fn(),
+      cancelAndRunNext: vi.fn(),
       validateSessionClose: vi.fn(),
       validateTurnSubmission: vi.fn(),
       submit,
@@ -1499,8 +1682,16 @@ class CaptureFixtureElement {
   get lastElementChild(): CaptureFixtureElement | null {
     return this.children.at(-1) ?? null;
   }
-  replaceChild(next: CaptureFixtureElement, previous: CaptureFixtureElement): void {
-    this.children.splice(this.children.indexOf(previous), 1, next);
+  contains(element: CaptureFixtureElement | null): boolean {
+    return element !== null && this.descendants().includes(element);
+  }
+  insertBefore(next: CaptureFixtureElement, previous: CaptureFixtureElement | null): void {
+    this.children = this.children.filter((child) => child !== next);
+    const index = previous === null ? this.children.length : this.children.indexOf(previous);
+    this.children.splice(index, 0, next);
+  }
+  moveBefore(next: CaptureFixtureElement, previous: CaptureFixtureElement | null): void {
+    this.insertBefore(next, previous);
   }
   removeChild(child: CaptureFixtureElement): void {
     this.children.splice(this.children.indexOf(child), 1);
@@ -1565,6 +1756,7 @@ class CaptureFixtureDocument {
     "shell-version",
     "connection-label",
     "session-list",
+    "approval-notice",
     "session-search",
     "clear-session-search",
     "session-search-count",
@@ -1589,8 +1781,14 @@ class CaptureFixtureDocument {
     "chat-detail",
     "chat-update",
     "chat-elapsed",
+    "turn-queue",
+    "turn-queue-status",
+    "turn-queue-list",
+    "run-next",
     "composer-hint",
     "composer-form",
+    "draft-status",
+    "reconnect-turn",
     "composer",
     "show-commands",
     "command-menu",

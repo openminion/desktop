@@ -121,6 +121,143 @@ describe("profile settings", () => {
     if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 
+  it("creates a distinct profile without replacing shared keys or existing agents", async () => {
+    const { profiles, path, run, config } = await setup();
+    run.mockImplementation(async (_exe, args, _timeout, environment) => {
+      if (args.includes("--list-providers"))
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout:
+            "openai: OpenAI\n  Credential: MODEL_API_KEY\n  Endpoint: https://example.com/v1\n  Recommended models: test-model\n",
+        };
+      const candidate = args[args.indexOf("--config") + 1];
+      const value = JSON.parse(await readFile(candidate, "utf8"));
+      if (args.includes("setup")) {
+        expect(args[args.indexOf("--agent") + 1]).toBe("second");
+        expect(environment).toEqual({ MODEL_API_KEY: "second-key" });
+        value.default_agent = "second";
+        value.agents.second = {
+          name: "second",
+          provider: "openai",
+          provider_config_overrides: { model: "second-model", api_key_env: "MODEL_API_KEY" },
+          model_connections: {
+            openai: {
+              provider: "openai",
+              models: ["second-model"],
+              provider_config_overrides: { api_key_env: "MODEL_API_KEY" },
+            },
+          },
+        };
+        await writeFile(candidate, JSON.stringify(value));
+      }
+      return { exitCode: 0, stderr: "", stdout: JSON.stringify(value) };
+    });
+    const input = {
+      revision: (await profiles.read()).revision,
+      agentId: "second",
+      presetId: "openai",
+      model: "second-model",
+      baseUrl: "https://example.com/v1",
+      apiKey: "second-key",
+      checkProvider: false,
+    };
+    const result = await profiles.setup(input, "openminion");
+    const stored = JSON.parse(await readFile(path, "utf8"));
+    expect(stored.default_agent).toBe("second");
+    expect(stored.agents.writer).toEqual(config.agents.writer);
+    expect(stored.agents.other).toEqual(config.agents.other);
+    expect(stored.providers).toEqual(config.providers);
+    expect(stored.runtime.env).toMatchObject(config.runtime.env);
+    expect(stored.agents.second.provider_config_overrides).toMatchObject({
+      api_key: "second-key",
+      api_key_env: "",
+    });
+    expect(stored.agents.second.model_connections.openai.provider_config_overrides).toMatchObject({
+      api_key: "second-key",
+      api_key_env: "",
+    });
+    expect(JSON.stringify(result)).not.toContain("second-key");
+    const current = await profiles.read();
+    const before = await readFile(path, "utf8");
+    run.mockClear();
+    await expect(
+      profiles.setup({ ...input, revision: current.revision }, "openminion"),
+    ).rejects.toThrow("invalid_request");
+    for (const agentId of ["", "two words", "-option", "x".repeat(513)])
+      await expect(
+        profiles.setup({ ...input, revision: current.revision, agentId }, "openminion"),
+      ).rejects.toThrow("invalid_request");
+    expect(run).not.toHaveBeenCalled();
+    expect(await readFile(path, "utf8")).toBe(before);
+  });
+
+  it.each([false, true])(
+    "seeds only an unused adapter binding (named connection present: %s)",
+    async (used) => {
+      const { profiles, path, run, config } = await setup();
+      const originalBinding = {
+        model: "prior-model",
+        api_key_env: "EXTERNAL_API_KEY",
+        api_key: "",
+      };
+      const original = {
+        ...config,
+        providers: { ...config.providers, anthropic: originalBinding },
+        agents: {
+          ...config.agents,
+          writer: {
+            ...config.agents.writer,
+            ...(used ? { model_connections: { external: { provider: "anthropic" } } } : {}),
+          },
+        },
+      };
+      await writeFile(path, JSON.stringify(original));
+      run.mockImplementation(async (_exe, args) => {
+        if (args.includes("--list-providers"))
+          return {
+            exitCode: 0,
+            stderr: "",
+            stdout:
+              "anthropic: Anthropic\n  Credential: ANTHROPIC_API_KEY\n  Endpoint: https://example.com/v1\n  Recommended models: test-model\n",
+          };
+        const candidate = args[args.indexOf("--config") + 1];
+        const value = JSON.parse(await readFile(candidate, "utf8"));
+        if (args.includes("setup")) {
+          value.default_agent = "second";
+          value.providers.anthropic = { model: "second-model", api_key_env: "ANTHROPIC_API_KEY" };
+          value.agents.second = {
+            name: "second",
+            provider: "anthropic",
+            model_connections: {
+              anthropic: { provider: "anthropic", provider_config_overrides: {} },
+            },
+          };
+          await writeFile(candidate, JSON.stringify(value));
+        }
+        return { exitCode: 0, stderr: "", stdout: JSON.stringify(value) };
+      });
+      await profiles.setup(
+        {
+          revision: (await profiles.read()).revision,
+          agentId: "second",
+          presetId: "anthropic",
+          model: "second-model",
+          baseUrl: "https://example.com/v1",
+          apiKey: "second-key",
+          checkProvider: false,
+        },
+        "openminion",
+      );
+      const stored = JSON.parse(await readFile(path, "utf8"));
+      expect(stored.runtime.env).toMatchObject(config.runtime.env);
+      expect(stored.providers.anthropic).toEqual(
+        used ? originalBinding : { model: "second-model", api_key: "second-key", api_key_env: "" },
+      );
+      expect(stored.agents.writer).toEqual(original.agents.writer);
+    },
+  );
+
   it("can save setup without making the optional provider request", async () => {
     const { profiles, path, run, config } = await setup();
     await writeFile(path, JSON.stringify({ ...config, default_agent: "", agents: {} }));

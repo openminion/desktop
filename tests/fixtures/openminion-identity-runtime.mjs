@@ -7,7 +7,7 @@ if (!statePath) process.exit(2);
 
 const args = process.argv.slice(2);
 if (args.includes("--version")) {
-  process.stdout.write("0.0.27\n");
+  process.stdout.write("0.0.29\n");
   process.exit(0);
 }
 const identityIndex = args.indexOf("identity");
@@ -22,8 +22,10 @@ const render = (profileVersion) => ({
   purpose: "act",
   profile_version: profileVersion,
   render_version: "render-v1",
+  budget: { max_tokens: 180, used_tokens: 42, max_chars: 720, used_chars: 168 },
   included_fields: ["role.mission"],
-  omitted_fields: [],
+  omitted_fields: ["personality.formatting"],
+  warnings: ["non-critical fields omitted to fit budget"],
 });
 const readState = () => JSON.parse(readFileSync(statePath, "utf8"));
 const profile = (state) => ({

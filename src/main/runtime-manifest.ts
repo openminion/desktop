@@ -281,10 +281,17 @@ export function parseRuntimeRecord(value: unknown, source: RuntimeSource): Runti
         throw new Error("manifest_certification_invalid");
     }
   } else {
+    const certification = object(record.certification);
+    const certificationPath = text(certification.path);
     if (
       record.pypi !== undefined ||
-      record.certification !== undefined ||
       record.desktop_compatibility === null ||
+      certification.repository !== "openminion/desktop" ||
+      !commitPattern.test(text(certification.commit)) ||
+      !digestPattern.test(text(certification.sha256)) ||
+      !new RegExp(
+        `^releases/runtime-certification/v1/binary-qualification/${version}/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.json$`,
+      ).test(certificationPath) ||
       !Array.isArray(record.artifacts) ||
       !record.artifacts.length ||
       record.artifacts.length > 3

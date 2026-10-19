@@ -1,11 +1,73 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-09-29
+Last updated: 2026-10-18
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+These entries describe source development, not a newly published binary.
+Earlier notes retain the state at the time of each change; later entries can
+supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
+and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+### Recent changes
+
+- Add a labeled Desktop screenshot to the README using non-private sample chat.
+
+- Clarify packaged-app prerequisites, document Identity editing and verification,
+  and correct the route to daemon diagnostics in Runtime settings.
+
+- Clarify the README header with the polished project logo, a download link,
+  contribution guidance, and the independent Desktop version.
+- Correct native integration expectations for `/tool` status and `/graph`
+  help; their output remains compared with the public CLI and daemon.
+- Require LICENSE and NOTICE in packaged application archives and reconcile
+  the remaining public-source launch gates with the expanded disclosure audit.
+
+- Resolve agent and MCP reports using the selected session's canonical agent.
+- Browse the complete global skill catalog and the selected agent's stored
+  catalog through existing public OpenMinion operations.
+- Add `/graph status` readiness reporting and report clipboard failures after
+  the actual write completes.
+- Prepare public contribution guidance, guided issue reports, download
+  verification, and source-backed data/privacy documentation. Public source
+  visibility and stable release approval remain separate gates.
+- Clarify integration-test build prerequisites and require an explicit newer
+  target in the documented private runtime-upgrade rehearsal.
+
+### Earlier development notes
+
+- Add compact language headers and Copy controls to chat code blocks, with
+  keyboard scrolling and the same clipboard feedback as message actions.
+
+- Start Desktop versioning at `0.0.1`, independently of the OpenMinion runtime
+  and Electron. This identifies development builds; it is not a signed release.
+
+- Preserve replacement drafts when leaving command mode, retain command arguments
+  during selection, and show usage and contextual help without invoking an action.
+
+- Confirm before discarding unsaved agent edits when switching profiles.
+
+- Refresh conversation ordering from OpenMinion after a turn completes, and add
+  Copy to inline command reports.
+
+- Copy the newest available assistant or tool output and provide Copy output on
+  completed tool cards when the runtime supplies content, with reported truncation.
+
+- Connect `/tools status` and `/tools list` through the existing public tool
+  reports. Tool activation and deactivation remain unconnected.
+
+- Align first-run managed installations with OpenMinion 0.0.29 and connect
+  `/identity`, `/identity verify`, and `/identity reload` to the canonical
+  identity owner.
+
+- Keep Settings tabs readable on hover and long output filenames wrapped so
+  the preview's Close action stays visible.
+
+- Keep sidebar creation and search controls readable in narrow windows, and
+  preserve keyboard-focus outlines inside scrollable Settings panels.
 
 - Fit user-message bubbles to their text, with compact padding and copy/time
   controls below the bubble on hover or keyboard focus.
@@ -35,7 +97,7 @@ Notable user-facing changes to OpenMinion Desktop are recorded here.
   saved Normal/Quiet preference, keyboard help, and a ⌘ / Ctrl + , shortcut.
   Runtime diagnostics and update controls now live together in Settings.
 
-- Update the managed PyPI runtime baseline to OpenMinion 0.0.27.
+- Update the managed PyPI runtime baseline to OpenMinion 0.0.29.
 - Add command-specific help, fixed installed-runtime `/graph` help, and native `/editor` composition guidance.
 - Allow repairing model credentials in Settings after the daemon exits, while
   continuing to reject profile changes when another live process owns the daemon.
