@@ -32,11 +32,11 @@ and dated evidence for each gate. Source validation alone cannot close them.
 
 | Gate | Acceptance | Current boundary |
 | --- | --- | --- |
-| Source and history disclosure | Scan heads, tags and historical PR heads, and inspect historical paths, assets, commit metadata and licenses; resolve findings before exposure | On 2026-10-18, a fresh remote-only mirror contained 195 reachable commits and all 70 PR heads; Gitleaks 8.30.1 scanned 142 non-merge commits with zero secret findings. Automated detection is not a privacy or rights signoff |
-| Hosted-content disclosure | Review retained Actions logs/artifacts, PR and issue bodies/comments, releases, wiki and attachments; redact or remove confidential material before visibility changes | The 2026-10-18 inventory covers 262 runs and 70 PRs/19 comments. Current prose and all 20 new runs since the prior 242-run receipt passed secret scans; earlier retained-log evidence is preserved. No retained artifacts, releases, ordinary issues or enabled wiki/discussions were found. External image bytes and contextual maintainer approval remain outside the scan |
-| License and branding | Confirm authority to publish every source file and bundled asset, including historical versions; retain compatible notices | Apache-2.0, NOTICE and brand boundaries exist; asset origin does not itself establish publishing rights |
+| Source and history disclosure | Scan heads, tags and historical PR heads, and inspect historical paths, assets, commit metadata and licenses; resolve findings before exposure | The expanded 2026-10-18 audit covered 216 reachable commits, 1,227 blob versions and 134 historical paths, including 73 PR heads and exposed force-pushed revisions. Expanded Git and added full-blob scans found zero secrets. Automated detection is not a privacy or rights signoff |
+| Hosted-content disclosure | Review retained Actions logs/artifacts, PR and issue bodies/comments, releases, wiki and attachments; redact or remove confidential material before visibility changes | The 2026-10-18 expanded inventory covers 267 runs, 914 nonempty log files, 73 PRs, 19 comments and 65 retained description revisions. Secret scans passed, but two old PR description revisions still disclose personal paths. Current bodies are clean; remove only the affected revisions before publication. External image bytes and contextual maintainer approval remain outside the scan |
+| License and branding | Confirm authority to publish every source file and bundled asset, including historical versions; retain compatible notices | Apache-2.0, NOTICE and brand boundaries exist; packaging requires both license notices in the application archive. Asset origin does not itself establish publishing rights |
 | Dependency security | Record the full install/build audit, triage unresolved advisories and verify any upgrade with actual package builds | Forge 8.0.1 leaves four high audit reports in one DMG build chain; upstream resolution or explicit maintainer risk disposition remains open |
-| Reproducible contribution | Clean dependency install from the lockfile without private registry, Git credentials or sibling checkouts; both Quality jobs pass | Local and hosted evidence must identify the exact revision; public fork proof follows the switch |
+| Reproducible contribution | Clean dependency install from the lockfile without private registry, Git credentials or sibling checkouts; both Quality jobs pass | Local and hosted evidence must identify the exact revision. Actions budget limits currently block new hosted acceptance; restore capacity and rerun required checks before promotion. Public fork proof follows the switch |
 | Merge controls | Require current Quality checks, up-to-date branches, reviewed promotion, and no force push/deletion on `main`; verify effective settings | GitHub returns a plan restriction for protection on this private repo; upgrade the plan or configure immediately at visibility change |
 | Private security reports | Enable private vulnerability reporting and verify the linked reporting route works for an external user | An advisory link alone is not proof that reporting is enabled |
 | Public fork policy | Require approval for first-time outside workflows; keep fork PR tokens read-only and secrets unavailable | Verify effective GitHub settings at launch; ordinary quality checks must not depend on maintainer secrets |
@@ -67,7 +67,9 @@ Before source publication, record these decisions against the reviewed revision:
   certify a stable binary or dismiss dependency risks in general.
 - **Launch controls:** choose a plan upgrade or immediate protection setup at the
   approved visibility switch. Verify private vulnerability reporting externally;
-  if unavailable, establish a concrete private contact route before launch.
+  if unavailable, establish a concrete private contact route before launch. Publish a
+  working private conduct-reporting destination in `CODE_OF_CONDUCT.md` as well;
+  a security advisory form is not a conduct-reporting channel.
 
 GitHub currently rejects protection readback for this private repository with a
 plan restriction, returns no usable private-reporting readback, and disallows
@@ -87,23 +89,28 @@ reviewing that hosted content.
 
 At the approved switch:
 
-1. Promote the reviewed source through the `dev` → `main` process and record the
+1. Remove the two affected retained PR description revisions and recheck their
+   deletion state. Editing the current body does not remove its history. Retain
+   sanitized verification only; do not publish the original personal paths.
+2. Resolve the maintainer decisions above and verify the documented private
+   contact routes. Restore Actions capacity and rerun blocked required checks.
+3. Promote the reviewed source through the `dev` → `main` process and record the
    exact revision. Recheck the disclosure gates if either branch moved.
-2. Change visibility, enable/verify private security reporting, and immediately
+4. Change visibility, enable/verify private security reporting, and immediately
    configure and read back effective branch protections. Require
    **Quality (ubuntu-latest)** and **Quality (macos-latest)** on `main`, with
    strict/up-to-date checks and administrator enforcement, matching CLI's
    protected promotion boundary. Enforce review and reject force pushes/deletion.
-3. Verify [Actions fork settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository),
+5. Verify [Actions fork settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository),
    including first-time contributor approval and no secret or write-token access
    for untrusted PR jobs. Keep package publishing restricted to canonical `main`.
-4. Check the public issue chooser on the promoted default branch: bug and
+6. Check the public issue chooser on the promoted default branch: bug and
    feature templates render, blank issues remain available, and support/security
    links reach the documented routes. A template link does not establish that
    private vulnerability reporting is enabled.
-5. From an unauthenticated environment, clone the public default branch, install
+7. From an unauthenticated environment, clone the public default branch, install
    the lockfile, run the documented checks, and verify public documentation links.
-6. Submit a real fork PR to `dev` without secrets. Confirm that the approved
+8. Submit a real fork PR to `dev` without secrets. Confirm that the approved
    workflow runs, validates its commit range, and passes both Quality jobs.
    Record the PR and workflow receipts; do not substitute a same-repo PR.
 
