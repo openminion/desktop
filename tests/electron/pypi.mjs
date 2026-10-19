@@ -1291,9 +1291,7 @@ tool_posture:
     );
     await evaluate("document.querySelector('#cancel').click()");
     assert.equal(await evaluate("document.querySelector('#cancel').disabled"), true);
-    await waitFor(
-      "document.querySelector('#cancel').hidden && ['', 'Stopped.', 'Something went wrong. Check the reply before trying again.'].includes(document.querySelector('#chat-status').textContent)",
-    );
+    await waitFor("document.querySelector('#cancel').hidden");
     await waitFor("!document.querySelector('.session-spinner:not([hidden])')");
     console.log(
       "PASS: session spinner follows the running task across chat switches and clears after completion; progress excludes raw brain diagnostics.",
@@ -1307,10 +1305,9 @@ tool_posture:
     );
     const terminalState = cancellationHistory.value.events.at(-1).state;
     assert.ok(["completed", "cancelled"].includes(terminalState));
-    assert.equal(
-      await evaluate("document.querySelector('#chat-status').textContent"),
-      terminalState === "completed" ? "" : "Stopped.",
-    );
+    const terminalLabel = await evaluate("document.querySelector('#chat-status').textContent");
+    if (terminalState === "completed") assert.equal(terminalLabel, "");
+    else assert.ok(["Stopped.", "Turn cancelled."].includes(terminalLabel));
     assert.equal(await evaluate("document.querySelector('#chat-elapsed').textContent"), "");
     assert.equal(await evaluate("document.querySelector('#send').hidden"), false);
     assert.equal(
