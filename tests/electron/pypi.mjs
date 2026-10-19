@@ -850,7 +850,7 @@ tool_posture:
     await click("clear-session-search");
     assert.equal(await evaluate("document.activeElement.id"), "session-search");
     await evaluate(
-      `[...document.querySelectorAll('#session-list button')].find(button => button.textContent.includes(${JSON.stringify(secondId)})).click()`,
+      `document.querySelector('#session-list button[data-session-id="${secondId}"]').click()`,
     );
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Second task via keyboard')",
@@ -871,7 +871,7 @@ tool_posture:
     );
     await command("/sessions", "Choose a conversation");
     await evaluate(
-      `[...document.querySelectorAll('#session-list button')].find(button => button.textContent.includes(${JSON.stringify(sessionId)})).click()`,
+      `document.querySelector('#session-list button[data-session-id="${sessionId}"]').click()`,
     );
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Published runtime GUI proof')",
