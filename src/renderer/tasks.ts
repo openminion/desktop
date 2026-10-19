@@ -273,7 +273,6 @@ function delegationTaskForm(
     ["status", "Refresh status"],
     ["result", "Read latest result"],
     ["cancel", "Cancel task"],
-    ["resume", "Resume if supported"],
   ]) {
     const option = root.createElement("option");
     option.value = id!;
@@ -281,7 +280,7 @@ function delegationTaskForm(
     action.append(option);
   }
   const syncBusyState = () => {
-    const mutating = action.value === "cancel" || action.value === "resume";
+    const mutating = action.value === "cancel";
     taskId.disabled = busy && mutating;
     action.disabled = busy && mutating;
     submit.disabled = busy && mutating;

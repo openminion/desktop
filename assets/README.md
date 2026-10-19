@@ -24,3 +24,17 @@ Linux packages use `icon.png` directly.
 
 The build copies the PNG into the renderer's fixed local asset set. Do not
 load branding from the network at runtime or package unrelated brand studies.
+
+## Documentation screenshot
+
+[`docs/images/desktop-preview.png`](../docs/images/desktop-preview.png) is an
+unretouched capture of the Desktop renderer at 1180 × 768 logical pixels
+(2360 × 1536 PNG), taken on 2026-10-18 from source revision `1f55a07`.
+It uses the existing UI-preview fixture with staged conversation titles and
+text, without a daemon, provider, credentials, or personal conversation data.
+The visible preview label is intentional. It illustrates the interface, not
+live integration acceptance or the contents of a published binary.
+
+For a refresh, use `npm run preview` with non-private sample content and retain
+the preview label and README caption. Review the captured image before committing.
+This documentation image is outside the packaged application assets.

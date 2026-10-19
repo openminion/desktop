@@ -43,7 +43,7 @@ const messages: MessageV1[] = [
     sessionId: sessions[0]!.sessionId,
     role: "assistant",
     createdAt: now(),
-    body: "This is a UI preview. Nothing is sent to a model. Try attachments, screen/window selection, local preview, task outputs, and sending a message. Each sample turn pauses for an approval so you can try Allow once, Deny, or Stop. Changes disappear when this window closes.",
+    body: 'This is a UI preview. Nothing is sent to a model. Try attachments, screen/window selection, local preview, task outputs, and sending a message. Each sample turn pauses for an approval so you can try Allow once, Deny, or Stop. Changes disappear when this window closes.\n\n```python\nmessage = "Code keeps its spacing and can be copied on its own."\nprint(message)\n# Long code lines scroll horizontally without widening the conversation or moving the Copy button out of reach.\n```',
   },
 ];
 let turnListener: (event: TurnEventV1) => void = () => {};
@@ -196,8 +196,19 @@ const profileSettings = {
   credentials: [],
 };
 const previewNames = new Map<string, string>();
-let previewQuietTools = false;
+let previewToolDisplay: "quiet" | "normal" | "verbose" = "normal";
 const api: NativeApi = {
+  tools: {
+    control: async () => ({
+      ok: false,
+      error: {
+        code: "preview_only",
+        message: "Tool access cannot change in previews.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
+  },
   runtime: {
     control: async () => ({
       ok: false,
@@ -252,9 +263,9 @@ const api: NativeApi = {
     },
   },
   presentation: {
-    load: async () => ({ ok: true, value: { quietTools: previewQuietTools } }),
-    save: async ({ quietTools }) => {
-      previewQuietTools = quietTools;
+    load: async () => ({ ok: true, value: { toolDisplay: previewToolDisplay } }),
+    save: async ({ toolDisplay }) => {
+      previewToolDisplay = toolDisplay;
       return { ok: true, value: null };
     },
   },
@@ -337,8 +348,10 @@ const api: NativeApi = {
               purpose: "act",
               profileVersion: "sample-profile-version",
               renderVersion: "sample-render-version",
+              budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
               includedFields: ["role.mission"],
               omittedFields: [],
+              warnings: [],
             },
           },
         ],
@@ -353,8 +366,10 @@ const api: NativeApi = {
           purpose: "act",
           profileVersion: "sample-profile-version",
           renderVersion: "sample-render-version",
+          budget: { maxTokens: 180, usedTokens: 42, maxChars: 720, usedChars: 168 },
           includedFields: ["role.mission"],
           omittedFields: [],
+          warnings: [],
         },
       }),
     save: async () => {
@@ -422,6 +437,41 @@ const api: NativeApi = {
   turns: {
     reconnect: async ({ sessionId, traceId }) =>
       ok({ sessionId, traceId, requestId: "preview-request" }),
+    listQueue: async () => ok([]),
+    enqueue: async ({ sessionId, agentId, text }) =>
+      ok({
+        queueId: id(),
+        sessionId,
+        agentId,
+        text,
+        status: "queued",
+        statusVersion: 1,
+        createdAt: now(),
+        traceId: null,
+      }),
+    drop: async ({ sessionId, queueId }) =>
+      ok({
+        queueId,
+        sessionId,
+        agentId: "preview-agent",
+        text: "Preview queued prompt",
+        status: "dropped",
+        statusVersion: 2,
+        createdAt: now(),
+        traceId: null,
+      }),
+    move: async ({ sessionId, queueId }) =>
+      ok({
+        queueId,
+        sessionId,
+        agentId: "preview-agent",
+        text: "Preview queued prompt",
+        status: "queued",
+        statusVersion: 2,
+        createdAt: now(),
+        traceId: null,
+      }),
+    cancelAndRunNext: async ({ sessionId }) => ok({ sessionId, traceId: id(), requestId: id() }),
     subscribe: (listener) => {
       turnListener = listener;
       return () => {

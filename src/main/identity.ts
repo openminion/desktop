@@ -170,14 +170,29 @@ function validationView(value: Record<string, unknown>): IdentityValidation {
 }
 
 function renderView(value: Record<string, unknown>) {
+  const budget = record(value.budget);
   return {
     text: requireString(value.text),
     purpose: requireString(value.purpose),
     profileVersion: requireString(value.profile_version),
     renderVersion: requireString(value.render_version),
+    budget: {
+      maxTokens: renderBudgetNumber(budget.max_tokens, true),
+      usedTokens: renderBudgetNumber(budget.used_tokens),
+      maxChars: renderBudgetNumber(budget.max_chars, true),
+      usedChars: renderBudgetNumber(budget.used_chars),
+    },
     includedFields: strings(value.included_fields),
     omittedFields: strings(value.omitted_fields),
+    warnings: strings(value.warnings),
   };
+}
+
+function renderBudgetNumber(value: unknown, positive = false): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < (positive ? 1 : 0)) {
+    throw protocolError("invalid_daemon_response", "Identity render budget is invalid.");
+  }
+  return value;
 }
 
 function record(value: unknown): Record<string, unknown> {
