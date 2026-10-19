@@ -14,6 +14,9 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
 ### Recent changes
 
+- Clarify packaged-app prerequisites, document Identity editing and verification,
+  and correct the route to daemon diagnostics in Runtime settings.
+
 - Clarify the README header with the polished project logo, a download link,
   contribution guidance, and the independent Desktop version.
 - Correct native integration expectations for `/tool` status and `/graph`
