@@ -1,0 +1,168 @@
+name: Runtime qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact immutable openminion/runtime Release tag
+        required: true
+        type: string
+      release_id:
+        description: Opaque binary runtime release identity
+        required: true
+        type: string
+      desktop_version:
+        description: Stable Desktop version being qualified
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    if: github.repository == 'openminion/desktop' && github.ref == 'refs/heads/main'
+    env:
+      DESKTOP_VERSION: ${{ inputs.desktop_version }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_ID: ${{ inputs.release_id }}
+    name: Qualify (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: darwin-arm64
+            executable: out/OpenMinion-darwin-arm64/OpenMinion.app/Contents/MacOS/OpenMinion
+          - runner: ubuntu-22.04
+            target: linux-x64
+            executable: out/OpenMinion-linux-x64/OpenMinion
+          - runner: windows-2022
+            target: win32-x64
+            executable: out/OpenMinion-win32-x64/OpenMinion.exe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Validate qualification identities
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          const { DESKTOP_VERSION, RELEASE_TAG, RELEASE_ID } = process.env;
+          assert.match(DESKTOP_VERSION, /^\d+\.\d+\.\d+$/);
+          assert.notEqual(DESKTOP_VERSION, "0.0.0");
+          assert.match(RELEASE_ID, /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
+          assert.match(RELEASE_TAG, /^runtime-v\d+\.\d+\.\d+-[A-Za-z0-9._-]+$/);
+          assert.ok(RELEASE_TAG.endsWith(`-${RELEASE_ID}`));
+          JS
+          npm version "$DESKTOP_VERSION" --no-git-tag-version --allow-same-version
+      - name: Build the exact packaged Desktop
+        run: npm ci && npm run make
+      - name: Qualify exact immutable runtime bytes
+        shell: bash
+        env:
+          EXECUTABLE: ${{ matrix.executable }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          executable="$PWD/$EXECUTABLE"
+          package=$(find out/make -type f -name '*.zip' -print -quit)
+          test -n "$package"
+          evidence="$RUNNER_TEMP/qualification-$TARGET.json"
+          command=(node tests/electron/packaged-runtime.mjs \
+            "$executable" \
+            "$DESKTOP_VERSION" \
+            --qualify-binary \
+            "$RELEASE_TAG" \
+            "$RELEASE_ID" \
+            "$PWD/$package" \
+            "$evidence" \
+            "$GITHUB_SHA")
+          if [ "$TARGET" = linux-x64 ]; then
+            xvfb-run -a "${command[@]}"
+          else
+            "${command[@]}"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qualification-${{ matrix.target }}
+          path: ${{ runner.temp }}/qualification-${{ matrix.target }}.json
+          if-no-files-found: error
+
+  evidence:
+    if: github.repository == 'openminion/desktop' && github.ref == 'refs/heads/main'
+    needs: qualify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: qualification-*
+          path: qualification-fragments
+          merge-multiple: true
+      - name: Merge qualification evidence and open the review PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DESKTOP_VERSION: ${{ inputs.desktop_version }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$RELEASE_TAG"
+          version=${version#runtime-v}
+          version=${version%-"$RELEASE_ID"}
+          evidence_id="desktop-$DESKTOP_VERSION-$RELEASE_ID"
+          destination="releases/runtime-certification/v1/binary-qualification/$version/$evidence_id.json"
+          branch="test/runtime-certification-$RELEASE_ID"
+          inputs=(qualification-fragments/qualification-*.json)
+          test "${#inputs[@]}" -eq 3
+          node scripts/runtime-qualification.mjs "$destination" "${inputs[@]}"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git checkout -b "$branch"
+          git add "$destination"
+          git commit -m "test(runtime): certify $RELEASE_TAG"
+          git push origin "$branch"
+          body="$RUNNER_TEMP/runtime-qualification-pr.md"
+          printf '%s\n' \
+            '- certify exact immutable runtime bytes on macOS arm64, Linux x64, and Windows x64' \
+            '- bind native trust, packaged Desktop, activation, shutdown, and same-chat evidence' \
+            '- keep the binary feed unchanged until this evidence and the separate metadata PR are reviewed' \
+            '' \
+            'Validation' \
+            "- Runtime qualification workflow ${GITHUB_RUN_ID}" > "$body"
+          url=$(gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "Certify $RELEASE_TAG for Desktop" \
+            --body-file "$body"
+          )
+          gh workflow run ci.yml --ref "$branch" --field packages=false
+          {
+            echo '## Runtime qualification ready for review'
+            echo
+            echo "- Evidence: \`$destination\`"
+            echo "- Evidence commit: \`$(git rev-parse HEAD)\`"
+            echo "- Evidence ID: \`$evidence_id\`"
+            echo "- Pull request: $url"
+            echo '- The runtime remains undiscoverable until this PR and the later OpenMinion metadata PR are merged.'
+          } >> "$GITHUB_STEP_SUMMARY"

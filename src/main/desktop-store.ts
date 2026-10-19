@@ -1,7 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { ChatName, ClientResult, RuntimePin } from "../shared/contracts.js";
+import type {
+  ChatName,
+  ToolDisplay,
+  ClientResult,
+  RuntimePin,
+  ChatDraft,
+  SessionSummaryV1,
+} from "../shared/contracts.js";
 import { failure } from "./openminion-client.js";
 
 export type InstalledRuntime = {
@@ -37,7 +45,15 @@ export class DesktopStore {
     this.database = new DatabaseSync(path);
     try {
       const version = this.database.prepare("PRAGMA user_version").get()!.user_version;
-      if (version !== 0 && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
+      if (
+        version !== 0 &&
+        version !== 1 &&
+        version !== 2 &&
+        version !== 3 &&
+        version !== 4 &&
+        version !== 5 &&
+        version !== 6
+      ) {
         throw new Error(
           "Desktop data was created by a newer version. Install the newer app to open it.",
         );
@@ -100,6 +116,30 @@ export class DesktopStore {
           );
           INSERT INTO presentation (id, quiet_tools) VALUES (1, 0);
           PRAGMA user_version = 4;
+          COMMIT;
+        `);
+      }
+      if (version < 5) {
+        this.database.exec(`
+          BEGIN IMMEDIATE;
+          CREATE TABLE chat_drafts (
+            session_id TEXT PRIMARY KEY,
+            text TEXT NOT NULL,
+            revision TEXT NOT NULL,
+            local_session TEXT
+          );
+          PRAGMA user_version = 5;
+          COMMIT;
+        `);
+      }
+      if (version < 6) {
+        this.database.exec(`
+          BEGIN IMMEDIATE;
+          ALTER TABLE presentation ADD COLUMN tool_display TEXT NOT NULL DEFAULT 'normal'
+            CHECK (tool_display IN ('quiet', 'normal', 'verbose'));
+          UPDATE presentation SET tool_display = CASE quiet_tools WHEN 1 THEN 'quiet' ELSE 'normal' END;
+          ALTER TABLE presentation DROP COLUMN quiet_tools;
+          PRAGMA user_version = 6;
           COMMIT;
         `);
       }
@@ -244,10 +284,115 @@ export class DesktopStore {
     }
   }
 
-  loadPresentation(): ClientResult<{ quietTools: boolean }> {
+  draftSessions(): SessionSummaryV1[] {
+    return this.database
+      .prepare("SELECT local_session FROM chat_drafts WHERE local_session IS NOT NULL")
+      .all()
+      .map((row) => JSON.parse(row.local_session as string) as SessionSummaryV1);
+  }
+
+  rememberDraftSession(session: SessionSummaryV1): void {
+    this.database
+      .prepare(
+        "INSERT INTO chat_drafts (session_id, text, revision, local_session) VALUES (?, '', ?, ?)",
+      )
+      .run(session.sessionId, randomUUID(), JSON.stringify(session));
+  }
+
+  promoteDraftSession(sessionId: string): void {
+    this.database
+      .prepare("UPDATE chat_drafts SET local_session = NULL WHERE session_id = ?")
+      .run(sessionId);
+    this.database
+      .prepare("DELETE FROM chat_drafts WHERE session_id = ? AND text = ''")
+      .run(sessionId);
+  }
+
+  removeDraft(sessionId: string): void {
+    this.database.prepare("DELETE FROM chat_drafts WHERE session_id = ?").run(sessionId);
+  }
+
+  loadDrafts(): ClientResult<ChatDraft[]> {
     try {
-      const row = this.database.prepare("SELECT quiet_tools FROM presentation WHERE id = 1").get()!;
-      return { ok: true, value: { quietTools: row.quiet_tools === 1 } };
+      return {
+        ok: true,
+        value: this.database
+          .prepare("SELECT session_id AS sessionId, text FROM chat_drafts WHERE text != ''")
+          .all() as unknown as ChatDraft[],
+      };
+    } catch {
+      return failure("storage_unavailable", "Could not restore unsent drafts on this device.");
+    }
+  }
+
+  saveDraft(input: unknown): ClientResult<string> {
+    if (input === null || typeof input !== "object" || Array.isArray(input))
+      return failure("invalid_input", "The draft is invalid.");
+    const draft = input as Record<string, unknown>;
+    if (
+      Object.keys(draft).some((key) => !["sessionId", "text", "clearUnbound"].includes(key)) ||
+      (draft.clearUnbound !== undefined && (draft.clearUnbound !== true || !draft.sessionId)) ||
+      typeof draft.sessionId !== "string" ||
+      draft.sessionId.length > 256 ||
+      typeof draft.text !== "string" ||
+      draft.text.length > 250_000
+    )
+      return failure("invalid_input", "Drafts must contain at most 250,000 characters.");
+    try {
+      const revision = randomUUID();
+      if (draft.clearUnbound) this.database.exec("BEGIN IMMEDIATE");
+      this.database
+        .prepare(
+          "INSERT INTO chat_drafts (session_id, text, revision) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET text = excluded.text, revision = excluded.revision",
+        )
+        .run(draft.sessionId, draft.text, revision);
+      if (draft.clearUnbound) {
+        this.database.prepare("DELETE FROM chat_drafts WHERE session_id = ''").run();
+        this.database.exec("COMMIT");
+      }
+      return { ok: true, value: revision };
+    } catch {
+      if (this.database.isTransaction) this.database.exec("ROLLBACK");
+      return failure(
+        "storage_unavailable",
+        "Draft not saved on this device. Keep this window open and try again.",
+      );
+    }
+  }
+
+  consumeDraft(input: unknown): ClientResult<null> {
+    if (input === null || typeof input !== "object" || Array.isArray(input))
+      return failure("invalid_input", "The draft reference is invalid.");
+    const draft = input as Record<string, unknown>;
+    if (
+      Object.keys(draft).length !== 2 ||
+      typeof draft.sessionId !== "string" ||
+      draft.sessionId.length > 256 ||
+      typeof draft.revision !== "string" ||
+      draft.revision.length !== 36
+    )
+      return failure("invalid_input", "The draft reference is invalid.");
+    try {
+      this.database
+        .prepare(
+          "UPDATE chat_drafts SET text = '', revision = ? WHERE session_id = ? AND revision = ?",
+        )
+        .run(randomUUID(), draft.sessionId, draft.revision);
+      return { ok: true, value: null };
+    } catch {
+      return failure(
+        "storage_unavailable",
+        "Message accepted, but its saved draft could not be cleared. Do not resend it.",
+      );
+    }
+  }
+
+  loadPresentation(): ClientResult<{ toolDisplay: ToolDisplay }> {
+    try {
+      const row = this.database
+        .prepare("SELECT tool_display FROM presentation WHERE id = 1")
+        .get()!;
+      return { ok: true, value: { toolDisplay: row.tool_display as ToolDisplay } };
     } catch {
       return failure("storage_unavailable", "Could not load Desktop preferences.");
     }
@@ -259,14 +404,14 @@ export class DesktopStore {
       typeof input !== "object" ||
       Array.isArray(input) ||
       Object.keys(input).length !== 1 ||
-      typeof (input as Record<string, unknown>).quietTools !== "boolean"
+      !["quiet", "normal", "verbose"].includes((input as { toolDisplay: string }).toolDisplay)
     ) {
       return failure("invalid_input", "Desktop preferences are invalid.");
     }
     try {
       this.database
-        .prepare("UPDATE presentation SET quiet_tools = ? WHERE id = 1")
-        .run((input as { quietTools: boolean }).quietTools ? 1 : 0);
+        .prepare("UPDATE presentation SET tool_display = ? WHERE id = 1")
+        .run((input as { toolDisplay: ToolDisplay }).toolDisplay);
       return { ok: true, value: null };
     } catch {
       return failure("storage_unavailable", "Could not save Desktop preferences.");

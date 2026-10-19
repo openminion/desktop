@@ -55,7 +55,12 @@
           <p id="profile-intro" class="settings-note">Finish running chats before saving. Applying changes restarts OpenMinion.</p>
           <form id="profile-form">
             <fieldset id="setup-fields" hidden>
-              <legend>Set up your first agent</legend>
+              <legend id="setup-legend">Set up your first agent</legend>
+              <div id="setup-agent-fields" hidden>
+                <label for="setup-agent">New agent ID</label>
+                <input id="setup-agent" maxlength="512" required disabled spellcheck="false" />
+                <p class="settings-note">The new profile becomes the default for new conversations. Existing conversations keep their agent.</p>
+              </div>
               <label for="setup-provider">Provider</label>
               <select id="setup-provider"></select>
               <div class="settings-grid">
@@ -93,6 +98,8 @@
             <div class="settings-actions">
               <button id="setup-demo" class="quiet-button" type="button" hidden>Try echo demo</button>
               <button id="profile-import" class="quiet-button" type="button" disabled>Import profiles…</button>
+              <button id="profile-add" class="quiet-button" type="button" hidden>Add profile</button>
+              <button id="profile-add-cancel" class="quiet-button" type="button" hidden>Cancel new profile</button>
               <button id="profile-save" type="submit" disabled>Save and apply</button>
             </div>
           </form>
@@ -110,25 +117,44 @@
           <div id="identity-editor" hidden>
             <label for="identity-agent">Agent</label>
             <select id="identity-agent"></select>
-            <p id="identity-metadata" class="settings-note"></p>
+            <dl id="identity-metadata" class="identity-facts">
+              <div><dt>Source</dt><dd id="identity-source"></dd></div>
+              <div><dt>Profile</dt><dd id="identity-version"></dd></div>
+              <div><dt>Source sync</dt><dd id="identity-source-status"></dd></div>
+              <div><dt>Sidecars</dt><dd id="identity-sidecars"></dd></div>
+              <div><dt>Generated files</dt><dd id="identity-generated"></dd></div>
+              <div><dt>Editability</dt><dd id="identity-editability"></dd></div>
+              <div><dt>Validation</dt><dd id="identity-validation"></dd></div>
+            </dl>
+            <ul id="identity-issues" class="identity-issues" hidden></ul>
             <label for="identity-yaml">Identity profile (YAML)</label>
-            <textarea id="identity-yaml" rows="16" maxlength="262144" spellcheck="false"></textarea>
+            <textarea id="identity-yaml" rows="16" maxlength="262144" spellcheck="false" aria-describedby="identity-status identity-issues"></textarea>
             <div class="settings-actions">
               <button id="identity-verify" class="quiet-button" type="button">Verify draft</button>
               <button id="identity-save" type="button">Save identity</button>
             </div>
-            <h4>Read-only preview</h4>
-            <pre id="identity-preview" class="identity-preview">No identity loaded.</pre>
+            <h4>Rendered preview</h4>
+            <p class="settings-note">This token-budgeted preview uses the purpose shown below. It is not the complete authored YAML or a guarantee of the identity used for every turn.</p>
+            <dl id="identity-render-metadata" class="identity-facts">
+              <div><dt>Purpose</dt><dd id="identity-render-purpose"></dd></div>
+              <div><dt>Token budget</dt><dd id="identity-render-budget"></dd></div>
+              <div><dt>Render version</dt><dd id="identity-render-version"></dd></div>
+              <div><dt>Included fields</dt><dd id="identity-render-included"></dd></div>
+              <div><dt>Omitted fields</dt><dd id="identity-render-omitted"></dd></div>
+              <div><dt>Render warnings</dt><dd id="identity-render-warnings"></dd></div>
+            </dl>
+            <textarea id="identity-preview" class="identity-preview" rows="8" readonly aria-label="Rendered identity preview">No identity loaded.</textarea>
           </div>
         </section>
         <section id="settings-chat" aria-labelledby="settings-chat-heading" hidden>
           <h3 id="settings-chat-heading">Chat display</h3>
           <label for="chat-display">Tool activity</label>
           <select id="chat-display" aria-describedby="chat-display-note">
-            <option value="normal">Normal — show tool activity</option>
+            <option value="normal">Normal — concise tool output</option>
+            <option value="verbose">Verbose — full available output</option>
             <option value="quiet">Quiet — hide tool activity</option>
           </select>
-          <p id="chat-display-note" class="settings-note">Saved on this device. Quiet mode keeps approval requests visible. Also available with /normal and /quiet.</p>
+          <p id="chat-display-note" class="settings-note">Saved on this device. Quiet mode keeps approval requests visible. Use /normal, /verbose, /quiet, or /details.</p>
           <p id="chat-display-status" class="settings-note" role="status"></p>
           <h3>Keyboard shortcuts</h3>
           <dl class="keyboard-shortcuts">
@@ -211,7 +237,7 @@
           <p class="sidebar-label">Conversations</p>
           <div class="session-search">
             <label class="sr-only" for="session-search">Search conversations by name or session ID</label>
-            <input id="session-search" type="search" placeholder="Search conversations" autocomplete="off" spellcheck="false" aria-controls="session-list" />
+            <input id="session-search" type="search" placeholder="Search…" autocomplete="off" spellcheck="false" aria-controls="session-list" />
             <button id="clear-session-search" class="icon-only-button" type="button" aria-label="Clear conversation search" title="Clear conversation search" hidden>
               <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
             </button>
@@ -220,6 +246,7 @@
           <nav id="session-list" class="session-list" aria-label="Conversations">
             <p class="empty-note">Your conversations will appear here.</p>
           </nav>
+          <p id="approval-notice" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
           <button id="show-settings" class="quiet-button settings-button" type="button">
             <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9m4 0h3M4 17h3m4 0h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></svg>
             Settings
@@ -285,6 +312,7 @@
                 </div>
                 <p id="chat-detail" class="chat-detail" role="status" hidden></p>
                 <p id="chat-update" class="chat-detail" hidden></p>
+                <button id="reconnect-turn" class="quiet-button" type="button" hidden>Reconnect response</button>
               </div>
             </div>
             <section id="command-panel" class="command-panel" hidden aria-live="polite" aria-labelledby="command-title">
@@ -312,6 +340,15 @@
               Write a message to start. You can also preview a screen or window locally.
             </p>
           </div>
+          <section id="turn-queue" class="turn-queue" aria-labelledby="turn-queue-title" hidden>
+            <header>
+              <strong id="turn-queue-title">Up next</strong>
+              <button id="run-next" class="quiet-button" type="button" hidden>Stop and run next</button>
+            </header>
+            <p id="turn-queue-status" class="composer-hint" role="status" hidden></p>
+            <ol id="turn-queue-list"></ol>
+          </section>
+          <p id="draft-status" class="composer-hint" role="status" hidden></p>
           <form id="composer-form" class="composer">
             <button id="jump-latest" class="jump-latest quiet-button" type="button" hidden>↓ Jump to latest</button>
             <div id="command-menu" class="command-menu" role="listbox" aria-label="Commands" hidden></div>
@@ -337,8 +374,10 @@
               placeholder="Message OpenMinion…"
               aria-controls="command-menu"
               aria-autocomplete="list"
+              aria-describedby="composer-keyboard-help"
               disabled
             ></textarea>
+            <p id="composer-keyboard-help" class="sr-only">Enter to send. Shift+Enter for a new line. With command suggestions open, use arrow keys to choose, Tab to complete, Enter to run, Escape to cancel, or Shift+Tab to leave suggestions.</p>
             <div class="composer-actions">
               <div class="composer-tools">
                 <button id="show-commands" class="icon-only-button" type="button" aria-controls="command-menu" aria-expanded="false" aria-haspopup="listbox" aria-label="Show commands" title="Commands (/) or ⌘ / Ctrl + K">

@@ -21,6 +21,116 @@ describe("preload surface", () => {
     removeListener.mockReset();
   });
 
+  it("bridges explicit reconnect and only admits typed connection events", async () => {
+    await import("../../src/preload/index.js");
+    const api = exposeInMainWorld.mock.calls[0][1];
+    await api.turns.reconnect({ sessionId: "session-1", traceId: "trace-1" });
+    expect(invoke).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.turnsReconnect, {
+      sessionId: "session-1",
+      traceId: "trace-1",
+    });
+    const listener = vi.fn();
+    api.turns.subscribe(listener);
+    const receive = on.mock.calls[0][1];
+    const event = {
+      schemaVersion: 1,
+      kind: "connection",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      state: "disconnected",
+      error: {
+        code: "stream_interrupted",
+        message: "Connection interrupted",
+        retryable: true,
+        retryAfterMs: null,
+      },
+    };
+    receive({}, event);
+    receive({}, { ...event, state: "reconnected", error: null });
+    receive({}, { ...event, state: "unavailable" });
+    expect(listener).toHaveBeenCalledTimes(3);
+    for (const invalid of [
+      { ...event, state: ["disconnected"] },
+      { ...event, state: "done" },
+      { ...event, error: null },
+      { ...event, state: "reconnected" },
+      { ...event, traceId: null },
+      { ...event, token: "secret" },
+    ])
+      receive({}, invalid);
+    expect(listener).toHaveBeenCalledTimes(3);
+  });
+
+  it("delivers accepted turns with a typed draft cleanup warning without admitting extra fields", async () => {
+    await import("../../src/preload/index.js");
+    const api = exposeInMainWorld.mock.calls[0][1];
+    const listener = vi.fn();
+    api.turns.subscribe(listener);
+    const receive = on.mock.calls[0][1];
+    const event = {
+      schemaVersion: 1,
+      kind: "started",
+      requestId: "request-1",
+      traceId: "trace-1",
+      sessionId: "session-1",
+    };
+    receive({}, event);
+    const warning = {
+      ...event,
+      draftError: "Message accepted, but its saved draft could not be cleared. Do not resend it.",
+    };
+    receive({}, warning);
+    expect(listener).toHaveBeenNthCalledWith(1, event);
+    expect(listener).toHaveBeenNthCalledWith(2, warning);
+    for (const draftError of [undefined, null, 1, [], {}]) receive({}, { ...event, draftError });
+    receive({}, { ...warning, token: "must-not-cross" });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("delivers supplied tool output and truncation while rejecting malformed or unexpected fields", async () => {
+    await import("../../src/preload/index.js");
+    const api = exposeInMainWorld.mock.calls[0][1];
+    const listener = vi.fn();
+    api.turns.subscribe(listener);
+    const receive = on.mock.calls[0][1];
+    const event = {
+      schemaVersion: 1,
+      kind: "tool",
+      phase: "completed",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      toolName: "exec.run",
+      callId: "call-1",
+      state: "ok",
+      createdAt: "2026-10-06T00:00:00Z",
+      ok: true,
+      durationMs: 10,
+      exitCode: 0,
+    };
+    for (const optional of [
+      {},
+      { content: "" },
+      { truncated: false },
+      { content: "  <script>literal</script>\noutput\n", truncated: true },
+    ]) {
+      const supplied = { ...event, ...optional };
+      receive({}, supplied);
+      expect(listener).toHaveBeenLastCalledWith(supplied);
+    }
+    expect(listener).toHaveBeenCalledTimes(4);
+    for (const invalid of [
+      { content: null },
+      { content: [] },
+      { content: 1 },
+      { truncated: "true" },
+      { truncated: null },
+      { content: "output", token: "must-not-cross" },
+      { phase: "started", ok: null, durationMs: null, exitCode: null, content: "premature" },
+    ])
+      receive({}, { ...event, ...invalid });
+    expect(listener).toHaveBeenCalledTimes(4);
+  });
+
   it("exposes only the exact typed desktop methods", async () => {
     await import("../../src/preload/index.js");
     expect(exposeInMainWorld).toHaveBeenCalledOnce();
@@ -28,10 +138,13 @@ describe("preload surface", () => {
     expect(name).toBe("openminion");
     expect(Object.keys(api)).toEqual([
       "runtime",
+      "drafts",
       "chatNames",
       "presentation",
+      "tools",
       "reports",
       "tasks",
+      "delegation",
       "profiles",
       "identity",
       "app",
@@ -45,6 +158,13 @@ describe("preload surface", () => {
       "capture",
       "observation",
     ]);
+    expect(Object.keys(api.tools)).toEqual(["control"]);
+    await api.tools.control({ sessionId: "session-1", action: "deactivate", profileId: "search" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.toolsControl, {
+      sessionId: "session-1",
+      action: "deactivate",
+      profileId: "search",
+    });
     expect(Object.keys(api.runtime)).toEqual(["status", "check", "stage", "control"]);
     await api.runtime.status();
     await api.runtime.check();
@@ -56,6 +176,14 @@ describe("preload surface", () => {
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.runtimeControl, {
       action: "pause",
     });
+    expect(Object.keys(api.drafts)).toEqual(["load", "save"]);
+    await api.drafts.load();
+    await api.drafts.save({ sessionId: "session-1", text: "Draft" });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.draftsLoad);
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.draftsSave, {
+      sessionId: "session-1",
+      text: "Draft",
+    });
     expect(Object.keys(api.chatNames)).toEqual(["load", "save"]);
     await api.chatNames.load([]);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.chatNamesLoad, []);
@@ -66,10 +194,10 @@ describe("preload surface", () => {
     });
     expect(Object.keys(api.presentation)).toEqual(["load", "save"]);
     await api.presentation.load();
-    await api.presentation.save({ quietTools: true });
+    await api.presentation.save({ toolDisplay: "quiet" });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.presentationLoad);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.presentationSave, {
-      quietTools: true,
+      toolDisplay: "quiet",
     });
     expect(Object.keys(api.reports)).toEqual(["read"]);
     await api.reports.read({ kind: "tools" });
@@ -88,8 +216,20 @@ describe("preload surface", () => {
       action: "list",
     });
     invoke.mockClear();
+    expect(Object.keys(api.delegation)).toEqual(["control"]);
+    await api.delegation.control({
+      sessionId: "session-1",
+      action: "inspect",
+      taskId: "task-1",
+    });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.delegationControl, {
+      sessionId: "session-1",
+      action: "inspect",
+      taskId: "task-1",
+    });
+    invoke.mockClear();
     expect(Object.keys(api.profiles)).toEqual(["presets", "setup", "read", "save", "import"]);
-    expect(Object.keys(api.identity)).toEqual(["read", "verify", "save"]);
+    expect(Object.keys(api.identity)).toEqual(["read", "verify", "save", "reload"]);
     expect(Object.keys(api.app)).toEqual(["openLink", "copyText", "info"]);
     expect(Object.keys(api.daemon)).toEqual(["inspect", "status", "retry"]);
     expect(Object.keys(api.sessions)).toEqual([
@@ -100,7 +240,17 @@ describe("preload surface", () => {
       "close",
       "events",
     ]);
-    expect(Object.keys(api.turns)).toEqual(["submit", "cancel", "subscribe"]);
+    expect(Object.keys(api.turns)).toEqual([
+      "submit",
+      "cancel",
+      "reconnect",
+      "listQueue",
+      "enqueue",
+      "drop",
+      "move",
+      "cancelAndRunNext",
+      "subscribe",
+    ]);
     expect(Object.keys(api.approvals)).toEqual(["decide"]);
     expect(Object.keys(api.artifacts)).toEqual(["list", "read", "detach", "restore"]);
     expect(Object.keys(api.files)).toEqual(["pick", "list", "import", "release"]);
@@ -148,6 +298,7 @@ describe("preload surface", () => {
       expectedProfileVersion: "v1",
       expectedSourceSha256: "sha1",
     });
+    await api.identity.reload();
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityRead);
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityVerify, { yaml: "agent_id: ops" });
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identitySave, {
@@ -155,6 +306,7 @@ describe("preload surface", () => {
       expectedProfileVersion: "v1",
       expectedSourceSha256: "sha1",
     });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.identityReload);
     invoke.mockClear();
     invoke.mockResolvedValue({ state: "ready" });
     await api.app.copyText("Local reply");
@@ -172,6 +324,21 @@ describe("preload surface", () => {
     await api.sessions.events({ sessionId: "session-1" });
     await api.turns.submit({ sessionId: "session-1", message: "Hello" });
     await api.turns.cancel({ sessionId: "session-1", traceId: "trace-1" });
+    await api.turns.listQueue({ sessionId: "session-1" });
+    await api.turns.enqueue({ sessionId: "session-1", agentId: "writer", text: "Next" });
+    await api.turns.drop({ sessionId: "session-1", queueId: "queue-1", statusVersion: 1 });
+    await api.turns.move({
+      sessionId: "session-1",
+      queueId: "queue-2",
+      statusVersion: 1,
+      beforeQueueId: "queue-1",
+    });
+    await api.turns.cancelAndRunNext({
+      sessionId: "session-1",
+      traceId: "trace-1",
+      agentId: "writer",
+      expectedQueueId: "queue-2",
+    });
     await api.approvals.decide({
       sessionId: "session-1",
       traceId: "trace-1",
@@ -241,74 +408,99 @@ describe("preload surface", () => {
       sessionId: "session-1",
       traceId: "trace-1",
     });
-    expect(invoke).toHaveBeenNthCalledWith(10, IPC_CHANNELS.approvalsDecide, {
+    expect(invoke).toHaveBeenNthCalledWith(10, IPC_CHANNELS.turnsQueueList, {
+      sessionId: "session-1",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(11, IPC_CHANNELS.turnsQueueEnqueue, {
+      sessionId: "session-1",
+      agentId: "writer",
+      text: "Next",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(12, IPC_CHANNELS.turnsQueueDrop, {
+      sessionId: "session-1",
+      queueId: "queue-1",
+      statusVersion: 1,
+    });
+    expect(invoke).toHaveBeenNthCalledWith(13, IPC_CHANNELS.turnsQueueMove, {
+      sessionId: "session-1",
+      queueId: "queue-2",
+      statusVersion: 1,
+      beforeQueueId: "queue-1",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(14, IPC_CHANNELS.turnsCancelAndRunNext, {
+      sessionId: "session-1",
+      traceId: "trace-1",
+      agentId: "writer",
+      expectedQueueId: "queue-2",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(15, IPC_CHANNELS.approvalsDecide, {
       sessionId: "session-1",
       traceId: "trace-1",
       approvalId: "approval-1",
       decision: "allow_once",
     });
-    expect(invoke).toHaveBeenNthCalledWith(11, IPC_CHANNELS.artifactsList, {
+    expect(invoke).toHaveBeenNthCalledWith(16, IPC_CHANNELS.artifactsList, {
       sessionId: "session-1",
       limit: 10,
     });
-    expect(invoke).toHaveBeenNthCalledWith(12, IPC_CHANNELS.artifactsRead, {
+    expect(invoke).toHaveBeenNthCalledWith(17, IPC_CHANNELS.artifactsRead, {
       sessionId: "session-1",
       artifactId: "a".repeat(48),
       limitBytes: 1024,
     });
-    expect(invoke).toHaveBeenNthCalledWith(13, IPC_CHANNELS.artifactsDetach, {
+    expect(invoke).toHaveBeenNthCalledWith(18, IPC_CHANNELS.artifactsDetach, {
       sessionId: "session-1",
       artifactId: "a".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(14, IPC_CHANNELS.artifactsRestore, {
+    expect(invoke).toHaveBeenNthCalledWith(19, IPC_CHANNELS.artifactsRestore, {
       sessionId: "session-1",
       artifactId: "a".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(15, IPC_CHANNELS.filesPick, {
+    expect(invoke).toHaveBeenNthCalledWith(20, IPC_CHANNELS.filesPick, {
       sessionId: "session-1",
       kind: "directory",
     });
-    expect(invoke).toHaveBeenNthCalledWith(16, IPC_CHANNELS.filesList, {
+    expect(invoke).toHaveBeenNthCalledWith(21, IPC_CHANNELS.filesList, {
       sessionId: "session-1",
       grantId: "g".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(17, IPC_CHANNELS.filesImport, {
+    expect(invoke).toHaveBeenNthCalledWith(22, IPC_CHANNELS.filesImport, {
       sessionId: "session-1",
       grantId: "g".repeat(48),
       entryId: "e".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(18, IPC_CHANNELS.filesRelease, {
+    expect(invoke).toHaveBeenNthCalledWith(23, IPC_CHANNELS.filesRelease, {
       sessionId: "session-1",
       grantId: "g".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(19, IPC_CHANNELS.mediaPick, {
+    expect(invoke).toHaveBeenNthCalledWith(24, IPC_CHANNELS.mediaPick, {
       sessionId: "session-1",
       kind: "image",
     });
-    expect(invoke).toHaveBeenNthCalledWith(20, IPC_CHANNELS.mediaRelease, {
+    expect(invoke).toHaveBeenNthCalledWith(25, IPC_CHANNELS.mediaRelease, {
       sessionId: "session-1",
       mediaId: "a".repeat(48),
     });
-    expect(invoke).toHaveBeenNthCalledWith(21, IPC_CHANNELS.captureStatus);
-    expect(invoke).toHaveBeenNthCalledWith(22, IPC_CHANNELS.captureSources, {
+    expect(invoke).toHaveBeenNthCalledWith(26, IPC_CHANNELS.captureStatus);
+    expect(invoke).toHaveBeenNthCalledWith(27, IPC_CHANNELS.captureSources, {
       sessionId: "session-1",
       sourceKind: "display",
     });
-    expect(invoke).toHaveBeenNthCalledWith(23, IPC_CHANNELS.captureStart, {
+    expect(invoke).toHaveBeenNthCalledWith(28, IPC_CHANNELS.captureStart, {
       sessionId: "session-1",
       candidateId: "c".repeat(48),
       region: null,
     });
-    expect(invoke).toHaveBeenNthCalledWith(24, IPC_CHANNELS.capturePause);
-    expect(invoke).toHaveBeenNthCalledWith(25, IPC_CHANNELS.captureResume);
-    expect(invoke).toHaveBeenNthCalledWith(26, IPC_CHANNELS.captureStop);
-    expect(invoke).toHaveBeenNthCalledWith(27, IPC_CHANNELS.observationStatus);
-    expect(invoke).toHaveBeenNthCalledWith(28, IPC_CHANNELS.observationConfigure, {
+    expect(invoke).toHaveBeenNthCalledWith(29, IPC_CHANNELS.capturePause);
+    expect(invoke).toHaveBeenNthCalledWith(30, IPC_CHANNELS.captureResume);
+    expect(invoke).toHaveBeenNthCalledWith(31, IPC_CHANNELS.captureStop);
+    expect(invoke).toHaveBeenNthCalledWith(32, IPC_CHANNELS.observationStatus);
+    expect(invoke).toHaveBeenNthCalledWith(33, IPC_CHANNELS.observationConfigure, {
       sessionId: "session-1",
       instruction: "Watch for a completed build",
       trigger: "changes",
     });
-    expect(invoke).toHaveBeenNthCalledWith(29, IPC_CHANNELS.observationStop);
+    expect(invoke).toHaveBeenNthCalledWith(34, IPC_CHANNELS.observationStop);
 
     const first = vi.fn();
     const firstUnsubscribe = api.turns.subscribe(first);
@@ -399,8 +591,7 @@ describe("preload surface", () => {
       traceId: "trace-1",
       approvalId: "approval-1",
       toolName: "workspace.search",
-      callId: "call-1",
-      argumentKeys: ["path", "query"],
+      consentPreview: 'workspace.search(query="release notes")',
       requestedAt: "2026-08-20T00:00:00Z",
       expiresAt: "2026-08-20T00:01:00Z",
       decision: null,
@@ -410,13 +601,29 @@ describe("preload surface", () => {
     expect(second).toHaveBeenCalledTimes(4);
     secondWrapped(null, {
       schemaVersion: 1,
+      kind: "approval",
+      phase: "resolved",
+      sessionId: "session-1",
+      traceId: "trace-1",
+      approvalId: "approval-1",
+      toolName: "workspace.search",
+      consentPreview: 'workspace.search(query="release notes")',
+      requestedAt: null,
+      expiresAt: null,
+      decision: null,
+      outcome: "expired",
+      resolvedAt: "2026-08-20T00:01:00Z",
+    });
+    expect(second).toHaveBeenCalledTimes(5);
+    secondWrapped(null, {
+      schemaVersion: 1,
       kind: "started",
       requestId: "request-1",
       traceId: "trace-1",
       sessionId: "session-1",
       token: "must-not-cross",
     });
-    expect(second).toHaveBeenCalledTimes(4);
+    expect(second).toHaveBeenCalledTimes(5);
     firstUnsubscribe();
     secondUnsubscribe();
     secondUnsubscribe();

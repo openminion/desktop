@@ -1,6 +1,10 @@
 // Profile form and write-only credential entry for the local OpenMinion config.
 import type { DaemonStatus, NativeApi } from "../shared/contracts.js";
-import type { IdentityProfileView, IdentitySettings } from "../shared/identity.js";
+import type {
+  IdentityProfileView,
+  IdentityRenderView,
+  IdentitySettings,
+} from "../shared/identity.js";
 import {
   type ProfileSaveInput,
   type ProfileSettings,
@@ -40,6 +44,9 @@ export function mountProfiles(
   const importButton = get<HTMLButtonElement>("profile-import");
   const tools = get<HTMLElement>("profile-tools");
   const setupFields = get<HTMLFieldSetElement>("setup-fields");
+  const setupAgent = get<HTMLInputElement>("setup-agent");
+  const addProfile = get<HTMLButtonElement>("profile-add");
+  const cancelAddProfile = get<HTMLButtonElement>("profile-add-cancel");
   const setupProvider = get<HTMLSelectElement>("setup-provider");
   const setupModel = get<HTMLInputElement>("setup-model");
   const setupEndpoint = get<HTMLInputElement>("setup-endpoint");
@@ -49,8 +56,23 @@ export function mountProfiles(
   const identityAgent = get<HTMLSelectElement>("identity-agent");
   const identityYaml = get<HTMLTextAreaElement>("identity-yaml");
   const identityMetadata = get<HTMLElement>("identity-metadata");
+  const identitySource = get<HTMLElement>("identity-source");
+  const identityVersion = get<HTMLElement>("identity-version");
+  const identitySourceStatus = get<HTMLElement>("identity-source-status");
+  const identitySidecars = get<HTMLElement>("identity-sidecars");
+  const identityGenerated = get<HTMLElement>("identity-generated");
+  const identityEditability = get<HTMLElement>("identity-editability");
+  const identityValidation = get<HTMLElement>("identity-validation");
+  const identityIssues = get<HTMLElement>("identity-issues");
   const identityStatus = get<HTMLElement>("identity-status");
-  const identityPreview = get<HTMLElement>("identity-preview");
+  const identityRenderMetadata = get<HTMLElement>("identity-render-metadata");
+  const identityRenderPurpose = get<HTMLElement>("identity-render-purpose");
+  const identityRenderBudget = get<HTMLElement>("identity-render-budget");
+  const identityRenderVersion = get<HTMLElement>("identity-render-version");
+  const identityRenderIncluded = get<HTMLElement>("identity-render-included");
+  const identityRenderOmitted = get<HTMLElement>("identity-render-omitted");
+  const identityRenderWarnings = get<HTMLElement>("identity-render-warnings");
+  const identityPreview = get<HTMLTextAreaElement>("identity-preview");
   const identityReload = get<HTMLButtonElement>("identity-reload");
   const identityRuntime = get<HTMLButtonElement>("identity-runtime");
   const identityVerify = get<HTMLButtonElement>("identity-verify");
@@ -101,6 +123,8 @@ export function mountProfiles(
     return { id, input, remove };
   });
   let settings: ProfileSettings | null = null;
+  let addingProfile = false;
+  let displayedAgent = "";
   let pending = false;
   let identitySettings: IdentitySettings | null = null;
   let identityPending = false;
@@ -110,6 +134,42 @@ export function mountProfiles(
     { yaml: string; profileVersion: string; sourceSha256: string | null }
   >();
 
+  const selectedIdentity = (): IdentityProfileView | undefined =>
+    identitySettings?.profiles.find((item) => item.agentId === identityAgent.value);
+  const identityDraftChanged = (profile: IdentityProfileView | undefined) =>
+    Boolean(profile && identityYaml.value !== (profile.authoredYaml ?? ""));
+  const setIdentityIssues = (issues: string[]) => {
+    identityIssues.replaceChildren(
+      ...issues.map((issue) => {
+        const item = root.createElement("li");
+        item.textContent = issue;
+        return item;
+      }),
+    );
+    identityIssues.hidden = issues.length === 0;
+  };
+  const showIdentityRender = (render: IdentityRenderView | null, emptyText: string) => {
+    identityRenderMetadata.hidden = !render;
+    identityPreview.value = render?.text || emptyText;
+    if (!render) return;
+    identityRenderPurpose.textContent = render.purpose;
+    identityRenderBudget.textContent = `${render.budget.usedTokens}/${render.budget.maxTokens} tokens`;
+    identityRenderVersion.textContent = render.renderVersion;
+    identityRenderIncluded.textContent = render.includedFields.join(", ") || "None";
+    identityRenderOmitted.textContent = render.omittedFields.join(", ") || "None";
+    identityRenderWarnings.textContent = render.warnings.join("; ") || "None";
+  };
+  const showIdentityHealth = (profile: IdentityProfileView) => {
+    identityMetadata.hidden = false;
+    identitySource.textContent = profile.source;
+    identityVersion.textContent = `revision ${profile.profileRevision} · ${profile.profileVersion.slice(0, 12)}`;
+    identitySourceStatus.textContent = profile.sourceStatus;
+    identitySidecars.textContent = profile.generatedStatus;
+    identityGenerated.textContent = profile.generatedFiles.join(", ") || "None";
+    identityEditability.textContent = profile.readOnlyReason ?? "Editable direct YAML";
+    identityValidation.textContent = profile.validationOk ? "Valid" : "Needs attention";
+    setIdentityIssues(profile.verificationIssues);
+  };
   const setIdentityPending = (value: boolean) => {
     identityPending = value;
     const profile = selectedIdentity();
@@ -117,15 +177,14 @@ export function mountProfiles(
     identityYaml.disabled = value || !profile?.editable;
     identityReload.disabled = value;
     identityVerify.disabled = value || !identityYaml.value.trim();
-    identitySave.disabled = value || !profile?.editable;
+    identitySave.disabled =
+      value || !profile?.editable || !identityYaml.value.trim() || !identityDraftChanged(profile);
   };
 
-  const selectedIdentity = (): IdentityProfileView | undefined =>
-    identitySettings?.profiles.find((item) => item.agentId === identityAgent.value);
   const populateIdentity = () => {
     const profile = selectedIdentity();
     get<HTMLElement>("identity-editor").hidden = !profile;
-    identityReload.textContent = profile ? "Reload from disk" : "Try again";
+    identityReload.textContent = profile ? "Discard draft and refresh source" : "Try again";
     if (profile) identityYaml.after(identityStatus);
     else get<HTMLElement>("identity-availability-actions").before(identityStatus);
     if (!profile) {
@@ -133,8 +192,9 @@ export function mountProfiles(
       identityYaml.disabled = true;
       identityVerify.disabled = true;
       identitySave.disabled = true;
-      identityMetadata.textContent = "No identity profile is available.";
-      identityPreview.textContent = "No identity loaded.";
+      identityMetadata.hidden = true;
+      setIdentityIssues([]);
+      showIdentityRender(null, "No identity loaded.");
       return;
     }
     displayedIdentityAgent = profile.agentId;
@@ -147,26 +207,19 @@ export function mountProfiles(
     if (draft && !currentDraft) {
       identityDrafts.delete(profile.agentId);
       identityStatus.textContent = "Identity changed on disk. The stale local draft was discarded.";
+    } else {
+      identityStatus.textContent = currentDraft ? "Unverified changes." : "";
     }
     identityYaml.value = currentDraft?.yaml ?? profile.authoredYaml ?? "";
-    identityYaml.disabled = !profile.editable || identityPending;
-    identityVerify.disabled = !profile.authoredYaml || identityPending;
-    identitySave.disabled = !profile.editable || identityPending;
-    identityMetadata.textContent = [
-      `Source: ${profile.source}`,
-      `revision ${profile.profileRevision}`,
-      `version ${profile.profileVersion.slice(0, 12)}`,
-      `source ${profile.sourceStatus}`,
-      `sidecars ${profile.generatedStatus}`,
-      profile.generatedFiles.length
-        ? `generated ${profile.generatedFiles.join(", ")}`
-        : "no generated files",
-      profile.readOnlyReason ?? "editable direct YAML",
-      profile.verificationIssues.length
-        ? `issues ${profile.verificationIssues.join("; ")}`
-        : "verification clean",
-    ].join(" · ");
-    identityPreview.textContent = profile.render.text || "Rendered identity is empty.";
+    showIdentityHealth(profile);
+    if (currentDraft) {
+      identityValidation.textContent = "Unverified draft";
+      setIdentityIssues([]);
+      showIdentityRender(null, "Preview is stale. Verify the current draft to refresh it.");
+    } else {
+      showIdentityRender(profile.render, "Rendered identity is empty.");
+    }
+    setIdentityPending(identityPending);
   };
   const loadIdentity = async (discardSelectedDraft = false) => {
     if (identityPending) return;
@@ -209,6 +262,7 @@ export function mountProfiles(
   const populateAgent = () => {
     const agent = settings?.agents.find((item) => item.id === select.value);
     if (!agent || !settings) return;
+    displayedAgent = agent.id;
     model.value = agent.model;
     endpoint.value = agent.baseUrl;
     key.value = "";
@@ -229,18 +283,17 @@ export function mountProfiles(
   const populate = (value: ProfileSettings) => {
     const selected = select.value;
     settings = value;
-    setupFields.hidden = !value.setupRequired;
+    addingProfile = false;
+    renderProfileForm();
     get<HTMLElement>("settings-eyebrow").textContent = value.setupRequired ? "Setup" : "OpenMinion";
     get<HTMLElement>("profile-import-note").hidden = value.setupRequired;
     get<HTMLElement>("profile-intro").textContent = value.setupRequired
       ? "Connect your model to start chatting, or import an existing OpenMinion profile."
       : "Finish running chats before saving. Applying changes restarts OpenMinion.";
-    fields.hidden = value.setupRequired;
     demo.hidden = !value.setupRequired || !value.agents.some((agent) => agent.provider === "echo");
     get<HTMLElement>("settings-title").textContent = value.setupRequired
       ? "Welcome to OpenMinion"
       : "Settings";
-    save.textContent = value.setupRequired ? "Set up and start" : "Save and apply";
     setupKey.value = "";
     select.replaceChildren();
     for (const agent of value.agents) {
@@ -262,12 +315,30 @@ export function mountProfiles(
         : "Not set — enter API key";
     }
   };
+  const renderProfileForm = () => {
+    setupFields.hidden = !settings?.setupRequired && !addingProfile;
+    fields.hidden = Boolean(settings?.setupRequired || addingProfile);
+    setupAgent.disabled = !addingProfile;
+    get<HTMLElement>("setup-agent-fields").hidden = !addingProfile;
+    get<HTMLElement>("setup-legend").textContent = addingProfile
+      ? "Add an agent profile"
+      : "Set up your first agent";
+    addProfile.hidden = !settings || settings.setupRequired || addingProfile;
+    cancelAddProfile.hidden = !addingProfile;
+    save.textContent = addingProfile
+      ? "Create and apply"
+      : settings?.setupRequired
+        ? "Set up and start"
+        : "Save and apply";
+  };
   const setPending = (value: boolean) => {
     pending = value;
-    fields.disabled = value || settings === null || settings.setupRequired;
-    setupFields.disabled = value || !settings?.setupRequired || !presets.length;
-    save.disabled = value || settings === null || (settings.setupRequired && !presets.length);
-    importButton.disabled = value || settings === null;
+    fields.disabled = value || settings === null || settings.setupRequired || addingProfile;
+    setupFields.disabled = value || !(settings?.setupRequired || addingProfile) || !presets.length;
+    save.disabled =
+      value || settings === null || ((settings.setupRequired || addingProfile) && !presets.length);
+    importButton.disabled = value || settings === null || addingProfile;
+    addProfile.disabled = cancelAddProfile.disabled = value;
     close.disabled = value;
     demo.disabled = value;
   };
@@ -292,6 +363,48 @@ export function mountProfiles(
     setupKey.placeholder = preset.requiresKey ? "Enter API key" : "No API key required";
   };
   setupProvider.addEventListener("change", populatePreset);
+  const loadPresets = async () => {
+    const listed = await api.profiles.presets();
+    if (listed.ok) {
+      presets = listed.value;
+      setupProvider.replaceChildren(
+        ...presets.map((preset) => {
+          const option = root.createElement("option");
+          option.value = preset.id;
+          option.textContent = preset.label;
+          return option;
+        }),
+      );
+      populatePreset();
+    } else status.textContent = listed.error.message;
+  };
+  addProfile.addEventListener("click", async () => {
+    if (pending || !settings) return;
+    addingProfile = true;
+    setupAgent.value = "";
+    setupKey.value = "";
+    presets = [];
+    renderProfileForm();
+    setPending(true);
+    status.textContent = "Loading providers…";
+    try {
+      await loadPresets();
+      if (presets.length) status.textContent = "";
+    } catch {
+      status.textContent = "Could not load providers. Cancel and try again.";
+    } finally {
+      setPending(false);
+      setupAgent.focus();
+    }
+  });
+  cancelAddProfile.addEventListener("click", () => {
+    addingProfile = false;
+    setupKey.value = "";
+    renderProfileForm();
+    setPending(false);
+    status.textContent = "";
+    addProfile.focus();
+  });
   demo.addEventListener("click", () => dialog.close());
   const show = async (known?: ProfileSettings, section: Section = "profiles") => {
     returnFocus = root.activeElement as HTMLElement;
@@ -306,19 +419,7 @@ export function mountProfiles(
         populate(result.value);
         status.textContent = "";
         if (result.value.setupRequired) {
-          const listed = await api.profiles.presets();
-          if (listed.ok) {
-            presets = listed.value;
-            setupProvider.replaceChildren(
-              ...presets.map((preset) => {
-                const option = root.createElement("option");
-                option.value = preset.id;
-                option.textContent = preset.label;
-                return option;
-              }),
-            );
-            populatePreset();
-          } else status.textContent = listed.error.message;
+          await loadPresets();
         }
       } else status.textContent = result.error.message;
     } catch {
@@ -352,18 +453,47 @@ export function mountProfiles(
     for (const field of credentials) field.input.value = "";
     returnFocus.focus();
   });
-  select.addEventListener("change", populateAgent);
+  const profileEdited = () => {
+    const agent = settings?.agents.find((item) => item.id === displayedAgent);
+    return (
+      agent &&
+      (model.value !== agent.model ||
+        endpoint.value !== agent.baseUrl ||
+        key.value !== "" ||
+        removeKey.checked ||
+        makeDefault.checked !== (settings?.defaultAgent === agent.id))
+    );
+  };
+  select.addEventListener("change", () => {
+    if (
+      select.value !== displayedAgent &&
+      profileEdited() &&
+      !root.defaultView!.confirm("Discard unsaved changes for this agent and switch agents?")
+    ) {
+      select.value = displayedAgent;
+      return;
+    }
+    populateAgent();
+  });
   identityAgent.addEventListener("change", populateIdentity);
   identityYaml.addEventListener("input", () => {
-    const profile = identitySettings?.profiles.find(
-      (item) => item.agentId === displayedIdentityAgent,
-    );
-    if (profile) {
+    const profile = selectedIdentity();
+    if (profile && identityDraftChanged(profile)) {
       identityDrafts.set(displayedIdentityAgent, {
         yaml: identityYaml.value,
         profileVersion: profile.profileVersion,
         sourceSha256: profile.sourceSha256,
       });
+      if (identityStatus.textContent !== "Unverified changes.")
+        identityStatus.textContent = "Unverified changes.";
+      identityValidation.textContent = "Unverified draft";
+      setIdentityIssues([]);
+      showIdentityRender(null, "Preview is stale. Verify the current draft to refresh it.");
+    } else if (profile) {
+      identityDrafts.delete(displayedIdentityAgent);
+      identityStatus.textContent = "";
+      showIdentityHealth(profile);
+      showIdentityRender(profile.render, "Rendered identity is empty.");
     }
     setIdentityPending(identityPending);
   });
@@ -378,17 +508,28 @@ export function mountProfiles(
     identityStatus.textContent = "Verifying draft…";
     try {
       const result = await api.identity.verify({ yaml: identityYaml.value });
-      if (!result.ok) identityStatus.textContent = result.error.message;
-      else {
+      if (!result.ok) {
+        identityStatus.textContent = result.error.message;
+        identityValidation.textContent = "Draft could not be verified";
+        setIdentityIssues([]);
+        showIdentityRender(null, "Draft could not be verified.");
+      } else {
+        identityValidation.textContent = result.value.validationOk
+          ? "Draft valid"
+          : "Draft needs attention";
+        setIdentityIssues(result.value.issues);
         identityStatus.textContent = result.value.validationOk
           ? result.value.issues.length
             ? `Draft is valid with warnings: ${result.value.issues.join("; ")}`
             : "Draft is valid and renderable."
           : result.value.issues.join("; ");
-        identityPreview.textContent = result.value.render?.text ?? "No rendered preview.";
+        showIdentityRender(result.value.render, "Draft is not renderable.");
       }
     } catch {
       identityStatus.textContent = "Could not verify the identity draft.";
+      identityValidation.textContent = "Draft could not be verified";
+      setIdentityIssues([]);
+      showIdentityRender(null, "Draft could not be verified.");
     } finally {
       setIdentityPending(false);
     }
@@ -412,14 +553,14 @@ export function mountProfiles(
             item.agentId === result.value.agentId ? result.value : item,
           ),
         };
+        populateIdentity();
         identityStatus.textContent =
-          "Identity saved. Prompt changes apply on the next turn; use /identity reload for cached policy and tool constraints.";
+          "Identity saved. Prompt changes apply on the next turn; /identity reload restarts OpenMinion to refresh cached policy and tool constraints.";
       }
     } catch {
       identityStatus.textContent = "Could not save identity. Reload Settings and try again.";
     } finally {
       setIdentityPending(false);
-      if (identityStatus.textContent?.startsWith("Identity saved")) populateIdentity();
     }
   });
   removeKey.addEventListener("change", () => {
@@ -429,7 +570,14 @@ export function mountProfiles(
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!settings || pending) return;
-    if (settings.setupRequired) {
+    if (settings.setupRequired || addingProfile) {
+      if (
+        addingProfile &&
+        (profileEdited() ||
+          credentials.some((field) => field.input.value || field.remove.checked)) &&
+        !root.defaultView!.confirm("Discard unsaved settings edits and create the new profile?")
+      )
+        return;
       setPending(true);
       const checkProvider = setupCheck.checked;
       status.textContent = checkProvider
@@ -438,6 +586,7 @@ export function mountProfiles(
       try {
         const result = await api.profiles.setup({
           revision: settings.revision,
+          ...(addingProfile ? { agentId: setupAgent.value.trim() } : {}),
           presetId: setupProvider.value,
           model: setupModel.value.trim(),
           baseUrl: setupEndpoint.value.trim(),

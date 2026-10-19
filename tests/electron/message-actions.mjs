@@ -22,7 +22,7 @@ async function check() {
     const settle = () => new Promise((resolve) => setTimeout(resolve, 200));
     await window.webContents.insertCSS(".message-actions { transition: none !important; }");
     for (let attempt = 0; attempt < 30; attempt += 1) {
-      if (await evaluate("!!document.querySelector('.message-copy')")) break;
+      if (await evaluate("!!document.querySelector('.message-actions .message-copy')")) break;
       await settle();
     }
     for (const [width, height] of [
@@ -66,7 +66,7 @@ async function check() {
         before.height,
       );
       const button = await evaluate(`(() => {
-      const button = document.querySelector('.message-copy');
+      const button = document.querySelector('.message-actions .message-copy');
       const bounds = button.getBoundingClientRect();
       const icon = getComputedStyle(button, '::before');
       return {width:bounds.width, height:bounds.height, border:getComputedStyle(button).borderWidth,
@@ -84,7 +84,7 @@ async function check() {
       await settle();
       assert.equal(
         await evaluate(`(() => {
-          const button = document.querySelector('.message-copy');
+          const button = document.querySelector('.message-actions .message-copy');
           button.focus();
           return document.activeElement === button;
         })()`),
@@ -102,15 +102,72 @@ async function check() {
         );
       }
     }
-    await evaluate("document.querySelector('.message-copy').click()");
+    await evaluate("document.querySelector('.message-actions .message-copy').click()");
     await settle();
     assert.equal(
-      await evaluate("document.querySelector('.message-copy').dataset.copyState"),
+      await evaluate("document.querySelector('.message-actions .message-copy').dataset.copyState"),
       "error",
     );
     assert.equal(
-      await evaluate("document.querySelector('.message-copy').getAttribute('aria-label')"),
+      await evaluate(
+        "document.querySelector('.message-actions .message-copy').getAttribute('aria-label')",
+      ),
       "Copy failed",
+    );
+    for (const [width, height] of [
+      [760, 560],
+      [1180, 800],
+    ]) {
+      window.setContentSize(width, height);
+      await evaluate(`(() => {
+        const block = document.querySelector('.code-block');
+        block.scrollIntoView({block: 'center'});
+        block.querySelector('pre').focus();
+      })()`);
+      await settle();
+      const code = await evaluate(`(() => {
+        const block = document.querySelector('.code-block');
+        const pre = block.querySelector('pre');
+        const copy = block.querySelector('button');
+        return {
+          focused: document.activeElement === pre,
+          whitespace: getComputedStyle(pre).whiteSpace,
+          language: block.querySelector('.code-header span').textContent,
+          label: copy.getAttribute('aria-label'),
+          width: copy.getBoundingClientRect().width,
+          overflow: document.documentElement.scrollWidth > innerWidth
+        };
+      })()`);
+      assert.equal(code.focused, true);
+      assert.equal(code.whitespace, "pre");
+      assert.equal(code.language, "python");
+      assert.equal(code.label, "Copy code");
+      assert.equal(code.width, 28);
+      assert.equal(code.overflow, false);
+      if (width === 760) {
+        window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" });
+        window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right" });
+        await settle();
+        assert.ok(await evaluate("document.querySelector('.code-block pre').scrollLeft > 0"));
+      }
+      if (process.env.OPENMINION_E2E_ARTIFACTS) {
+        await writeFile(
+          join(process.env.OPENMINION_E2E_ARTIFACTS, `code-block-${width}.png`),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+      }
+    }
+    await evaluate("document.querySelector('.code-header button').focus()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+    await settle();
+    assert.equal(
+      await evaluate("document.querySelector('.code-header button').getAttribute('aria-label')"),
+      "Copy failed",
+    );
+    console.log(
+      "PASS: code headers, keyboard access, compact Copy and responsive layout; preview clipboard denial is visible.",
     );
     console.log(
       "PASS: copy icon and local message time appear on hover and keyboard focus; no layout shift or overflow at two sizes; clipboard error feedback works (preview intentionally disables clipboard).",

@@ -79,7 +79,15 @@ export class Profiles {
     if (
       Object.keys(value).some(
         (key) =>
-          !["revision", "presetId", "model", "baseUrl", "apiKey", "checkProvider"].includes(key),
+          ![
+            "revision",
+            "agentId",
+            "presetId",
+            "model",
+            "baseUrl",
+            "apiKey",
+            "checkProvider",
+          ].includes(key),
       )
     )
       throw protocolError("invalid_request", "Unknown setup field.");
@@ -92,6 +100,15 @@ export class Profiles {
     if (typeof value.checkProvider !== "boolean")
       throw protocolError("invalid_request", "Choose whether to test the provider connection.");
     const request = value as ProfileSetupInput;
+    if (
+      request.agentId !== undefined &&
+      (typeof request.agentId !== "string" ||
+        !request.agentId ||
+        request.agentId.length > 512 ||
+        /\s|\0/.test(request.agentId) ||
+        request.agentId.startsWith("-"))
+    )
+      throw protocolError("invalid_request", "Enter an agent ID without spaces or a leading dash.");
     validateEndpoint(request.baseUrl);
     if (!request.model.trim() || request.model.startsWith("-"))
       throw protocolError("invalid_request", "Enter a model name.");
@@ -103,7 +120,12 @@ export class Profiles {
       );
     const config = requireRecord(JSON.parse(text));
     const view = settings(config, revision(text));
-    if (!view.setupRequired)
+    if (
+      request.agentId !== undefined &&
+      Object.hasOwn(requireRecord(config.agents), request.agentId)
+    )
+      throw protocolError("invalid_request", "That agent ID already exists. Choose a new ID.");
+    if (!view.setupRequired && request.agentId === undefined)
       throw protocolError(
         "invalid_request",
         "An agent is already configured. Use its settings or import another profile.",
@@ -131,7 +153,7 @@ export class Profiles {
         "--provider",
         preset.id,
         "--agent",
-        view.defaultAgent || "openminion",
+        request.agentId ?? (view.defaultAgent || "openminion"),
         "--model",
         request.model.trim(),
         "--base-url",
@@ -150,7 +172,39 @@ export class Profiles {
           "OpenMinion could not validate setup. Check the provider, model, URL, and key.",
         );
       const configured = requireRecord(JSON.parse(await readFile(candidate, "utf8")));
-      this.#setRuntime(configured, { ...runtimeEnv(configured), ...environment });
+      if (request.agentId !== undefined && preset.requiresKey) {
+        const agent = requireRecord(requireRecord(configured.agents)[request.agentId]);
+        const connection = requireRecord(requireRecord(agent.model_connections)[preset.id]);
+        const credential = { api_key: request.apiKey.trim(), api_key_env: "" };
+        agent.provider_config_overrides = {
+          ...record(agent.provider_config_overrides),
+          ...credential,
+        };
+        connection.provider_config_overrides = {
+          ...record(connection.provider_config_overrides),
+          ...credential,
+        };
+        const adapter = requireString(agent.provider);
+        const alreadyUsed = Object.values(record(config.agents)).some((value) => {
+          const existing = requireRecord(value);
+          return (
+            existing.provider === adapter ||
+            Object.values(record(existing.model_connections)).some(
+              (value) => requireRecord(value).provider === adapter,
+            )
+          );
+        });
+        const providers = requireRecord(configured.providers);
+        // Keep existing bindings intact; readiness also checks each new adapter's shared key.
+        providers[adapter] = alreadyUsed
+          ? providerConfig(config, { provider: adapter })
+          : { ...requireRecord(providers[adapter]), ...credential };
+        configured.system = { ...record(configured.system), providers };
+      }
+      this.#setRuntime(configured, {
+        ...runtimeEnv(configured),
+        ...(request.agentId === undefined ? environment : {}),
+      });
       return {
         settings: await this.#write(configured, text, executable),
         providerCheck: request.checkProvider ? "verified" : "not_requested",

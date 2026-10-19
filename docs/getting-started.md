@@ -1,20 +1,21 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-09-29
+Last updated: 2026-10-18
 
-Purpose: provide the package-local bootstrap and first-run path for the
-OpenMinion Desktop source repository.
+Purpose: guide packaged-app users and source contributors through setup,
+settings, and everyday Desktop workflows.
 
 ## Requirements
 
-1. macOS for running the current application profile,
-2. Node.js 24,
-3. npm 11, and
-4. Python 3.11 for the current managed PyPI installation path.
+For a downloaded development app, use macOS with Python 3.11 and network access
+for the first managed-runtime installation. Node.js and npm are not needed.
+Start with [Download and verification](../SUPPORT.md#verify-a-development-download),
+then follow [First Run](#first-run).
 
-Linux participates in provider-free CI, but Linux and Windows desktop packages
-are not currently certified.
+To run or contribute from source, also install Node.js 24 and npm 11. The
+bootstrap commands below are for a source checkout. Linux participates in
+provider-free CI; Windows and Linux packages are not yet runtime-certified.
 
 ## Fast Bootstrap
 
@@ -28,7 +29,7 @@ npm run ci-check
 
 ## First Run
 
-To try every UI workflow before configuring OpenMinion, run:
+To explore sample UI workflows before configuring OpenMinion, run:
 
 ```bash
 npm run preview
@@ -40,9 +41,8 @@ allow, deny, or cancel it to exercise the turn controls. No daemon, model,
 local files, or screen capture is accessed, and changes are discarded when
 the window closes. This development fixture is excluded from packaged apps.
 
-For the real application, use the following setup.
-
-Start Desktop with:
+For a downloaded app, open **OpenMinion**. For a source checkout, start the
+real application with:
 
 ```bash
 npm start
@@ -52,6 +52,20 @@ On first launch, Desktop creates a Python environment under `~/.openminion/deskt
 credential-free echo config, assigns an authenticated loopback daemon endpoint,
 and starts the daemon. Later launches reuse the environment while its version
 matches the pin.
+
+The real app supports text messages, saved history, task closing, and turn
+cancellation through the ordinary CLI/API. New installations open **Welcome to
+OpenMinion**. Choose a provider, enter its model and API key, and click **Set up
+and start**, or import an existing profile. Provider choices and defaults come
+from the installed CLI's setup command. **Try echo demo** repeats input without
+calling a model; setup appears again on the next launch until a real profile is
+configured. **Test connection before continuing** is selected by default and
+sends one provider request, which may use provider resources. Clear it to save
+without testing; Desktop reports either **Connection verified** or **Connection
+not tested** after setup. File, artifact, and screen-context sending remain
+preview-only; request-bound approvals are connected on compatible runtimes.
+
+## Runtime Updates
 
 Open **Settings → Runtime** and choose **Python package** or **Native runtime** under
 **Update options**, then use **Check updates**. When a certified compatible
@@ -100,6 +114,8 @@ Desktop never stops an external or replaced daemon to apply an update. A
 recovery-required message means candidate launch began but did not complete;
 do not downgrade the runtime against those data roots without review.
 
+## Use A Source Runtime
+
 For source development, use your existing source-installed executable and a
 separate Desktop data root. From the Desktop repository root:
 
@@ -126,24 +142,12 @@ On Windows, select the source environment's `Scripts/openminion.exe`, with
 `openminiond.exe` in the same directory, and set both environment variables in
 your shell before `npm start`.
 
-The real app supports text messages, saved history, task closing, and turn
-cancellation through the ordinary CLI/API. New installations open **Welcome to
-OpenMinion**. Choose a provider, enter its model and API key, and click **Set up
-and start**, or import an existing profile. Provider choices and defaults come
-from the installed CLI's setup command. **Try echo demo** repeats input without
-calling a model; setup appears again on the next launch until a real profile is
-configured. **Test connection before continuing** is selected by default and
-sends one provider request, which may use provider resources. Clear it to save
-without testing; Desktop reports either **Connection verified** or **Connection
-not tested** after setup. Use `npm run preview` for sample approval, file,
-artifact, and screen-context interactions that are not connected to PyPI yet.
+## Find A Conversation
 
-## Find A Task
-
-Use **Search tasks** in the sidebar to filter the loaded task list by its displayed
+Use **Search…** in the sidebar to filter loaded conversations by their displayed
 name or session ID. Matching ignores case and treats punctuation literally.
 Clear the field or press Escape to restore the list. Filtering keeps the current
-conversation and draft open, even when its task is hidden. It does not search
+conversation and draft open, even when that conversation is hidden. It does not search
 message contents, and the query is not saved when Desktop closes.
 
 ## Desktop Data
@@ -152,22 +156,26 @@ New installations use the same location from source and from a packaged app:
 
 ```text
 ~/.openminion/desktop/
-  desktop.sqlite    Desktop chat names, display preferences and installation paths
+  desktop.sqlite    Chat names, unsent drafts, preferences and installation paths
   browser/          Electron browser state and cache
   logs/             Application logs
   runtime/          Managed Python environment
   agents.json       Core-managed agent profiles and credentials
+  agents.json.backup Previous config retained when profiles are updated
   data/             Core-managed conversations and runtime state
 ```
 
-The database contains presentation metadata (including the quiet/normal tool
-display preference), not copies of conversations or API keys. OpenMinion owns
-the separate `data/` and `agents.json` contents under Desktop's directory;
+The database contains local draft identities, unsent text, and presentation
+metadata such as the quiet/normal/verbose tool display preference. Configured
+provider credentials and canonical conversation transcripts are stored separately;
+unsent drafts contain the text you type, which can itself include sensitive data.
+OpenMinion owns the separate `data/` and `agents.json` contents under Desktop's directory;
 the ordinary CLI's data remains separate. SQLite schema versions support
 ordered migrations. An app that finds a newer schema refuses to open it and
 asks for a compatible version; it never resets existing data. Replacing the
 application bundle preserves this directory.
-Signing, automatic updates, and cross-platform distribution are still pending.
+Unsigned development packages exist for all three platforms. Signing, Desktop
+self-updates, and Windows/Linux runtime certification remain pending.
 
 Existing installations keep their runtime and browser files in their previous
 Electron application-data directory (on macOS, normally
@@ -182,7 +190,8 @@ and, for an adopted installation, its previous application-data directory as
 well. Restore them to their original locations on the same machine. Removing
 just the application leaves user data intact; deleting these data directories
 also removes saved profiles and conversations. Database-only backups contain
-chat labels, not the canonical conversations.
+chat labels, preferences and unsent drafts, not canonical conversations or
+configured provider credentials.
 
 For an isolated development or test installation, set `OPENMINION_DESKTOP_HOME`
 to an absolute directory. This overrides the root and skips automatic adoption
@@ -190,18 +199,52 @@ of the normal installation. `OPENMINION_EXECUTABLE` selects the executable only;
 it does not select the data directory. A second launch using the same Desktop
 root focuses the existing app instead of starting another managed daemon.
 
+## Privacy and Connections
+
+Desktop communicates with its daemon on an authenticated local endpoint. The
+runtime can still contact external services:
+
+| Action | Connection and data boundary |
+| --- | --- |
+| Install the managed runtime | Python's package installer downloads OpenMinion and dependencies; its configured package index applies. |
+| Check runtime updates | Desktop requests public release metadata from GitHub at startup, every 24 hours, and when you choose **Check updates**. These requests do not include your chat or profile contents. |
+| Prepare an update | Desktop downloads the selected eligible runtime artifacts. **Pause upgrades** blocks preparation and activation, but does not disable metadata checks. |
+| Test a provider or send a message | OpenMinion uses the selected profile and tools. Configured providers and external tools may receive prompts, conversation context, queries, and tool inputs. Their data handling and charges apply. |
+| Open a link in a reply | The link opens in your system browser, which contacts the destination site. |
+
+The echo demo does not call a model, but runtime installation and update checks
+can still use the network. Screen preview stays local in the current app; see
+[Screen Context](screen-context.md) for its permission and integration limits.
+
+Desktop does not encrypt its SQLite database or profile files, or put saved
+profile keys in an operating-system credential vault. File permissions limit
+access where supported. Both `agents.json` and its `.backup` can contain keys;
+removing a key from the active profile does not erase earlier backups or copies.
+Protect the whole data directory and any backups as sensitive files. See
+[Desktop Data](#desktop-data) for locations and backup scope.
+
 ## Agent Profiles and Keys
 
 Click **Settings** above the connection indicator in the sidebar, or press
-**⌘ / Ctrl + ,**. Use **Profiles** for model and tool credentials, **Chat display**
-for Normal/Quiet tool activity and keyboard help, and **Runtime** for status,
+**⌘ / Ctrl + ,**. Use **Models & credentials** for model and tool credentials, **Chat display**
+for Normal/Quiet/Verbose tool activity and keyboard help, **Identity** for the
+agent’s authored identity and rendered preview, and **Runtime** for status,
 logs, versions, and update controls. Connection details also has a **Runtime settings**
-shortcut. Quiet hides tool activity but keeps approval requests visible; it shares
-its saved preference with `/quiet` and `/normal`. Display changes apply immediately.
-Profile changes require **Save and apply**. Switching sections keeps unsaved
-profile edits; closing Settings discards them.
+shortcut. Quiet hides tool activity but keeps approval requests visible; all three modes share
+the saved preference with `/quiet`, `/normal`, `/verbose` and `/details`. Normal previews
+six lines; Verbose expands all supplied output. Runtime-truncated content stays labeled. Display changes apply immediately.
+Model and credential changes require **Save and apply**. Switching sections
+keeps those unsaved edits; reopening Settings reloads the saved profile. Entered
+keys are cleared when Settings closes.
 When the default profile is missing a key required by its provider, Desktop also
 opens Settings on startup so you can complete it before chatting.
+
+Use **Add profile** to create another agent with the installed CLI’s provider
+catalog, model and API-key fields. Creation makes it the default for new chats;
+existing chats retain their agent. Choose a new agent ID; duplicates are rejected.
+The new model key is scoped to the created agent and its model connection.
+Shared search and web keys remain unchanged. Unsaved Settings edits require the
+existing discard confirmation before creation.
 
 1. Use **Import profiles…** to choose an existing Focus/CLI profile JSON file.
    Import adds agents and replaces matching agent IDs. It keeps Desktop's
@@ -209,7 +252,7 @@ opens Settings on startup so you can complete it before chatting.
 2. Choose an agent to edit its model, provider URL, or model API
    key. The provider adapter comes from the imported profile; MiniMax uses the
    OpenAI-compatible adapter with the MiniMax endpoint.
-3. Choose **Use this agent for new tasks** to change the default. Existing
+3. Choose **Use this agent for new conversations** to change the default. Existing
    conversations retain their agent.
 4. Expand **Search and web tool keys** to set Brave, SerpAPI, Serper, Tavily,
    Firecrawl, or TinyFish credentials. These keys are shared across agents and
@@ -237,9 +280,33 @@ or key.
 
 Settings are written to the private local OpenMinion config, with a private
 `.backup` copy of the previous config. They are not a separate Desktop profile
-format. Close discards unsaved edits, and changing the selected agent discards
-unsaved fields for that agent. Your conversations remain saved when settings
-are applied.
+format. Changing the selected agent asks for confirmation before discarding
+that agent’s unsaved model and credential fields. Your conversations remain
+saved when settings are applied.
+
+## Edit an Agent’s Identity
+
+Open **Settings → Identity** and choose an agent. The editor shows the identity
+reported by OpenMinion, its source and validation state, and a read-only rendered
+preview. It is separate from **Models & credentials**.
+
+1. Edit **Identity profile (YAML)** when the profile is writable.
+2. Choose **Verify draft** to check the draft and refresh the rendered preview.
+   Verification does not save it. Further edits mark the preview stale.
+3. Choose **Save identity** to write through OpenMinion’s existing identity
+   operation. Prompt changes apply on the next turn. To refresh cached policy
+   and tool constraints, use `/identity reload` in a conversation for that agent;
+   this restarts the app-owned daemon.
+
+**Discard draft and refresh source** drops the selected agent’s local edits and
+loads the current source. Unsaved identity drafts are temporary; save before
+quitting the app. If the source changed outside Desktop, refresh and review it
+before editing again rather than overwriting the newer version.
+
+If no identity is available, the editor stays hidden. **Try again** reloads it;
+**Runtime settings** appears when a compatible runtime is required. This screen
+does not create an identity profile. Use the installed CLI’s identity workflow
+for setup, then return to Desktop.
 
 ## Workspace Basics
 
@@ -250,22 +317,36 @@ use **Reconnect** when offered. Your unsent message stays in the composer.
 **Stop** requests cancellation. Desktop waits for and displays the outcome
 reported by the daemon rather than treating the request itself as completion.
 
-Text chat and completed conversation history work in the real app. Attachment
-sending, artifact browsing, approval decisions, and automatic watch remain
-preview-only; the connected app marks those integrations unavailable.
+Text chat and completed conversation history work with the pinned runtime.
+Request-bound allow-once or deny tool approvals work when Desktop is paired
+with a compatible OpenMinion runtime. See the
+[readiness matrix](certification-readiness-matrix.md) for managed-runtime evidence.
+Attachment sending, artifact browsing, and
+automatic watch remain preview-only; the connected app marks those integrations
+unavailable.
 
 You can write a local draft before the daemon connects. Creating a task draft and sending require the daemon connection. A new task is
 explicitly local until its first message creates the canonical saved session. Draft text
 is preserved when you connect and create the task.
 
-Unsent text stays with its task when you switch between tasks during the same
-app session. Creating another task starts with an empty composer. These local
-drafts are not persisted after quitting the app. After sending, your message remains
-visible while OpenMinion works, then the conversation refreshes from saved
-history. Rejected submissions keep the text in the composer for correction.
+Unsent text stays with its conversation across switching and app restarts. Desktop
+saves text in its existing SQLite database; images and attachments are not restored.
+A draft written before selecting a conversation remains separate at startup.
+Creating another conversation starts with an empty composer. Storage failures
+appear beside the composer so you can keep the window open and preserve the text.
+A save is durable after the main process acknowledges it; text still in flight
+at a sudden process failure is not guaranteed. Drafts are never sent automatically.
+
+An accepted message clears only its saved draft revision, preserving text typed
+while it was sending. Rejected submissions retain the draft. After sending,
+your message remains visible while OpenMinion works, then the conversation
+refreshes from canonical saved history. Closing a conversation clears its draft.
+For a saved conversation, it also marks the session closed without erasing the
+canonical transcript. Desktop does not provide a per-chat permanent-delete
+control.
 
 Write your first message and send it to create a task automatically. Use
-**New task** in the sidebar to start another conversation. Use the send
+**New conversation** in the sidebar to start another conversation. Use the send
 button or **Enter** to send. **Shift+Enter** adds a new line.
 
 Assistant replies show the reported profile beside **OpenMinion**. Desktop moves
@@ -281,14 +362,49 @@ Progress uses a subtle working indicator, while
 successful completion leaves the composer quiet. Stop requests and errors remain
 visible; a stop request is not treated as confirmed cancellation.
 While a reply is running, its status, details and elapsed time appear directly
-beneath your request and scroll with the conversation. Stop replaces the send
-arrow, and you can keep drafting. Stop stays pending until OpenMinion reports
-the outcome. Successful completion hides the progress row; errors remain visible
-with the request. The composer stays in place, and history refreshes without
-clearing the conversation.
+beneath your request and scroll with the conversation. Stop stays pending until
+OpenMinion reports the outcome. Successful completion hides the progress row;
+errors remain visible with the request. The composer stays in place, and history
+refreshes without clearing the conversation.
+
+### Queue A Follow-up
+
+While a reply is running, write ordinary text and press **Enter** to submit it
+to OpenMinion's **Up next** queue. **Shift+Enter** adds a new line without
+submitting. Text left in the composer is still a local draft; an accepted queued
+message belongs to the runtime and appears in **Up next**. A rejected submission
+keeps the draft and shows the error.
+
+Use **Move up**, **Move down**, or **Remove** on a queued item to change the
+pending list. **Stop and run next** asks OpenMinion to cancel the current
+response and start the first queued message after cancellation settles. It does
+not inject instructions into the current response. Errors remain visible; a
+stop request alone is not proof that the response stopped. Attachments cannot
+be queued, and slash commands keep their own command handling.
+
+The recorded native bridge queue journey used published OpenMinion **0.1.7**;
+this is a tested version, not a declared minimum. The default managed runtime remains
+**0.0.29**. Queue controls need the runtime's public turn-input operations; an
+older or incompatible runtime can reject an operation. Desktop does not replace
+that failure with a local queue. See [runtime selection](#use-a-source-runtime)
+and the [readiness matrix](certification-readiness-matrix.md) before comparing
+source and installed-build behavior. Automatic queue advancement, active-turn
+recovery after restart, and exactly-once effect acceptance are not certified by
+the bounded native bridge journey.
+
+### Recover A Response
+
+If a response disconnects, use **Reconnect response** to attach to the same
+retained turn without sending your message again. If replay is unavailable,
+**Check response status** checks whether the daemon still retains that turn.
+When it no longer does, Desktop reloads saved history without claiming the turn
+succeeded or failed. This recovery requires the current Desktop process to know
+the trace; discovery after app or daemon restart is not supported.
+
+### Commands And Context
 
 Type `/` or press **Command/Ctrl+K** to open the command menu. Arrow keys select,
-Tab completes, and Enter runs a command. Start with `/help`, `/new`, `/sessions`,
+Tab completes, Shift+Tab leaves suggestions, and Enter runs a command. Start with `/help`, `/new`, `/sessions`,
 or `/status`. Use the **Stop** button to stop a running turn.
 Desktop is the GUI for Focus; command integration is currently incomplete.
 See [Desktop Commands and Focus Parity](commands.md)
@@ -344,14 +460,26 @@ continue using the original ID when resuming through the CLI. Names can also be
 changed while a reply is running. Clearing Desktop's local application data removes
 these local names.
 
+## Export a conversation
+
+Open a saved conversation, run `/export` from the composer or command menu,
+then choose where to save the Markdown file. It contains messages already saved
+by OpenMinion, not the unsent draft or an unfinished answer that has not been saved.
+It is a separate readable copy, not a full installation backup. Review it before
+sharing: it may include private prompts, responses, message metadata, and
+session information.
+Closing the chat or removing Desktop does not remove copies saved elsewhere.
+
 ## Daemon Status And Logs
 
-Expand **Connected** (or **Not connected**) in the sidebar, then choose
-**Daemon status** or **View logs**. A separate diagnostics dialog opens above
-Desktop. **Refresh** reads a new snapshot; **Copy** copies the displayed output.
-Logs show the latest 200 lines in a scrollable area, while the controls remain
-visible. **Close** or Escape dismisses the dialog and returns focus to the sidebar. Your conversation, scroll position and draft stay in place. Logs do not
-automatically follow new entries.
+Open **Settings → Runtime**, then choose **Daemon status** or **View logs**.
+You can also expand the sidebar connection indicator and choose **Runtime
+settings**. A separate diagnostics dialog opens above Settings. **Refresh**
+reads a new snapshot; **Copy** copies the displayed output. Logs show the latest
+200 lines in a scrollable area, while the controls remain visible. **Close** or
+Escape dismisses the dialog and returns focus to its Runtime control. Your
+conversation, scroll position and draft stay in place. Logs do not automatically
+follow new entries.
 
 Desktop runs the installed CLI's `daemon status` and `daemon logs --lines 200`
 with its recorded home, data, and profile paths. Inspection also works while

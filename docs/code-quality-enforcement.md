@@ -1,7 +1,7 @@
 # OpenMinion Desktop Code Quality Enforcement
 
 Status: active
-Last updated: 2026-09-08
+Last updated: 2026-10-17
 
 Purpose: summarize the public contributor view of Desktop's local hooks,
 package-owned checks, hosted CI, and explicit acceptance tiers.
@@ -32,7 +32,7 @@ the packaged-file boundary changes.
 
 | Family gate | Desktop disposition |
 | --- | --- |
-| Supported language/runtime versions | apply: `.nvmrc`, package engines, Node.js 24 types, and lockfile pin Node.js 24 and npm 11 |
+| Supported language/runtime versions | apply: `.nvmrc` and package engines select Node.js 24; package metadata selects npm 11; the lockfile pins dependencies, including type definitions |
 | Package-owned normal CI command | apply: `npm run ci-check` |
 | Formatting and lint | apply: Biome |
 | Static typing | apply: TypeScript strict mode |
@@ -46,8 +46,8 @@ the packaged-file boundary changes.
 | OpenMinion integration | package-specific: pinned-package lifecycle test; transport acceptance remains separate |
 | Python Make, pre-commit, and validators | not applicable: this is a Node/TypeScript application |
 | Numeric debt baselines | not applicable: current TypeScript and Biome gates are clean |
-| Release publishing | not applicable until signing, notarization, update, and rollback are implemented |
-| Windows and Linux packaging | not applicable until those platforms are accepted and certified |
+| Release publishing | package-specific: unsigned development staging; stable distribution still requires signing and certification |
+| Windows and Linux packaging | package-specific: unsigned maker targets; native runtime certification remains separate |
 
 ## Enforcement Layers
 
