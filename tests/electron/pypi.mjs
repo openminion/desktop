@@ -379,7 +379,6 @@ async function check() {
         .tools.map((tool) => tool.name)
         .sort(),
     );
-    assert.ok((await reportCommand("/tool", "Tools")).includes(tools.value.tools[0].name));
     const exposureStatus = await runCommand(
       executable,
       [
@@ -414,12 +413,16 @@ async function check() {
         `${profile.profile_id}: daemon readiness ${profile.dependency_readiness}; Desktop row ${row}`,
       );
       for (const dependency of profile.dependency_statuses)
-        assert.ok(exposureText.includes(`${dependency.dependency_id}: ${dependency.state}`));
+        assert.ok(
+          exposureText.includes(`${dependency.dependency_id}: ${dependency.state}`),
+          `Daemon dependency ${dependency.dependency_id} (${dependency.state}) is missing from Desktop status`,
+        );
     }
     for (const tool of exposure.unprofiled_dependency_tools)
       assert.ok(exposureText.includes(`${tool.tool_name}: ${tool.dependency_readiness}`));
     if (exposure.security_lab && exposure.security_lab.state !== "not_configured")
       assert.ok(exposureText.includes(`Security lab: ${exposure.security_lab.state}`));
+    assert.equal(await reportCommand("/tool", "Tools"), exposureText);
     const daemonTools = await runCommand(
       executable,
       [...args, "tools", "list", "--runtime-source", "daemon"],
@@ -492,7 +495,7 @@ async function check() {
     assert.ok(mcpText.includes("registered"));
     const graphHelp = await runCommand(executable, [...args, "graph", "--help"], 30_000);
     assert.equal(graphHelp.exitCode, 0);
-    assert.equal(await reportCommand("/graph", "Graph viewer"), graphHelp.stdout);
+    assert.equal(await reportCommand("/graph", "Graph help"), graphHelp.stdout);
     const tokens = await runCommand(
       executable,
       [...args, "status", "tokens", "--session-id", sessionId],

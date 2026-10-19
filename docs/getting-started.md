@@ -1,20 +1,21 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 
-Purpose: provide the package-local bootstrap and first-run path for the
-OpenMinion Desktop source repository.
+Purpose: guide packaged-app users and source contributors through setup,
+settings, and everyday Desktop workflows.
 
 ## Requirements
 
-1. macOS for running the current application profile,
-2. Node.js 24,
-3. npm 11, and
-4. Python 3.11 for the current managed PyPI installation path.
+For a downloaded development app, use macOS with Python 3.11 and network access
+for the first managed-runtime installation. Node.js and npm are not needed.
+Start with [Download and verification](../SUPPORT.md#verify-a-development-download),
+then follow [First Run](#first-run).
 
-Linux participates in provider-free CI, but Linux and Windows desktop packages
-are not currently certified.
+To run or contribute from source, also install Node.js 24 and npm 11. The
+bootstrap commands below are for a source checkout. Linux participates in
+provider-free CI; Windows and Linux packages are not yet runtime-certified.
 
 ## Fast Bootstrap
 
@@ -40,9 +41,8 @@ allow, deny, or cancel it to exercise the turn controls. No daemon, model,
 local files, or screen capture is accessed, and changes are discarded when
 the window closes. This development fixture is excluded from packaged apps.
 
-For the real application, use the following setup.
-
-Start Desktop with:
+For a downloaded app, open **OpenMinion**. For a source checkout, start the
+real application with:
 
 ```bash
 npm start
@@ -227,13 +227,15 @@ Protect the whole data directory and any backups as sensitive files. See
 
 Click **Settings** above the connection indicator in the sidebar, or press
 **⌘ / Ctrl + ,**. Use **Models & credentials** for model and tool credentials, **Chat display**
-for Normal/Quiet/Verbose tool activity and keyboard help, and **Runtime** for status,
+for Normal/Quiet/Verbose tool activity and keyboard help, **Identity** for the
+agent’s authored identity and rendered preview, and **Runtime** for status,
 logs, versions, and update controls. Connection details also has a **Runtime settings**
 shortcut. Quiet hides tool activity but keeps approval requests visible; all three modes share
 the saved preference with `/quiet`, `/normal`, `/verbose` and `/details`. Normal previews
 six lines; Verbose expands all supplied output. Runtime-truncated content stays labeled. Display changes apply immediately.
-Profile changes require **Save and apply**. Switching sections keeps unsaved
-profile edits; closing Settings discards them.
+Model and credential changes require **Save and apply**. Switching sections
+keeps those unsaved edits; reopening Settings reloads the saved profile. Entered
+keys are cleared when Settings closes.
 When the default profile is missing a key required by its provider, Desktop also
 opens Settings on startup so you can complete it before chatting.
 
@@ -278,9 +280,33 @@ or key.
 
 Settings are written to the private local OpenMinion config, with a private
 `.backup` copy of the previous config. They are not a separate Desktop profile
-format. Closing Settings discards unsaved edits. Changing the selected agent
-asks for confirmation before discarding that agent’s unsaved fields. Your conversations remain saved when settings
-are applied.
+format. Changing the selected agent asks for confirmation before discarding
+that agent’s unsaved model and credential fields. Your conversations remain
+saved when settings are applied.
+
+## Edit an Agent’s Identity
+
+Open **Settings → Identity** and choose an agent. The editor shows the identity
+reported by OpenMinion, its source and validation state, and a read-only rendered
+preview. It is separate from **Models & credentials**.
+
+1. Edit **Identity profile (YAML)** when the profile is writable.
+2. Choose **Verify draft** to check the draft and refresh the rendered preview.
+   Verification does not save it. Further edits mark the preview stale.
+3. Choose **Save identity** to write through OpenMinion’s existing identity
+   operation. Prompt changes apply on the next turn. To refresh cached policy
+   and tool constraints, use `/identity reload` in a conversation for that agent;
+   this restarts the app-owned daemon.
+
+**Discard draft and refresh source** drops the selected agent’s local edits and
+loads the current source. Unsaved identity drafts are temporary; save before
+quitting the app. If the source changed outside Desktop, refresh and review it
+before editing again rather than overwriting the newer version.
+
+If no identity is available, the editor stays hidden. **Try again** reloads it;
+**Runtime settings** appears when a compatible runtime is required. This screen
+does not create an identity profile. Use the installed CLI’s identity workflow
+for setup, then return to Desktop.
 
 ## Workspace Basics
 
@@ -446,12 +472,14 @@ Closing the chat or removing Desktop does not remove copies saved elsewhere.
 
 ## Daemon Status And Logs
 
-Expand **Connected** (or **Not connected**) in the sidebar, then choose
-**Daemon status** or **View logs**. A separate diagnostics dialog opens above
-Desktop. **Refresh** reads a new snapshot; **Copy** copies the displayed output.
-Logs show the latest 200 lines in a scrollable area, while the controls remain
-visible. **Close** or Escape dismisses the dialog and returns focus to the sidebar. Your conversation, scroll position and draft stay in place. Logs do not
-automatically follow new entries.
+Open **Settings → Runtime**, then choose **Daemon status** or **View logs**.
+You can also expand the sidebar connection indicator and choose **Runtime
+settings**. A separate diagnostics dialog opens above Settings. **Refresh**
+reads a new snapshot; **Copy** copies the displayed output. Logs show the latest
+200 lines in a scrollable area, while the controls remain visible. **Close** or
+Escape dismisses the dialog and returns focus to its Runtime control. Your
+conversation, scroll position and draft stay in place. Logs do not automatically
+follow new entries.
 
 Desktop runs the installed CLI's `daemon status` and `daemon logs --lines 200`
 with its recorded home, data, and profile paths. Inspection also works while
