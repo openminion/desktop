@@ -49,8 +49,18 @@ can hang a build. On 2026-10-18, the latest `appdmg` (0.6.6) still requires
 and file-reading API: an isolated check of the actual `appdmg` call against the
 Desktop icon succeeded with 0.7.5 and failed with both patched versions. A
 compatible upstream release or explicit maintainer disposition is required;
-forcing an override would break DMG packaging. Do not suppress the report. A
-production-only npm audit is not sufficient: install/build tools execute code,
+forcing an override would break DMG packaging. Do not suppress the report.
+
+The 2026-10-19 call-site review narrows the current exposure: Desktop sets only
+an installer icon, so `electron-installer-dmg` supplies its bundled PNG
+background. `appdmg` calls `image-size` for background dimensions and copies the
+ICNS icon without parsing it through that library. The earlier icon probe tested
+API compatibility, not reachability of the vulnerable parser in the configured
+build. No malformed ICNS input path was demonstrated in this configuration;
+the vulnerable dependency is still installed and the advisory remains open.
+Reassess this boundary if the background or maker configuration changes.
+
+A production-only npm audit is not sufficient: install/build tools execute code,
 and this application bundles selected runtime modules from development dependencies.
 
 ## Maintainer decisions
