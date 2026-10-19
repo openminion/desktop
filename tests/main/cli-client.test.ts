@@ -566,18 +566,22 @@ describe("PyPI CLI client", () => {
         ].join("\n"),
       },
     });
-    expect(
-      await client.readReport({
-        kind: "learning",
-        proposalId: "proposal-1",
-      }),
-    ).toMatchObject({
+    const proposalReport = await client.readReport({
+      kind: "learning",
+      proposalId: "proposal-1",
+    });
+    expect(proposalReport).toMatchObject({
       ok: true,
       value: {
         kind: "learning",
         text: expect.stringContaining("Learning proposal: proposal-1"),
       },
     });
+    if (!proposalReport.ok || proposalReport.value.kind !== "learning")
+      throw new Error("Learning report unavailable");
+    expect(proposalReport.value.text).toContain(
+      "Inspect from the operator CLI: skillctl proposal-inspect proposal-1",
+    );
     expect(
       await client.readReport({
         kind: "learning",
@@ -611,6 +615,50 @@ describe("PyPI CLI client", () => {
     });
     expect(fixture.requests).toHaveLength(10);
     expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
+  });
+
+  it("shows the next valid operator action for each learning state", async () => {
+    const cases = [
+      {
+        proposal: { proposal_id: "proposal-1", queue_state: "pending" },
+        guidance: "Inspect from the operator CLI: skillctl proposal-inspect proposal-1",
+      },
+      {
+        proposal: {
+          proposal_id: "proposal-1",
+          queue_state: "reviewed",
+          review: { status: "accepted" },
+        },
+        guidance: "Apply from the operator CLI: skillctl proposal-apply proposal-1",
+      },
+      {
+        proposal: {
+          proposal_id: "proposal-1",
+          queue_state: "applied",
+          applied_addition: { added_skill_id: "emergent.inventory", version_hash: "v1" },
+        },
+        guidance:
+          "Inspect the staged version from the operator CLI: openminion skill show emergent.inventory --version v1",
+      },
+    ];
+    for (const item of cases) {
+      const fixture = await executableFixture(
+        "normal",
+        {},
+        {
+          proposal: { ok: true, proposal: item.proposal },
+        },
+      );
+      const client = new CliClient(() => ({
+        executable: fixture.executable,
+        args: fixture.args,
+      }));
+      const report = await client.readReport({ kind: "learning", proposalId: "proposal-1" });
+      expect(report).toMatchObject({ ok: true, value: { kind: "learning" } });
+      if (!report.ok || report.value.kind !== "learning")
+        throw new Error("Learning report missing");
+      expect(report.value.text).toContain(item.guidance);
+    }
   });
 
   it("reads scoped tool exposure and rejects invalid selectors", async () => {
@@ -2876,7 +2924,7 @@ function session(id: string) {
 async function executableFixture(
   mode = "normal",
   toolOutput: Record<string, unknown> = {},
-  skillResponses: { list?: unknown; detail?: unknown } = {},
+  skillResponses: { list?: unknown; detail?: unknown; proposal?: unknown } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "desktop-cli-test-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -3142,7 +3190,7 @@ async function executableFixture(
                           ],
                         }
                       : req.url === "/v1/skills/proposals/proposal-1"
-                        ? {
+                        ? (skillResponses.proposal ?? {
                             ok: true,
                             proposal: {
                               proposal_id: "proposal-1",
@@ -3155,7 +3203,7 @@ async function executableFixture(
                                 },
                               },
                             },
-                          }
+                          })
                         : {
                             ok: true,
                             tools: [

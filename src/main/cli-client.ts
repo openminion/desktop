@@ -823,12 +823,23 @@ export class CliClient {
             `  risk     ${optionalString(draft.risk_class ?? null) ?? ""}`,
             `  replay   ${record.replay_proof ? "recorded" : "missing"}`,
           ];
-          if (Object.keys(review).length)
-            lines.push(`  review   ${optionalString(review.status ?? null) ?? ""}`);
-          if (record.applied_addition) lines.push("  applied  yes");
-          lines.push(
-            `Review and apply from the operator CLI: openminion skill proposal-inspect ${value.proposalId}`,
-          );
+          const reviewStatus = optionalString(review.status ?? null) ?? "";
+          if (reviewStatus) lines.push(`  review   ${reviewStatus}`);
+          const addition = requireRecord(record.applied_addition ?? {});
+          if (Object.keys(addition).length) {
+            lines.push("  applied  yes");
+            const skillId = requireString(addition.added_skill_id);
+            const versionHash = requireString(addition.version_hash);
+            lines.push(
+              `Inspect the staged version from the operator CLI: openminion skill show ${skillId} --version ${versionHash}`,
+            );
+          } else if (reviewStatus === "accepted") {
+            lines.push(`Apply from the operator CLI: skillctl proposal-apply ${value.proposalId}`);
+          } else {
+            lines.push(
+              `Inspect from the operator CLI: skillctl proposal-inspect ${value.proposalId}`,
+            );
+          }
           return { kind: "learning", text: lines.join("\n") };
         }
         const [statusPayload, inboxPayload] = await Promise.all([
