@@ -107,8 +107,9 @@ Before treating a revision as a release candidate:
    and `docs/` aligned with the actual application boundary,
 2. run `npm ci`, `npm run ci-check`, and `npm run package` from a clean checkout,
 3. run the permissioned native-capture test on macOS,
-4. run installation and daemon lifecycle integration against the exact pinned
-   PyPI release,
+4. run fresh-install and daemon lifecycle integration against the exact
+   bootstrap-pinned PyPI release; validate manifest discovery, preparation,
+   activation, and reuse separately for every runtime-update claim,
 5. run separate rich chat/session transport and provider-backed acceptance when
    those surfaces are connected, and
 6. update the readiness matrix and changelog with the exact proof obtained.

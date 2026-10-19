@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-10-17
+Last updated: 2026-10-19
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -35,6 +35,11 @@ editor and loads the returned text as an unsent draft; the pinned 0.0.29 Desktop
 runtime and Desktop's shortcut guidance do not provide that behavior yet.
 Preserve explicit renderer availability where Focus and the rich CLI renderer
 differ.
+
+The `0.0.29` pin below is the fresh-install bootstrap baseline, not a permanent
+version for every Desktop installation. Runtime updates use compatible public
+manifest records; developer overrides are unmanaged. Compare parity with the
+runtime actually in use. See [Runtime Updates](getting-started.md#runtime-updates).
 
 ## Current Differences
 

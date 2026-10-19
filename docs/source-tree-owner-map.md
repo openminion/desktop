@@ -1,7 +1,7 @@
 # OpenMinion Desktop Source Tree Owner Map
 
 Status: active
-Last updated: 2026-10-17
+Last updated: 2026-10-19
 
 Purpose: give contributors a package-local owner map without turning internal
 TypeScript modules into supported third-party APIs.
@@ -31,7 +31,8 @@ The OpenMinion daemon remains outside this repository and owns agent runtime,
 sessions, credentials, policy decisions, artifacts, and durable execution
 truth. Do not create a second copy of those owners in Desktop.
 
-Desktop main may install a pinned OpenMinion package and invoke its ordinary
+Desktop main bootstraps a pinned OpenMinion package, stages eligible updates
+through the runtime manifest, and invokes the active runtime's ordinary
 public lifecycle, session, transcript, task control, report, and turn operations through `CliClient`.
 `src/main/focus-status.ts` mirrors the pinned CLI public status wording for
 structured progress keys and tools. It never interprets raw diagnostic prose;
@@ -57,9 +58,11 @@ SQLite schema versioning, legacy chat-name import and Desktop presentation data.
 It records existing runtime locations without moving core-owned files.
 
 `src/main/runtime-manifest.ts` owns bounded JSON parsing, PEP 440 ordering and
-compatible source/binary offer selection. The installer owns verified wheel or
-paired-executable staging; the
-supervisor owns notification-only checks and first-startup activation. The
+compatible source/binary update offer selection. `src/main/installation.ts`
+owns the fixed PyPI first-install pin and reuse of an active installation;
+first installation does not yet consult the manifest. It also owns verified
+wheel or paired-executable staging; the supervisor owns notification-only checks
+and first-startup activation. The
 existing SQLite store owns pending identity and durable launch intent. There is
 no second updater service or runtime database.
 

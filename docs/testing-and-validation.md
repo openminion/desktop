@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -117,8 +117,10 @@ interval: startup checks once, duplicate scheduling does not duplicate checks,
 a newly offered version appears without installation/restart, and shutdown
 removes the interval. That is deterministic scheduling proof, not a live
 24-hour public-release observation. Standalone CLI update notices use PyPI;
-Desktop's managed runtime checks use the GitHub manifest. Neither installs an
-update automatically.
+Desktop's runtime **update** checks use the GitHub manifest; its fresh-install
+bootstrap still installs the fixed PyPI pin without a manifest lookup. Neither
+update-notification path installs an update automatically. First-install proof
+does not certify manifest-driven discovery, preparation, activation, or reuse.
 
 The private update harness uses main-only test fixtures and isolated roots to
 stage its target beside the current managed installer pin, keep the old daemon usable, activate on
