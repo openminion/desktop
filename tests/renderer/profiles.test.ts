@@ -496,9 +496,10 @@ describe("identity settings", () => {
   });
 
   it.each([
-    ["external", "not_applicable", "External YAML is authoritative"],
-    ["inherited", "clean", "Inherited YAML is read-only"],
-  ])("shows truthful %s YAML guidance", async (_kind, generatedStatus, expected) => {
+    ["missing", "not_applicable", "missing", "authoritative YAML source is missing"],
+    ["external", "not_applicable", "clean", "External YAML is authoritative"],
+    ["inherited", "clean", "clean", "Inherited YAML is read-only"],
+  ])("shows truthful %s YAML guidance", async (_kind, generatedStatus, sourceStatus, expected) => {
     const page = profilePage();
     const initial = await page.readIdentity();
     if (!initial.ok) throw new Error("expected identity fixture");
@@ -511,6 +512,7 @@ describe("identity settings", () => {
             editable: false,
             readOnlyReason: "YAML profile is read-only.",
             generatedStatus,
+            sourceStatus,
           },
         ],
       },
