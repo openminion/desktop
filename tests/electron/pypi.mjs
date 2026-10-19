@@ -379,7 +379,6 @@ async function check() {
         .tools.map((tool) => tool.name)
         .sort(),
     );
-    assert.ok((await reportCommand("/tool", "Tools")).includes(tools.value.tools[0].name));
     const exposureStatus = await runCommand(
       executable,
       [
@@ -414,12 +413,16 @@ async function check() {
         `${profile.profile_id}: daemon readiness ${profile.dependency_readiness}; Desktop row ${row}`,
       );
       for (const dependency of profile.dependency_statuses)
-        assert.ok(exposureText.includes(`${dependency.dependency_id}: ${dependency.state}`));
+        assert.ok(
+          exposureText.includes(`${dependency.dependency_id}: ${dependency.state}`),
+          `Daemon dependency ${dependency.dependency_id} (${dependency.state}) is missing from Desktop status`,
+        );
     }
     for (const tool of exposure.unprofiled_dependency_tools)
       assert.ok(exposureText.includes(`${tool.tool_name}: ${tool.dependency_readiness}`));
     if (exposure.security_lab && exposure.security_lab.state !== "not_configured")
       assert.ok(exposureText.includes(`Security lab: ${exposure.security_lab.state}`));
+    assert.equal(await reportCommand("/tool", "Tools"), exposureText);
     const daemonTools = await runCommand(
       executable,
       [...args, "tools", "list", "--runtime-source", "daemon"],
@@ -448,22 +451,51 @@ async function check() {
     console.log(
       "PASS: native /tools status and /tool list match the pinned daemon's public exposure and inventory without sending a turn.",
     );
-    const cliSkills = await runCommand(executable, [...args, "skill", "list", "--json"], 30_000);
+    const skillSession = await runCommand(
+      executable,
+      [...args, "sessions", "show", sessionId, "--json"],
+      30_000,
+    );
+    assert.equal(skillSession.exitCode, 0);
+    const skillAgent = JSON.parse(skillSession.stdout).agent;
+    assert.ok(skillAgent);
+    const cliSkills = await runCommand(
+      executable,
+      [
+        ...args,
+        "skill",
+        "list",
+        "--agent-id",
+        skillAgent,
+        "--json",
+        "--config",
+        join(root, "agents.json"),
+      ],
+      30_000,
+    );
     assert.equal(cliSkills.exitCode, 0);
     const skillIds = JSON.parse(cliSkills.stdout).skills.map((skill) => skill.skill_id);
-    const skillText = await reportCommand("/skills", "Skills");
+    const skillText = await reportCommand("/skills", `Stored skills for ${skillAgent}`);
+    assert.deepEqual(
+      await evaluate(
+        "[...document.querySelectorAll('.skill-catalog button')].map(button => button.textContent)",
+      ),
+      skillIds,
+    );
     if (skillIds.length) {
-      assert.ok(skillText.includes(skillIds[0]));
-      assert.ok((await reportCommand(`/skills ${skillIds[0]}`, "Skills")).includes(skillIds[0]));
-    } else assert.equal(skillText, "(no skills)");
+      assert.ok(
+        (await reportCommand(`/skills ${skillIds[0]}`, "Skill details")).includes(skillIds[0]),
+      );
+    } else assert.equal(skillText, "No stored skills for this agent.");
     assert.ok((await reportCommand("/learning", "Skill learning")).startsWith("Skill learning:"));
     const mcpText = await reportCommand("/mcp", "MCP");
     assert.ok(mcpText.startsWith("MCP:\n"));
+    assert.ok(mcpText.includes(`  agent       ${skillAgent}\n`));
     assert.ok(mcpText.includes("configured"));
     assert.ok(mcpText.includes("registered"));
     const graphHelp = await runCommand(executable, [...args, "graph", "--help"], 30_000);
     assert.equal(graphHelp.exitCode, 0);
-    assert.equal(await reportCommand("/graph", "Graph viewer"), graphHelp.stdout);
+    assert.equal(await reportCommand("/graph", "Graph help"), graphHelp.stdout);
     const tokens = await runCommand(
       executable,
       [...args, "status", "tokens", "--session-id", sessionId],

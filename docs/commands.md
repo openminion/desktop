@@ -44,10 +44,10 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration.                                                                                                                                           |
 | `/tasks`, `/task`       | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID, use the returned Pause, Resume, and Cancel controls, or create scheduled work in the inline form.                                 |
 | `/delegate`             | Start sync or background delegated work, list recent delegations, and inspect or control one task through the selected conversation's agent/session scope. Inspection renders a structural tree and separate A2A protocol timeline. |
-| `/agents`, `/agent`     | Read the daemon's agent discovery list. An exact ID or display name filters the list; this does not change the session's agent.                                                                                           |
+| `/agents`, `/agent`     | Read the daemon's agent list and mark the conversation's current agent. An exact ID or display name filters the list; this does not switch agents.                                                                                           |
 | `/tools`, `/tool`       | Show exposure status for the selected session, matching Focus. `list` shows the tool inventory. `activate [profile]` and `deactivate [profile]` open scoped forms backed by Core tool exposure operations.                                                                                                                           |
-| `/mcp`                  | Show configured and exposed MCP servers plus registered/exposed MCP tool counts from the daemon's capability report.                                                                                                      |
-| `/skills`               | List the OpenMinion skill catalog or inspect one exact skill ID through the public daemon API. Skill admission and mutation are not connected.                                                                            |
+| `/mcp`                  | Read MCP servers and tool counts for the conversation's current agent. Without a conversation, use the daemon's default capability report.                                                                                                      |
+| `/skills`               | Browse stored global and selected-agent skills from OpenMinion (global only without a conversation); select an entry or use `/skills <skill-id>` to inspect it. Skill admission and mutation are not connected.                                                                            |
 | `/learning`             | Show the skill-learning suggestion summary or inspect one exact proposal ID through the public daemon API. Review and apply remain operator CLI actions.                                                                  |
 | `/identity`             | Show the selected conversation agent's canonical identity. Add `verify` to inspect source/render status or `reload` to restart the app-owned daemon and refresh cached identity policy.                                  |
 | `/tokens`               | Request the selected session's canonical durable token report. Pinned PyPI may report daemon-created sessions unavailable; no usage is fabricated.                                                                        |
@@ -60,15 +60,17 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/normal`               | Show the first six lines of supplied tool output, with a disclosure for more; saved as a Desktop display preference.                                                                                                                                                       |
 | `/verbose` | Expand all available tool output. Missing or truncated runtime content is not reconstructed. |
 | `/details [on\|off\|quiet\|toggle]` | Toggle verbose/normal or select a mode. Uses Focus aliases: verbose/full/details → on; normal/concise → off. |
-| `/graph`                | Show the installed OpenMinion CLI's graph help through a fixed read-only invocation. This is guidance, not an embedded graph workflow.                                                                                    |
+| `/graph`                | Show installed CLI help. `/graph status` or **Check readiness** reads actual graph readiness using this installation's configuration. Querying, refreshing and launching a viewer remain unconnected.                                                                                    |
 | `/editor`               | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.29 runtime.                                                                               |
 
 `/sessions` refreshes the saved conversation list from OpenMinion. Each entry
 shows its friendly name and full session ID, along with the reported agent,
 channel, message count and update age. Selecting an entry opens it and adds it
 to the sidebar if needed. Missing metadata is shown as not reported. `/status`
-includes the selected conversation's loaded channel, message count and update
-time.
+reads the selected saved conversation's current state, channel, message count
+and update time from OpenMinion without reloading the chat. Unsent drafts use
+local details. Provider and model remain not reported when unavailable; this
+report does not include Focus's complete live runtime status.
 
 Tool display is saved for this Desktop installation and applies across conversations. Manual disclosure changes survive unrelated chat updates; changing the display mode resets disclosures to that mode. Quiet always keeps approvals visible.
 
@@ -122,12 +124,18 @@ link explicitly opens the system browser. Other URL schemes are unavailable.
 Unchanged message elements stay mounted during status updates so text selection
 and reading position can be retained.
 
-Except for task and delegation commands, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, `/tools activate [profile]`, `/tools deactivate [profile]`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
+The skill catalog follows the conversation’s current agent, including its configured default. It lists stored records; Focus configured-only entries and eligibility filtering are not yet represented.
+
+Except for task and delegation commands, `/identity verify`, `/identity reload`,
+`/details [on|off|quiet|toggle]`, `/agents <exact-id-or-name>`, `/skills <skill-id>`, `/learning <proposal-id>`, `/help <connected-command>`, `/tools status`, `/tools list`, `/tools activate [profile]`, `/tools deactivate [profile]`, `/graph status`, and `/new session`, commands currently take no arguments. Bare agent/tool/skill/learning queries, token reports, graph help/status, and export remain available during a turn. Agent filtering and tool queries with arguments wait for the turn to finish, matching Focus admission. Command-specific help remains available. Export includes only messages already saved by OpenMinion. Model/provider
 fields can say “Not reported” when the daemon session metadata omits them.
 
-The composer remains editable during a turn so you can write a draft or run a
-local command. Ordinary text is not queued or sent until the turn finishes and
-you submit it yourself. Incoming response text is visible as it arrives.
+The composer remains editable during a turn so you can queue ordinary text or
+run a local command. Enter admits ordinary text to OpenMinion's shared **Up
+next** queue; Shift+Enter keeps editing. The queue can be reordered or trimmed,
+and **Stop and run next** requests canonical cancellation before starting its
+head. Attachments remain drafts until the active turn finishes. Incoming
+response text is visible as it arrives.
 Switching tasks within the same app keeps the running turn's response,
 approval cards, and cancellation controls. App restart still requires richer
 active-turn attachment/recovery support; saved completed conversations recover
@@ -142,7 +150,8 @@ while preserving the conversation and stop control. Completion clears the live
 status. Completed tool cards offer Copy output when the runtime supplies content
 and identify reported truncation. Missing output is not recovered from assistant
 text or invented after restart. Tool activity and request-bound approval cards
-use the same live turn stream; richer expansion remains a separate gap.
+use the same live turn stream. Received output expands inline; Focus `/expand`
+block selection and unavailable historical output remain separate gaps.
 
 ## Remaining Focus Parity
 
@@ -150,20 +159,21 @@ Focus's canonical command catalog is owned by OpenMinion's CLI presentation
 layer. Its handlers operate on the CLI runtime. Desktop's CLI-backed client
 connects text turns, saved sessions, task inventory/lifecycle controls,
 agent/tool/skill inventories, skill-learning proposal reads, token reports, and
-transcript export. A compatible source runtime also connects request-bound tool
-approvals; media, artifacts, and
+transcript export. Compatible runtimes also connect request-bound tool
+approvals; see the [readiness matrix](certification-readiness-matrix.md) for
+managed-runtime evidence. Media, artifacts, and
 broader Focus commands remain pending.
 
 | Focus command family                                                                                    | Required Desktop adaptation before it is connected                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Model changes, `/effort`                                                                                | Present configured model choices and explicitly update an admitted session's model/effort. Return the effective settings; keep credentials daemon-owned.                                                                                                     |
-| Tool exposure changes, MCP lifecycle/browse/authentication, skill admission/mutation                    | Expose canonical tool-policy changes, richer live MCP status and operations, and skill lifecycle controls. Bare `/tools`, `/mcp`, skill list/detail, and learning proposal reads are connected slices; proposal review and apply remain in the operator CLI. |
+| Richer tool policy, MCP lifecycle/browse/authentication, skill admission/mutation                    | Expose canonical tool-policy changes, richer live MCP status and operations, and skill lifecycle controls. `/tools` reports and exposure activation/deactivation, `/mcp`, skill list/detail, and learning proposal reads are connected slices; proposal review and apply remain in the operator CLI. |
 | `/permissions`, `/readonly`                                                                             | Read and update session policy with canonical validation and visible effective policy.                                                                                                                                                                       |
 | `/context`, `/context-review`, `/compact`                                                               | Query the context owner and request supported session compaction. The files panel is not a substitute for context-budget inspection.                                                                                                                         |
 | `/cost`                                                                                                 | Return live session usage and supported cost accounting. `/tokens` is connected to durable CLI accounting; it is not a live-cost substitute.                                                                                                                 |
-| `/memory`, `/telemetry`, `/trace`, `/overview`                                                          | Expose bounded, redacted owner queries over the existing public interfaces. `/graph` currently provides Focus-equivalent CLI guidance only; the graph workflow remains pending.                                                                              |
+| `/memory`, `/telemetry`, `/trace`, `/overview`                                                          | Expose bounded, redacted owner queries over the existing public interfaces. `/graph status` runs the CLI readiness report suggested by Focus; other graph workflows remain pending.                                                                              |
 | `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Expose room membership, handoff, messaging, start, and routing operations for admitted sessions.                                                                                                                                                             |
-| `/goal`, `/project`, `/queue`                                                                           | Expose the existing goal, project, and queue owners; do not create Desktop-owned execution queues.                                                                                                                                                            |
+| `/goal`, `/project`, `/queue`                                                                           | Expose goal/project commands and optional queue command presentation; composer queue controls already consume the Core queue.                                                                                                                                 |
 | `/init`, `/diff`, `/review`, `/undo`, `/browser`                                                        | Expose scoped workspace/browser operations and their existing permission and audit boundaries.                                                                                                                                                               |
 | `/theme`, `/statusline`, `/expand`, `/editor`, `/exit`, `/quit`                 | Additional Desktop presentation or native interactions. Current Focus `/editor` composes an unsent draft through an external editor; Desktop shortcut guidance alone is not equivalent.                                                                      |
 

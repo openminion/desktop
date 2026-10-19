@@ -28,6 +28,7 @@ import type {
   ToolProgressV1,
   ToolDisplay,
   TurnEventV1,
+  TurnInputQueueEntry,
   TurnSubmitValue,
   TurnUsageDisplay,
 } from "../shared/contracts.js";
@@ -134,7 +135,11 @@ export const DESKTOP_COMMANDS = [
     description: "Toggle full tool output",
     usage: "/details [on|off|quiet|toggle]",
   },
-  { name: "/graph", description: "Show installed OpenMinion graph help" },
+  {
+    name: "/graph",
+    description: "Show graph help or check readiness",
+    usage: "/graph [status]",
+  },
   { name: "/editor", description: "Show Desktop composer shortcuts" },
 ] as const;
 
@@ -762,6 +767,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let richContextReady = false;
   let creatingTask = false;
   let savingSubmission = false;
+  let queuePending = false;
+  let queuedInputs: TurnInputQueueEntry[] = [];
+  let queueMessage = "";
+  let pendingRunNext: { sessionId: string; text: string } | null = null;
   let pendingDraftTransfer: string | null = null;
   const reconnectingTurns = new Set<string>();
   let conversationLoading = false;
@@ -1570,6 +1579,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const hideCommandResult = () => {
     commandResultGeneration += 1;
     elements.commandPanel.hidden = true;
+    renderJumpToLatest();
   };
   elements.closeCommand.addEventListener("click", () => {
     hideCommandResult();
@@ -1603,7 +1613,63 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     });
     elements.commandResult.replaceChildren(paragraph, copy);
     elements.commandPanel.hidden = false;
+    renderJumpToLatest();
     elements.commandPanel.scrollIntoView({ block: "start" });
+  };
+
+  const showSkills = async (skillId?: string) => {
+    const title = skillId ? "Skill details" : "Skill catalog";
+    const sessionId = selected?.sessionId;
+    showCommandResult(title, "Loading from OpenMinion…");
+    const request = commandResultGeneration;
+    const result = await api.reports.read({
+      kind: "skills",
+      ...(skillId ? { skillId } : sessionId ? { sessionId } : {}),
+    });
+    if (
+      request !== commandResultGeneration ||
+      sessionId !== selected?.sessionId ||
+      elements.commandPanel.hidden
+    )
+      return;
+    if (!result.ok) showCommandResult(title, result.error.message);
+    else if (result.value.kind === "skills") {
+      const report = result.value;
+      if ("text" in report) showCommandResult(title, report.text);
+      else {
+        const catalogTitle = report.agentId
+          ? `Stored skills for ${report.agentId}`
+          : "Global skill catalog";
+        const text = report.skills.length
+          ? `${catalogTitle}:\n${report.skills.join("\n")}`
+          : report.agentId
+            ? "No stored skills for this agent."
+            : "No global skills have been added.";
+        showCommandResult(catalogTitle, text);
+        if (report.skills.length) {
+          const catalog = elements.commandResult.children[0];
+          catalog.className = "skill-catalog";
+          catalog.replaceChildren(
+            ...report.skills.map((id) => {
+              const button = root.createElement("button");
+              button.type = "button";
+              button.className = "quiet-button";
+              button.textContent = id;
+              button.addEventListener("click", () => void showSkills(id));
+              return button;
+            }),
+          );
+        }
+      }
+    }
+    if (skillId) {
+      const back = root.createElement("button");
+      back.type = "button";
+      back.className = "quiet-button";
+      back.textContent = "Back to catalog";
+      back.addEventListener("click", () => void showSkills());
+      elements.commandResult.append(back);
+    }
   };
 
   let diagnosticsGeneration = 0;
@@ -1869,6 +1935,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (
       args.length &&
       command !== "/tools" &&
+      command !== "/graph" &&
       command !== "/tasks" &&
       command !== "/delegate" &&
       command !== "/agents" &&
@@ -1892,10 +1959,13 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     void saveDraft(selected?.sessionId ?? "", elements.composer.value);
     elements.composer.focus();
     switch (command) {
+      case "/skills":
+        if (args.length > 1) showCommandResult("Skills", "Use /skills or /skills <skill-id>.");
+        else await showSkills(args[0]);
+        break;
       case "/agents":
       case "/tools":
       case "/tokens":
-      case "/skills":
       case "/learning":
       case "/mcp":
       case "/graph": {
@@ -1910,7 +1980,6 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           | "agents"
           | "tools"
           | "tokens"
-          | "skills"
           | "learning"
           | "mcp"
           | "graph";
@@ -1918,10 +1987,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           agents: "Agents",
           tools: "Tools",
           tokens: "Token usage",
-          skills: "Skills",
           learning: "Skill learning",
           mcp: "MCP",
-          graph: "Graph viewer",
+          graph: args[0] === "status" ? "Graph status" : "Graph help",
         };
         if (kind === "tokens" && !selected) {
           showCommandResult(titles[kind], "No active session.");
@@ -1971,18 +2039,22 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           );
           break;
         }
+        if (kind === "graph" && (args.length > 1 || (args.length === 1 && args[0] !== "status"))) {
+          showCommandResult(
+            "Graph commands",
+            "Use /graph for help or /graph status to check readiness. Other graph operations are not connected in Desktop yet.",
+          );
+          break;
+        }
         const sessionId = selected?.sessionId;
         showCommandResult(titles[kind], "Loading from OpenMinion…");
         const request = commandResultGeneration;
         const result = await api.reports.read({
           kind,
-          ...(sessionId && !["skills", "learning", "mcp", "graph"].includes(kind)
-            ? { sessionId }
-            : {}),
-          ...(kind === "mcp" && selected?.activeAgentId ? { agentId: selected.activeAgentId } : {}),
+          ...(sessionId && !["learning", "graph"].includes(kind) ? { sessionId } : {}),
+          ...(kind === "graph" && args[0] === "status" ? { graphView: "status" as const } : {}),
           ...(kind === "tools" ? { toolView: (args[0] ?? "status") as "status" | "list" } : {}),
           ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
-          ...(kind === "skills" && args.length ? { skillId: args.join(" ") } : {}),
           ...(kind === "learning" && args.length ? { proposalId: args.join(" ") } : {}),
         });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
@@ -1996,7 +2068,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
               report.agents
                 .map(
                   (agent) =>
-                    `${agent.id === selected?.activeAgentId ? "● " : ""}${agent.id}${agent.label !== agent.id ? ` — ${agent.label}` : ""}`,
+                    `${agent.id === report.activeAgentId ? "● " : ""}${agent.id}${agent.label !== agent.id ? ` — ${agent.label}` : ""}`,
                 )
                 .join("\n") || "No matching agents.";
           else if (report.kind === "tools" && "tools" in report)
@@ -2007,6 +2079,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           else if ("text" in report) text = report.text;
           else return true;
           showCommandResult(titles[kind], text);
+          if (kind === "graph" && !args.length) {
+            const button = root.createElement("button");
+            button.type = "button";
+            button.className = "secondary-tool";
+            button.textContent = "Check readiness";
+            button.addEventListener("click", () => {
+              commandDraft = elements.composer.value;
+              void runCommand("/graph status");
+            });
+            elements.commandResult.append(button);
+          }
           if (kind === "tools" && selected) {
             for (const action of ["activate", "deactivate"] as const) {
               const button = root.createElement("button");
@@ -2246,22 +2329,46 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         }
         break;
       }
-      case "/status":
+      case "/status": {
+        const sessionId = selected?.sessionId;
+        if (!sessionId) {
+          showCommandResult("Conversation status", "No conversation selected.");
+          break;
+        }
+        showCommandResult("Conversation status", "Reading conversation status…");
+        const request = commandResultGeneration;
+        const result = await api.reports.read({ kind: "status", sessionId });
+        if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
+        if (!result.ok) showCommandResult("Conversation status", result.error.message);
+        else if (result.value.kind === "status") {
+          const session = result.value.session;
+          showCommandResult(
+            "Conversation status",
+            [
+              elements.connectionLabel.textContent,
+              `Conversation: ${taskName(session)}`,
+              `Session: ${session.sessionId}`,
+              `State: ${session.status}`,
+              `Agent: ${session.activeAgentId ?? "Not reported"}`,
+              `Channel: ${session.channel ?? "Not reported"}`,
+              `Messages: ${session.messageCount ?? "Not reported"}`,
+              `Updated: ${session.updatedAt || "Not reported"}`,
+              `Provider: ${session.model.provider ?? "Not reported"}`,
+              `Model: ${session.model.modelId ?? "Not reported"}`,
+              chat.label,
+            ].join("\n"),
+          );
+        }
+        break;
+      }
       case "/model":
         showCommandResult(
-          command === "/model" ? "Configured model" : "Conversation status",
+          "Configured model",
           [
             elements.connectionLabel.textContent,
             `Conversation: ${selected ? taskName(selected) : "No conversation selected"}`,
             `Session: ${selected?.sessionId ?? "None"}`,
             `Agent: ${selected?.activeAgentId ?? "Not reported"}`,
-            ...(command === "/status"
-              ? [
-                  `Channel: ${selected?.channel ?? "Not reported"}`,
-                  `Messages: ${selected?.messageCount ?? "Not reported"}`,
-                  `Updated: ${selected?.updatedAt || selected?.updatedLabel || "Not reported"}`,
-                ]
-              : []),
             `Provider: ${selected?.model.provider ?? "Not reported"}`,
             `Model: ${selected?.model.modelId ?? "Not reported"}`,
             chat.label,
@@ -2350,7 +2457,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   const renderJumpToLatest = () => {
     const { scrollHeight, clientHeight, scrollTop } = elements.conversation;
     elements.jumpLatest.hidden =
-      scrollHeight - clientHeight - scrollTop <= 48 || !elements.commandMenu.hidden;
+      scrollHeight - clientHeight - scrollTop <= 48 ||
+      !elements.commandMenu.hidden ||
+      !elements.commandPanel.hidden;
   };
   elements.conversation.addEventListener("scroll", renderJumpToLatest);
   window.addEventListener("resize", renderJumpToLatest);
@@ -2359,6 +2468,101 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderJumpToLatest();
     elements.composer.focus();
   });
+
+  const refreshQueue = async (sessionId: string, generation = selectionGeneration) => {
+    const result = await api.turns.listQueue({ sessionId });
+    if (generation !== selectionGeneration || selected?.sessionId !== sessionId) return;
+    if (result.ok) {
+      queuedInputs = result.value;
+      queueMessage = "";
+    } else {
+      queueMessage = result.error.message;
+    }
+    renderChat();
+  };
+
+  const renderQueue = () => {
+    elements.turnQueue.hidden = !queuedInputs.length && !queueMessage;
+    elements.turnQueueStatus.textContent = queueMessage;
+    elements.turnQueueStatus.hidden = !queueMessage;
+    elements.runNext.hidden = !chat.active || queuedInputs.length === 0;
+    elements.runNext.disabled = queuePending || !chat.traceId || !selected?.activeAgentId;
+    elements.turnQueueList.replaceChildren(
+      ...queuedInputs.map((entry, index) => {
+        const item = root.createElement("li");
+        const text = root.createElement("span");
+        text.className = "turn-queue-text";
+        text.textContent = entry.text;
+        text.title = entry.text;
+        const actions = root.createElement("span");
+        actions.className = "turn-queue-actions";
+        const controls = [
+          {
+            label: "Move up",
+            disabled: index === 0,
+            run: () =>
+              api.turns.move({
+                sessionId: entry.sessionId,
+                queueId: entry.queueId,
+                statusVersion: entry.statusVersion,
+                beforeQueueId: queuedInputs[index - 1]!.queueId,
+              }),
+          },
+          {
+            label: "Move down",
+            disabled: index === queuedInputs.length - 1,
+            run: () =>
+              api.turns.move({
+                sessionId: entry.sessionId,
+                queueId: entry.queueId,
+                statusVersion: entry.statusVersion,
+                afterQueueId: queuedInputs[index + 1]!.queueId,
+              }),
+          },
+          {
+            label: "Remove",
+            disabled: false,
+            run: () =>
+              api.turns.drop({
+                sessionId: entry.sessionId,
+                queueId: entry.queueId,
+                statusVersion: entry.statusVersion,
+              }),
+          },
+        ];
+        for (const control of controls) {
+          const button = root.createElement("button");
+          button.type = "button";
+          button.className = "quiet-button";
+          button.textContent =
+            control.label === "Move up" ? "↑" : control.label === "Move down" ? "↓" : "×";
+          button.title = control.label;
+          button.setAttribute("aria-label", `${control.label}: ${entry.text}`);
+          button.disabled = queuePending || control.disabled;
+          button.addEventListener("click", async () => {
+            const generation = selectionGeneration;
+            queuePending = true;
+            queueMessage = "";
+            renderChat();
+            const result = await control.run();
+            queuePending = false;
+            if (generation !== selectionGeneration || selected?.sessionId !== entry.sessionId) {
+              renderChat();
+              return;
+            }
+            if (result.ok) await refreshQueue(entry.sessionId);
+            else {
+              queueMessage = result.error.message;
+              renderChat();
+            }
+          });
+          actions.append(button);
+        }
+        item.append(text, actions);
+        return item;
+      }),
+    );
+  };
 
   const renderWaitTime = () => {
     elements.chatElapsed.textContent =
@@ -2411,7 +2615,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           !daemonReady ||
           selected?.status === "closed" ||
           conversationLoading ||
-          chat.active ||
+          (chat.active && (!selected?.activeAgentId || attachments.length > 0)) ||
           attachmentPending ||
           !elements.composer.value.trim() ||
           !attachmentsValid);
@@ -2419,11 +2623,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.cancel.hidden = !chat.active;
     elements.cancel.disabled = !chat.active || !chat.traceId || chat.stopRequested;
     elements.cancel.title = chat.stopRequested ? "Waiting for OpenMinion to stop" : "Stop response";
-    elements.send.hidden = chat.active && !isCommand;
+    elements.send.hidden =
+      chat.active &&
+      !isCommand &&
+      (chat.stopRequested || attachments.length > 0 || !selected?.activeAgentId);
     elements.composerHint.textContent = connecting
       ? "Keep drafting while OpenMinion starts"
       : chat.active
-        ? "You can keep drafting while OpenMinion works"
+        ? "Enter to queue next · Shift+Enter for new line"
         : "Enter to send · Shift+Enter for new line";
     if (restoreFocusAfterStop) elements.composer.focus();
     elements.send.title = isCommand
@@ -2434,7 +2641,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           ? "Create or choose an open conversation to send"
           : conversationLoading
             ? "Waiting for conversation history"
-            : "Send message (Enter)";
+            : chat.active
+              ? "Queue message (Enter)"
+              : "Send message (Enter)";
     elements.composer.disabled = false;
     elements.composer.placeholder = connecting
       ? "Write a message while OpenMinion starts…"
@@ -2464,6 +2673,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       });
       renderChat();
     });
+    renderQueue();
     renderFiles();
     renderTimeline(
       root,
@@ -2710,6 +2920,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     submissionGeneration += 1;
     if (!selected) elements.composer.value = drafts.get(session.sessionId) ?? "";
     selected = session;
+    if (!refreshing) {
+      queuedInputs = [];
+      queueMessage = "";
+    }
     if (!refreshing) customCommands = [];
     showDraftStatus();
     conversationLoading = true;
@@ -2746,7 +2960,12 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (generation !== selectionGeneration || selected?.sessionId !== session.sessionId) {
       return;
     }
-    await Promise.all([artifactsLoading, refreshCaptureStatus(), refreshObservationStatus()]);
+    await Promise.all([
+      artifactsLoading,
+      refreshCaptureStatus(),
+      refreshObservationStatus(),
+      refreshQueue(session.sessionId, generation),
+    ]);
     if (generation !== selectionGeneration || selected?.sessionId !== session.sessionId) {
       return;
     }
@@ -3029,7 +3248,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       draftErrors.set(event.sessionId, event.draftError);
       showDraftStatus();
     }
-    const live = liveTurns.get(event.sessionId);
+    let live = liveTurns.get(event.sessionId);
+    if (
+      event.kind === "started" &&
+      pendingRunNext?.sessionId === event.sessionId &&
+      live?.state.traceId !== event.traceId
+    ) {
+      live = {
+        state: initialChatState(),
+        messages: selected?.sessionId === event.sessionId ? messages : [],
+        submittedText: pendingRunNext.text,
+        responseText: "",
+        latestCopyText: null,
+        responseUsage: undefined,
+        activity: [],
+      };
+      liveTurns.set(event.sessionId, live);
+      pendingRunNext = null;
+    }
     if (live) {
       const matchesTurn = live.state.traceId === event.traceId;
       if (matchesTurn && (event.kind === "tool" || event.kind === "approval"))
@@ -3376,7 +3612,6 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       creatingTask ||
       savingSubmission ||
       conversationLoading ||
-      chat.active ||
       selected?.status === "closed"
     ) {
       return;
@@ -3389,6 +3624,44 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (!selected && (asGuidance || !(await createTask()))) return;
     if (!selected) return;
     const sessionId = selected.sessionId;
+    if (chat.active) {
+      if (asGuidance || attachments.length || !selected.activeAgentId) return;
+      const generation = selectionGeneration;
+      savingSubmission = true;
+      renderChat();
+      const saved = await saveDraft(sessionId, elements.composer.value);
+      if (generation !== selectionGeneration || selected?.sessionId !== sessionId) {
+        savingSubmission = false;
+        renderChat();
+        return;
+      }
+      if (!saved.ok) {
+        savingSubmission = false;
+        renderChat();
+        return;
+      }
+      const result = await api.turns.enqueue({
+        sessionId,
+        agentId: selected.activeAgentId,
+        text: message,
+      });
+      savingSubmission = false;
+      if (generation !== selectionGeneration || selected?.sessionId !== sessionId) {
+        if (result.ok) await saveDraft(sessionId, "");
+        renderChat();
+        return;
+      }
+      if (!result.ok) {
+        showError(result.error);
+        return;
+      }
+      queuedInputs.push(result.value);
+      if (elements.composer.value === draft) elements.composer.value = "";
+      await saveDraft(sessionId, elements.composer.value);
+      queueMessage = "";
+      renderChat();
+      return;
+    }
     const pending = asGuidance
       ? guidanceSnapshot(selected.sessionId, captureState, captureFrame)
       : null;
@@ -3507,6 +3780,33 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     void submitTurn(false);
   });
   elements.askGuidance.addEventListener("click", () => void submitTurn(true));
+  elements.runNext.addEventListener("click", async () => {
+    const next = queuedInputs[0];
+    if (!next || !selected?.activeAgentId || !chat.traceId || queuePending) return;
+    const generation = selectionGeneration;
+    queuePending = true;
+    queueMessage = "Stopping the current response and starting the next prompt…";
+    pendingRunNext = { sessionId: next.sessionId, text: next.text };
+    renderChat();
+    const result = await api.turns.cancelAndRunNext({
+      sessionId: selected.sessionId,
+      traceId: chat.traceId,
+      agentId: selected.activeAgentId,
+      expectedQueueId: next.queueId,
+    });
+    queuePending = false;
+    if (generation !== selectionGeneration || selected?.sessionId !== next.sessionId) {
+      if (!result.ok) pendingRunNext = null;
+      renderChat();
+      return;
+    }
+    if (result.ok) await refreshQueue(next.sessionId, generation);
+    else {
+      pendingRunNext = null;
+      queueMessage = result.error.message;
+      renderChat();
+    }
+  });
   elements.composer.addEventListener("input", () => {
     const draft = elements.composer.value.trimStart();
     if (draft === "/") void loadCustomCommands();
@@ -3871,6 +4171,10 @@ function rendererElements(root: Document) {
     chatDetail: required(root, "chat-detail"),
     chatUpdate: required(root, "chat-update"),
     chatElapsed: required(root, "chat-elapsed"),
+    turnQueue: required(root, "turn-queue"),
+    turnQueueStatus: required(root, "turn-queue-status"),
+    turnQueueList: required(root, "turn-queue-list"),
+    runNext: required(root, "run-next") as HTMLButtonElement,
     composerHint: required(root, "composer-hint"),
     composerForm: required(root, "composer-form") as HTMLFormElement,
     composer: required(root, "composer") as HTMLTextAreaElement,

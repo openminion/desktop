@@ -326,6 +326,44 @@ export type ObservationStatusV1 = {
   updatedAt: string;
 };
 export type TurnCancelInput = { sessionId: string; traceId: string };
+export type TurnInputQueueStatus =
+  | "queued"
+  | "reserved"
+  | "running"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "dropped"
+  | "steer_deferred";
+export type TurnInputQueueEntry = {
+  queueId: string;
+  sessionId: string;
+  agentId: string;
+  text: string;
+  status: TurnInputQueueStatus;
+  statusVersion: number;
+  createdAt: string;
+  traceId: string | null;
+};
+export type TurnInputListInput = { sessionId: string };
+export type TurnInputEnqueueInput = {
+  sessionId: string;
+  agentId: string;
+  text: string;
+};
+export type TurnInputDropInput = {
+  sessionId: string;
+  queueId: string;
+  statusVersion: number;
+};
+export type TurnInputMoveInput = TurnInputDropInput & {
+  beforeQueueId?: string;
+  afterQueueId?: string;
+};
+export type TurnInputRunNextInput = TurnCancelInput & {
+  agentId: string;
+  expectedQueueId: string;
+};
 export type ApprovalDecisionInput = {
   sessionId: string;
   traceId: string;
@@ -745,6 +783,11 @@ export type NativeApi = {
     submit(input: TurnSubmitInput): Promise<ClientResult<TurnSubmitValue>>;
     cancel(input: TurnCancelInput): Promise<ClientResult<TurnCancellationValue>>;
     reconnect(input: TurnCancelInput): Promise<ClientResult<TurnSubmitValue>>;
+    listQueue(input: TurnInputListInput): Promise<ClientResult<TurnInputQueueEntry[]>>;
+    enqueue(input: TurnInputEnqueueInput): Promise<ClientResult<TurnInputQueueEntry>>;
+    drop(input: TurnInputDropInput): Promise<ClientResult<TurnInputQueueEntry>>;
+    move(input: TurnInputMoveInput): Promise<ClientResult<TurnInputQueueEntry>>;
+    cancelAndRunNext(input: TurnInputRunNextInput): Promise<ClientResult<TurnSubmitValue>>;
     subscribe(listener: (event: TurnEventV1) => void): () => void;
   };
   approvals: {
@@ -823,6 +866,11 @@ export const IPC_CHANNELS = {
   turnsSubmit: "openminion:turns-submit",
   turnsCancel: "openminion:turns-cancel",
   turnsReconnect: "openminion:turns-reconnect",
+  turnsQueueList: "openminion:turns-queue-list",
+  turnsQueueEnqueue: "openminion:turns-queue-enqueue",
+  turnsQueueDrop: "openminion:turns-queue-drop",
+  turnsQueueMove: "openminion:turns-queue-move",
+  turnsCancelAndRunNext: "openminion:turns-cancel-and-run-next",
   approvalsDecide: "openminion:approvals-decide",
   artifactsList: "openminion:artifacts-list",
   artifactsRead: "openminion:artifacts-read",

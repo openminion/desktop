@@ -1,11 +1,43 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-11
+Last updated: 2026-10-18
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
 ## Unreleased
+
+These entries describe source development, not a newly published binary.
+Earlier notes retain the state at the time of each change; later entries can
+supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
+and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+### Recent changes
+
+- Add a labeled Desktop screenshot to the README using non-private sample chat.
+
+- Clarify packaged-app prerequisites, document Identity editing and verification,
+  and correct the route to daemon diagnostics in Runtime settings.
+
+- Clarify the README header with the polished project logo, a download link,
+  contribution guidance, and the independent Desktop version.
+- Correct native integration expectations for `/tool` status and `/graph`
+  help; their output remains compared with the public CLI and daemon.
+- Require LICENSE and NOTICE in packaged application archives and reconcile
+  the remaining public-source launch gates with the expanded disclosure audit.
+
+- Resolve agent and MCP reports using the selected session's canonical agent.
+- Browse the complete global skill catalog and the selected agent's stored
+  catalog through existing public OpenMinion operations.
+- Add `/graph status` readiness reporting and report clipboard failures after
+  the actual write completes.
+- Prepare public contribution guidance, guided issue reports, download
+  verification, and source-backed data/privacy documentation. Public source
+  visibility and stable release approval remain separate gates.
+- Clarify integration-test build prerequisites and require an explicit newer
+  target in the documented private runtime-upgrade rehearsal.
+
+### Earlier development notes
 
 - Add compact language headers and Copy controls to chat code blocks, with
   keyboard scrolling and the same clipboard feedback as message actions.

@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-10-11
+Last updated: 2026-10-18
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -13,6 +13,37 @@ Desktop expects Node.js 24 and npm 11. Install the exact locked dependency set:
 ```bash
 npm ci
 ```
+
+## Focused Iteration
+
+Run commands from the repository root. While editing, run the closest existing
+suite; for example, renderer interaction tests:
+
+```bash
+npm test -- tests/renderer/app.test.ts
+npm run typecheck
+npm run lint
+```
+
+Choose tests for the changed boundary. A bridge change can require main, preload,
+and renderer coverage; a renderer test alone does not prove daemon behavior.
+Type checking and lint above still cover the configured project.
+
+If formatting fails, use the installed formatter on the files you changed:
+
+```bash
+npx --no-install biome format --write src/renderer/app.ts
+npm run format:check
+```
+
+Replace the example path with your changed source file. `npm run format` formats
+all supported files in the configured repository, so use it only when you own
+that scope. Review the diff after formatting and preserve unrelated edits.
+Formatting does not fix lint findings or format Markdown; address lint findings
+in the owning code and check documentation with `npm run public-surface-check`.
+
+Focused checks shorten the editing loop. They do not replace the normal package
+gate or the integration tier required by the changed behavior.
 
 ## Normal Package Gate
 
@@ -32,6 +63,14 @@ npm run hooks:run
 
 Hosted CI also runs actionlint against `.github/workflows/`.
 
+Run commands below from the repository root. Direct `node` or `electron`
+harnesses use `dist/` and do not build it themselves. Run `npm run build` after
+source changes before invoking them; `npm run ci-check` also builds. A missing
+`dist/` import is a build prerequisite failure, not a daemon connection failure.
+Package scripts such as `npm run electron-check` include their own build step.
+The optional Vitest checks require the executable or permission inputs
+shown below; a skipped check is not integration evidence.
+
 ## Native Package Smoke
 
 ```bash
@@ -44,13 +83,16 @@ automation uses the same command. It does not prove signing, notarization,
 installation, updating, rollback, runtime certification, or release readiness.
 
 The manual `CI` workflow accepts `packages: true` to run `npm run make` on
-native macOS, Windows, and Linux runners. It stages the outputs in a private
+native macOS, Windows, and Linux runners when dispatched on the official
+repository’s `main` branch. Other refs run quality checks only. It stages the outputs in a private
 draft release for verification or transfer. That draft is not a public release
 and should be deleted after its outputs are handled.
 
 The command rejects an application archive containing repository-only files,
-development dependencies, local `.openminion` state, source, or tests. It also
-fails when a platform's expected artifact formats are missing.
+dependency directories, local `.openminion` state, source, or tests. Selected
+runtime modules from development dependencies are bundled into `dist/`; the
+archive check validates file layout, not the absence of all third-party code.
+It also fails when a platform's expected artifact formats are missing.
 
 ## Desktop Storage
 
@@ -66,10 +108,8 @@ native update certification. Run the real
 managed PyPI first-install/reuse/owned-quit check separately after building:
 
 ```bash
+npm run build
 node tests/electron/managed-install.mjs
-node tests/electron/runtime-update.mjs
-node tests/electron/runtime-update.mjs --testpypi-final 0.0.21
-node tests/electron/runtime-update.mjs --pypi-final 0.0.21
 ```
 
 The supervisor suite also advances a test clock through the 24-hour check
@@ -81,23 +121,32 @@ Desktop's managed runtime checks use the GitHub manifest. Neither installs an
 update automatically.
 
 The private update harness uses main-only test fixtures and isolated roots to
-stage official PyPI 0.0.20 beside 0.0.19, keep the old daemon usable, activate on
+stage its target beside the current managed installer pin, keep the old daemon usable, activate on
 the next startup, retain an echo conversation and refuse interrupted-intent
 restart. Its fixture bounds are not published compatibility certification;
-it does not qualify a public feed or a packaged application.
+it does not qualify a public feed or a packaged application. Running the harness
+without a version flag selects the historical 0.0.20 fixture. Do not use that default as current upgrade evidence: it predates the
+managed installer pin. For an upgrade rehearsal, choose an exact published
+version newer than `OPENMINION_VERSION` in `src/main/installation.ts` and replace
+`VERSION` below. This is still a private fixture, not public-feed acceptance.
+
+```bash
+npm run build
+node tests/electron/runtime-update.mjs --pypi-final VERSION
+```
 
 The optional `--testpypi-final` mode rehearses an exact final TestPyPI wheel
 against the managed installer pin in isolated roots, resolving ordinary pip
 dependencies from production PyPI. It uses a fixed TestPyPI metadata origin
 and checks its wheel host; it never routes a TestPyPI record through the public
 reader or publishes compatibility bounds. All seven private lifecycle phases
-still run. Replace the example version with the final version under test;
+still run. Pass `--testpypi-final VERSION` with the exact final version under test;
 public upgrade acceptance must later use the official production record and
 exact shipped Desktop revision.
 
-Use `--pypi-final` only after the target production version exists to replay
+Use `--pypi-final VERSION` only after the target production version exists to replay
 the same private phases against its official wheel. The two index flags are
-mutually exclusive. Set `TMPDIR` to an umbrella workspace scratch directory
+mutually exclusive. Set `TMPDIR` to an absolute test scratch directory you own
 so isolated native state and retained failure evidence remain there.
 
 The seven phases are stage, hold, activate, reuse, controls, intent and recovery.
@@ -120,13 +169,14 @@ Build the application first. Supply its actual executable and shipped Desktop
 version, not the Electron runner version:
 
 ```bash
-node tests/electron/packaged-runtime.mjs /absolute/path/to/packaged/OpenMinion 0.0.0
-node tests/electron/packaged-runtime.mjs /absolute/path/to/packaged/OpenMinion 0.0.0 0.0.21
+node tests/electron/packaged-runtime.mjs /absolute/path/to/packaged/OpenMinion 0.0.1
 ```
 
 Use the native `.app/Contents/MacOS/OpenMinion` executable on macOS or packaged
 `OpenMinion.exe` on Windows. Replace the example versions with the exact package
-and runtime under acceptance. Set `TMPDIR` to workspace scratch before running.
+under acceptance. To test an update, append the exact target runtime version
+as the third argument. It must be a newer, explicitly compatible public-feed
+offer. Set `TMPDIR` to an absolute test scratch directory before running.
 The harness launches an unmodified package, records its version and ASAR digest,
 uses an isolated Desktop home, and removes executable overrides. It drives the
 real UI through Electron's [main-process inspector](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process),
@@ -147,6 +197,7 @@ separate acceptance gates.
 After building, run the native migration and restart check:
 
 ```bash
+npm run build
 node tests/electron/storage.mjs
 ```
 
@@ -208,10 +259,10 @@ local echo provider only; it does not qualify a paid provider or remote peer.
 Use an isolated installation of the pinned PyPI package:
 
 ```bash
+npm run build
 env -u OPENMINION_EXECUTABLE -u OPENMINION_PYPI_EXECUTABLE \
   node tests/electron/managed-install.mjs
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npm test -- tests/main/cli-client.test.ts
-npm run build
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/pypi.mjs
 OPENMINION_PYPI_EXECUTABLE=/path/to/openminion npx electron tests/electron/onboarding.mjs
 ```
@@ -233,6 +284,7 @@ The Electron test drives production main, preload, and renderer and covers:
 - active turn status and elapsed time directly below the request, with the composer stationary and completed progress hidden;
 - command results inside the conversation scroll area at narrow and wide sizes, with long results scrolling with messages and leaving the composer in place;
 - command names and aliases checked against the installed Focus catalog, with every canonical command tracked in the parity contract;
+- native published-runtime queue list, enqueue, reorder, and removal through the production main/preload bridge, plus renderer coverage for queueing during a turn and stop-and-run-next;
 - agent/tool reports, canonical CLI token output, and native Markdown export/cancel without model turns;
 - schedule creation through the GUI with canonical CLI readback, plus task creation through the public CLI, Desktop task inventory, pause,
   resume and cancellation, and independent CLI verification of durable state;
@@ -320,6 +372,16 @@ Run the actual sandboxed application startup check on macOS:
 npm run electron-check
 ```
 
+This launches built Electron main, both CommonJS preload bundles, and the
+renderer through the real local protocol. It checks bridge availability,
+sandbox settings, disconnected draft entry, popovers, and fluid composer
+widths. It also checks that slash suggestions stay inside the composer without
+covering conversation messages or text input at all three window sizes, and
+that the labeled chat actions do not overlap the title. It deliberately uses a missing daemon executable and never requests
+native capture. Hosted macOS CI runs this in addition to the normal package
+gate; importing TypeScript under a mocked Electron module cannot prove that
+Electron can load the distributed preloads.
+
 Run the request-bound approval proof against an OpenMinion source checkout:
 
 ```bash
@@ -332,16 +394,6 @@ This starts an isolated daemon and controlled local provider, waits for the
 approval card in built Electron, selects **Allow once**, verifies the exact
 `file.write` result reaches the provider, and removes the temporary runtime on
 success. It uses no paid provider or user profile.
-
-This launches built Electron main, both CommonJS preload bundles, and the
-renderer through the real local protocol. It checks bridge availability,
-sandbox settings, disconnected draft entry, popovers, and fluid composer
-widths. It also checks that slash suggestions stay inside the composer without
-covering conversation messages or text input at all three window sizes, and
-that the labeled chat actions do not overlap the title. It deliberately uses a missing daemon executable and never requests
-native capture. Hosted macOS CI runs this in addition to the normal package
-gate; importing TypeScript under a mocked Electron module cannot prove that
-Electron can load the distributed preloads.
 
 Use `npm run preview` for interactive component acceptance with explicit
 sample data. The fixture exercises the same renderer, including task actions,
