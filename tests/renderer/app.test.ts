@@ -2350,6 +2350,9 @@ describe("renderer status view", () => {
         "Verification: needs attention",
       );
       expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Generated files: AGENT.md, SOUL.md",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
         "Generated file drift: AGENT.md",
       );
       expect(page.element("command-result").children[0]?.textContent).toContain(

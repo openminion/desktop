@@ -187,7 +187,11 @@ export function mountProfiles(
     identityGeneratedDrift.textContent = profile.generatedDriftedFiles.join(", ") || "None";
     identityGeneratedNote.textContent =
       profile.source === "yaml"
-        ? "Generated Markdown is a read-only view of this YAML profile. Saving YAML regenerates it."
+        ? profile.editable && profile.generatedStatus !== "not_applicable"
+          ? "Generated Markdown is a read-only view of this YAML profile. Saving YAML regenerates it."
+          : profile.generatedStatus === "not_applicable"
+            ? "External YAML is authoritative and read-only in Desktop. Generated Markdown is not managed here."
+            : "Inherited YAML is read-only in Desktop. Edit its authoritative source hierarchy in OpenMinion."
         : profile.source === "bundle"
           ? "Bundle Markdown is authoritative and read-only in Desktop."
           : "Generated Markdown is not managed for this identity source.";

@@ -2224,6 +2224,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             `Verification: ${profile.verificationOk ? "verified" : "needs attention"}`,
             `Source status: ${identityStatusLabel(profile.sourceStatus)}`,
             `Generated file sync: ${identityStatusLabel(profile.generatedStatus)}`,
+            `Generated files: ${profile.generatedFiles.join(", ") || "None"}`,
             `Generated file drift: ${profile.generatedDriftedFiles.join(", ") || "None"}`,
             `Purpose: ${profile.render.purpose}`,
             `Render budget: ${profile.render.budget.usedTokens}/${profile.render.budget.maxTokens} tokens`,

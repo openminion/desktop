@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { identitySourceLabel, identityStatusLabel } from "../../src/renderer/identity.js";
 import { mountProfiles } from "../../src/renderer/profiles.js";
 import type { NativeApi } from "../../src/shared/contracts.js";
+import type { IdentityProfileView } from "../../src/shared/identity.js";
 import type { ProfileSettings } from "../../src/shared/profiles.js";
 
 function profilePage(
@@ -114,7 +115,7 @@ function profilePage(
   const readProfileSettings = vi.fn(() =>
     readProfiles ? readProfiles(settings) : Promise.resolve({ ok: true as const, value: settings }),
   );
-  const identityProfile = {
+  const identityProfile: IdentityProfileView = {
     agentId: "first",
     displayName: "First",
     source: "yaml",
@@ -492,6 +493,33 @@ describe("identity settings", () => {
     page.get("identity-agent").dispatch("change");
     expect(page.get("identity-validation").textContent).toBe("Unverified draft");
     expect(page.get("identity-warnings").hidden).toBe(true);
+  });
+
+  it.each([
+    ["external", "not_applicable", "External YAML is authoritative"],
+    ["inherited", "clean", "Inherited YAML is read-only"],
+  ])("shows truthful %s YAML guidance", async (_kind, generatedStatus, expected) => {
+    const page = profilePage();
+    const initial = await page.readIdentity();
+    if (!initial.ok) throw new Error("expected identity fixture");
+    page.readIdentity.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        profiles: [
+          {
+            ...initial.value.profiles[0],
+            editable: false,
+            readOnlyReason: "YAML profile is read-only.",
+            generatedStatus,
+          },
+        ],
+      },
+    });
+
+    page.get("settings-identity-button").dispatch("click");
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("first"));
+
+    expect(page.get("identity-generated-note").textContent).toContain(expected);
   });
 });
 
