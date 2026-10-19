@@ -31,8 +31,9 @@ the local daemon without using a terminal. Execution, credentials, policies,
 and saved conversation history remain owned by OpenMinion.
 
 Desktop is an **early development alpha**. The current application version is
-**0.0.1**, separate from the managed runtime version, **0.0.29**. Unsigned
-development packages are available; signed stable releases and full Focus/CLI
+**0.0.1**, versioned separately from OpenMinion. Fresh managed installations
+start with **OpenMinion 0.0.29**; compatible runtime updates are selected through
+the public runtime manifest. Unsigned development packages are available; signed stable releases and full Focus/CLI
 parity are still in progress.
 
 [![OpenMinion Desktop showing a sample conversation, conversation sidebar, Settings, and message composer](docs/images/desktop-preview.png)](docs/images/desktop-preview.png)
@@ -64,7 +65,7 @@ and should be treated as a scam.
 | | |
 | --- | --- |
 | Application | OpenMinion Desktop 0.0.1 · development alpha |
-| Managed runtime | Pinned `openminion==0.0.29` from PyPI |
+| Managed runtime | First install: `openminion==0.0.29` from PyPI; updates: compatible public runtime manifests |
 | Current runtime acceptance | macOS; Windows and Linux runtime certification remains open |
 | Unsigned package formats | macOS DMG/ZIP, Windows ZIP, Linux DEB/ZIP |
 | Source prerequisites | Node.js 24, npm 11, Python 3.11 |
@@ -118,9 +119,12 @@ unmanaged; Desktop does not upgrade it. See
 
 ## First Launch
 
-Desktop installs the pinned runtime under `~/.openminion/desktop`, initializes
-a private local config, and starts its daemon. Later launches reuse that
-installation. In **Welcome to OpenMinion**:
+On a fresh managed installation, Desktop installs `openminion==0.0.29` from
+PyPI under `~/.openminion/desktop`, initializes a private local config, and starts
+its daemon. First installation does not yet select a version from the runtime
+manifest. Later launches reuse the installed runtime, including an activated
+manifest-verified update. See [runtime installation and updates](docs/getting-started.md#runtime-updates).
+In **Welcome to OpenMinion**:
 
 1. Choose a provider and enter its model and API key, or import an existing profile.
 2. Choose **Set up and start**. **Test connection before continuing** sends one

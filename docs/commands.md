@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-10-12
+Last updated: 2026-10-19
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -13,6 +13,11 @@ defines the canonical owners, known differences, daemon handoff, and acceptance.
 Terminal scripting modes, pipes, shell composition, completion and
 invocation-only flags remain CLI-only after their user-visible effects are
 mapped; their syntax is not duplicated as Desktop controls.
+
+References to pinned `0.0.29` behavior below describe the fresh-install baseline
+or version-specific evidence. An activated runtime update or developer override
+can expose different capabilities; check **Settings → Runtime → Technical details**
+for the installed version. See [Runtime Updates](getting-started.md#runtime-updates).
 
 ## Using Commands
 

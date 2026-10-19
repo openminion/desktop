@@ -1,7 +1,7 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 Purpose: guide packaged-app users and source contributors through setup,
 settings, and everyday Desktop workflows.
@@ -49,10 +49,12 @@ real application with:
 npm start
 ```
 
-On first launch, Desktop creates a Python environment under `~/.openminion/desktop/runtime`, installs the pinned OpenMinion PyPI package, initializes a
-credential-free echo config, assigns an authenticated loopback daemon endpoint,
-and starts the daemon. Later launches reuse the environment while its version
-matches the pin.
+On a fresh managed installation, Desktop creates a Python environment under
+`~/.openminion/desktop/runtime`, installs `openminion==0.0.29` from PyPI,
+initializes a credential-free echo config, assigns an authenticated loopback
+daemon endpoint, and starts the daemon. This bootstrap path does not consult the
+runtime manifest. Later launches reuse the bootstrap environment until an
+update is activated, then reuse that active runtime after verifying its version.
 
 The real app supports text messages, saved history, task closing, and turn
 cancellation through the ordinary CLI/API. New installations open **Welcome to
@@ -67,6 +69,19 @@ not tested** after setup. File, artifact, and screen-context sending remain
 preview-only; request-bound approvals are connected on compatible runtimes.
 
 ## Runtime Updates
+
+First installation and updates currently use different paths:
+
+| Path | Runtime selection |
+| --- | --- |
+| Fresh managed installation | Built-in PyPI bootstrap pin, currently `0.0.29`; no manifest lookup |
+| Prepare update | Compatible, promoted record from the selected public `pypi` or `binary` manifest feed; artifact size and SHA-256 are verified |
+| Later launch | Reuse the recorded active runtime, or activate an explicitly prepared update when startup policy permits |
+| Developer executable override | Use the supplied executable; installation and updates are unmanaged |
+
+Manifest-driven first installation is an [open implementation gap](certification-readiness-matrix.md#runtime-candidate-qualification),
+not current behavior. A newer published runtime is not automatically eligible
+for Desktop: its manifest must explicitly certify compatibility.
 
 Open **Settings → Runtime** and choose **Python package** or **Native runtime** under
 **Update options**, then use **Check updates**. When a certified compatible
@@ -207,7 +222,7 @@ runtime can still contact external services:
 
 | Action | Connection and data boundary |
 | --- | --- |
-| Install the managed runtime | Python's package installer downloads OpenMinion and dependencies; its configured package index applies. |
+| Bootstrap a fresh managed installation | Python's package installer downloads the pinned OpenMinion package and dependencies; its configured package index applies. This path does not read the runtime manifest. |
 | Check runtime updates | Desktop requests public release metadata from GitHub at startup, every 24 hours, and when you choose **Check updates**. These requests do not include your chat or profile contents. |
 | Prepare an update | Desktop downloads the selected eligible runtime artifacts. **Pause upgrades** blocks preparation and activation, but does not disable metadata checks. |
 | Test a provider or send a message | OpenMinion uses the selected profile and tools. Configured providers and external tools may receive prompts, conversation context, queries, and tool inputs. Their data handling and charges apply. |
@@ -384,8 +399,9 @@ stop request alone is not proof that the response stopped. Attachments cannot
 be queued, and slash commands keep their own command handling.
 
 The recorded native bridge queue journey used published OpenMinion **0.1.7**;
-this is a tested version, not a declared minimum. The default managed runtime remains
-**0.0.29**. Queue controls need the runtime's public turn-input operations; an
+this is a tested version, not a declared minimum. The fresh-install bootstrap
+pin remains **0.0.29**; check the installed version before comparing behavior.
+Queue controls need the runtime's public turn-input operations; an
 older or incompatible runtime can reject an operation. Desktop does not replace
 that failure with a local queue. See [runtime selection](#use-a-source-runtime)
 and the [readiness matrix](certification-readiness-matrix.md) before comparing

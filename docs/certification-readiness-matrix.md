@@ -17,11 +17,12 @@ application.
 | Linux source compatibility | provider-free CI | supported as a CI host, not a packaged product |
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |
 | macOS native capture | opt-in permissioned test | requires acceptance on an authorized host |
-| OpenMinion installation and daemon lifecycle | pinned PyPI 0.0.29; isolated config; real start/status/stop proof | development-ready |
+| OpenMinion installation and daemon lifecycle | fresh-install bootstrap pinned to PyPI 0.0.29; isolated config; real start/status/stop proof | development-ready for this bootstrap path |
+| Manifest-driven first installation | `OpenMinionInstallation.ensure()` uses the fixed PyPI bootstrap pin; manifest selection is used for updates | implementation gap; extend the existing installer/manifest owners and prove a clean first launch before changing this claim |
 | Paired binary runtime staging | bounded immutable-release redirects, independent CLI/daemon integrity checks, pending activation and rollback-on-failure fixtures | implemented; public/native certification pending |
 | Text chat and saved sessions | real PyPI 0.0.29 CLI and production Electron GUI; first send, task switching, drafts, resizing, outage/restart recovery, canonical close | development-ready |
 | Provider errors and recovery | real PyPI daemon with a local controlled HTTP provider | locally verified; paid-provider acceptance pending |
-| Shared prompt queue | published 0.1.7 and native two-process Desktop check on macOS: queue/draft restoration, exact removal, stop-and-run-next, approved file write and one canonical completion | bounded restart/effect acceptance passed on 2026-10-19 using a controlled local provider; automatic advancement and arbitrary running-turn discovery remain open; managed pin remains 0.0.29 |
+| Shared prompt queue | published 0.1.7 and native two-process Desktop check on macOS: queue/draft restoration, exact removal, stop-and-run-next, approved file write and one canonical completion | bounded restart/effect acceptance passed on 2026-10-19 using a controlled local provider; automatic advancement and arbitrary running-turn discovery remain open; fresh-install bootstrap pin remains 0.0.29 |
 | Cancellation | authenticated request and saved-event evidence; PyPI 0.0.29 can complete an in-flight provider request after acknowledgement | runtime interruption gap remains |
 | Request-bound tool approvals | pinned PyPI daemon + built Electron allow-once proof; deny/retry/replay/unit coverage | managed-runtime verified |
 | Identity settings and commands | pinned PyPI 0.0.29 inspect/validate/apply; native view, draft, verify, save, conflict, and reload proof | development-ready |
@@ -37,8 +38,12 @@ application.
 
 ## Runtime candidate qualification
 
-The managed default remains PyPI `0.0.29`. The 2026-10-18 macOS probes of
-published `0.1.7` did not complete acceptance: the durable-conversation restart
+The fresh-install bootstrap pin remains PyPI `0.0.29`; this does not describe
+every installation. An existing active runtime is reused, and an eligible
+manifest-verified update can replace it through explicit preparation and startup
+activation. Manifest-driven first installation is not implemented.
+
+The 2026-10-18 macOS probes of published `0.1.7` did not complete acceptance: the durable-conversation restart
 check failed (a repeated run exceeded its 30-second startup limit), and the
 native GUI check stopped at a tool-dependency status comparison. A separate
 CLI-only start/stop/start probe passed, so these results do not establish a
