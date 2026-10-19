@@ -1,7 +1,7 @@
 # OpenMinion Desktop Certification Readiness Matrix
 
 Status: active
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 
 Purpose: summarize the current proof posture for the standalone Desktop
 application.
@@ -34,6 +34,28 @@ application.
 | Public source repository | contribution workflow and launch checklist | private; [public-source gates](public-readiness.md) remain open |
 | Public development distribution | unsigned prerelease process in `openminion/runtime` | development evidence only |
 | Stable public release | signing and platform certification incomplete | not ready |
+
+## Runtime candidate qualification
+
+The managed default remains PyPI `0.0.29`. The 2026-10-18 macOS probes of
+published `0.1.7` did not complete acceptance: the durable-conversation restart
+check failed (a repeated run exceeded its 30-second startup limit), and the
+native GUI check stopped at a tool-dependency status comparison. A separate
+CLI-only start/stop/start probe passed, so these results do not establish a
+single runtime root cause. Keep the candidate unqualified until the existing
+lifecycle and GUI checks pass.
+
+A pinned `0.0.29` GUI rerun also encountered differing readiness snapshots.
+Direct requests to its daemon reproduced Semgrep changing from `unhealthy`
+(`version_probe_timeout`) to `ready` on later requests. Dependency status is
+probed per request; this observation is not evidence of a Desktop display
+mapping defect, nor does it close the full GUI acceptance requirement.
+
+This does not invalidate the separate bounded queue evidence above or establish
+Windows/Linux compatibility. Changing the default pin, publishing certified
+runtime metadata, and testing a public-feed upgrade each require their own
+proof under [Releasing](../RELEASING.md). Do not change the pin merely because a
+newer package exists on PyPI.
 
 ## Remaining Alpha Caveats
 
