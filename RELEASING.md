@@ -57,6 +57,48 @@ A version bump alone does not publish packages or establish signing, native
 qualification, or runtime compatibility. Until publication, changes remain
 under **Unreleased** in the changelog; date and label them when actually released.
 
+## Source tags and GitHub Releases
+
+Desktop follows CLI's reviewed version, tag, and GitHub Release sequence, without
+TestPyPI or PyPI publication. Keep `package.json` marked `private: true`; Desktop
+is distributed as an application, not an npm package. Its separately managed
+OpenMinion runtime can still come from PyPI.
+
+For each new Desktop release:
+
+1. Prepare the version and changelog through a feature PR to `dev`, then promote
+   reviewed `dev` to `main`. Keep both package files and the README version in
+   sync. Use the next patch version, such as `0.0.2`, for the next release after
+   the existing `0.0.1` development packages.
+2. Build from the reviewed `main` revision using the existing package workflow.
+   Require the applicable checks and every claimed platform's package job to
+   pass. Record the run's full source SHA; do not tag a newer branch tip merely
+   because `main` moved while the build ran.
+3. Publish and verify the development packages using the checklist below. The
+   source SHA in `desktop-release.json` must be the same commit being tagged,
+   and its application version must match `package.json` at that commit.
+4. Create an annotated `v<desktop-version>` tag on that exact commit in
+   `openminion/desktop` and push only that tag. Never move or reuse a published
+   version tag. A different application release needs a new version.
+5. Create the Desktop GitHub Release from the existing tag, with the bare version
+   as its title (for example, tag `v0.0.2`, title `0.0.2`). Include release notes,
+   the matching `openminion/runtime` download link, checksums, and the supported
+   platform boundary. Mark current alpha/unsigned releases as **prerelease**;
+   a version tag does not imply signing or stable-release acceptance.
+6. Verify the public tag resolves to the recorded build SHA and that the Desktop
+   release links to the verified package release. Record both release URLs and
+   the tag SHA in the release receipt.
+
+The Desktop source tag and the existing
+`desktop-dev-v<desktop-version>-build.<number>` download tag identify different
+repositories. Link them through the exact source SHA in the package manifest;
+do not replace the artifact repository's existing naming scheme. Temporary
+`desktop-package-*` draft releases are transfer staging, not version releases.
+
+There is no tag-triggered Desktop publisher today. Creating a tag alone does not
+build or publish installers. Follow this checklist with the existing manual
+package workflow; no Python package release workflow is needed.
+
 ## Release floor
 
 Before treating a revision as a release candidate:
