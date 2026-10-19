@@ -12,7 +12,7 @@ application.
 | --- | --- | --- |
 | Provider-free code quality | format, lint, type, public-surface, tests, and build | ready for pull-request use |
 | Public repository surface | required-file, local-link, portable-path, heading, lifecycle-metadata, and documented-command validation | aligned and enforced |
-| GitHub Actions definitions | actionlint and earlier successful hosted execution; current runs are blocked before steps execute by the Actions budget | fresh hosted proof required for each PR; see [public-source gates](public-readiness.md) |
+| GitHub Actions definitions | actionlint, Linux quality, and macOS quality/package/native smoke passed at `dd3e793` in [CI attempt 2](https://github.com/openminion/desktop/actions/runs/39235407184/attempts/2) | fresh hosted proof required for each PR; see [public-source gates](public-readiness.md) |
 | Development dependency audit | Forge 8.0.1 reduces 37 findings to 4 high reports in one DMG build chain (`appdmg` → `image-size`) | upstream fix/disposition required; not a clean full audit |
 | Linux source compatibility | provider-free CI | supported as a CI host, not a packaged product |
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |
@@ -31,7 +31,7 @@ application.
 | Full runtime update, rollback, restore and uninstall | no complete end-to-end evidence | not ready |
 | Windows and Linux packages | unsigned package targets and development distribution workflow exist | runtime certification and current build acceptance remain separate |
 | Remote daemon operation | out of the current local profile | not ready |
-| Public source repository | contribution workflow and launch checklist | private; [public-source gates](public-readiness.md) remain open |
+| Public source repository | contribution workflow and launch checklist | public since 2026-10-19; [remaining launch acceptance](public-readiness.md) is tracked separately |
 | Public development distribution | unsigned prerelease process in `openminion/runtime` | development evidence only |
 | Stable public release | signing and platform certification incomplete | not ready |
 

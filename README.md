@@ -92,7 +92,7 @@ Desktop does not currently update its own application bundle. See
 ## Run From Source
 
 Use Node.js 24, npm 11, and Python 3.11. The current runnable development profile
-is macOS. Repository access is required while the source remains private.
+is macOS. The source repository is public.
 
 ```bash
 git clone --branch dev https://github.com/openminion/desktop.git
