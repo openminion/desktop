@@ -42,6 +42,7 @@
     "electron-check:approval": "npm run build && electron tests/electron/approval.mjs",
     "electron-check:commands": "npm run build && electron tests/electron/commands.mjs",
     "electron-check:delegation": "npm run build && electron tests/electron/delegation.mjs",
+    "electron-check:queue": "npm run build && node tests/electron/queue.mjs",
     "preview": "npm run build && electron scripts/preview.mjs"
   },
   "devDependencies": {

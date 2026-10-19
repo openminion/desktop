@@ -3300,8 +3300,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       pendingRunNext?.sessionId === event.sessionId &&
       live?.state.traceId !== event.traceId
     ) {
+      const state = {
+        ...initialChatState(),
+        sessionId: event.sessionId,
+        traceId: event.traceId,
+        active: true,
+        startedAt: Date.now(),
+        label: "Working…",
+        lastUpdateAt: Date.now(),
+      };
       live = {
-        state: initialChatState(),
+        state,
         messages: selected?.sessionId === event.sessionId ? messages : [],
         submittedText: pendingRunNext.text,
         responseText: "",
@@ -3310,6 +3319,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         activity: [],
       };
       liveTurns.set(event.sessionId, live);
+      if (selected?.sessionId === event.sessionId) chat = state;
       pendingRunNext = null;
     }
     if (live) {

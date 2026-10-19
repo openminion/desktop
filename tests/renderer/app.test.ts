@@ -725,6 +725,46 @@ describe("renderer status view", () => {
       agentId: "openminion",
       expectedQueueId: "queue-1",
     });
+    emit({
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-next",
+      requestId: "request-next",
+    });
+    emit({
+      schemaVersion: 1,
+      kind: "response",
+      sessionId: "session-1",
+      traceId: "trace-next",
+      finalText: "Queued reply",
+      errors: [],
+      usage: {
+        usageAvailable: false,
+        inputTokens: null,
+        outputTokens: null,
+        totalTokens: null,
+        llmCalls: null,
+        durationMs: null,
+        costUsd: null,
+        costSource: "unavailable",
+      },
+    });
+    emit({
+      schemaVersion: 1,
+      kind: "done",
+      sessionId: "session-1",
+      traceId: "trace-next",
+      outcome: "complete",
+    });
+    await vi.waitFor(() =>
+      expect(
+        page
+          .element("timeline")
+          .descendants()
+          .map((item) => item.textContent),
+      ).toContain("Queued reply"),
+    );
   });
 
   it("keeps a late queue response with its original conversation", async () => {
