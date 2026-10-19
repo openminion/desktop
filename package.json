@@ -45,18 +45,18 @@
     "preview": "npm run build && electron scripts/preview.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14",
+    "@biomejs/biome": "2.5.15",
     "@electron-forge/cli": "8.0.1",
     "@electron-forge/maker-deb": "8.0.1",
     "@electron-forge/maker-dmg": "8.0.1",
     "@electron-forge/maker-zip": "8.0.1",
-    "@electron/asar": "3.4.1",
+    "@electron/asar": "4.3.1",
     "@renovatebot/pep440": "5.0.1",
     "@types/node": "26.6.2",
-    "electron": "44.4.5",
+    "electron": "44.7.0",
     "esbuild": "0.28.2",
     "markdown-it": "15.0.2",
     "typescript": "7.0.2",
-    "vitest": "5.0.1"
+    "vitest": "5.0.3"
   }
 }
