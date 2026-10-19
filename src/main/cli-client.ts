@@ -1240,23 +1240,25 @@ export class CliClient {
         }
         const refreshTaskList = ["run-now", "update", "delete-history"].includes(action);
         if (refreshTaskList) {
-          const refreshed = requireRecord(await this.#json(["tasks", "list", ...scope]));
-          if (refreshed.ok !== true && actionResult)
+          try {
+            const refreshed = requireRecord(await this.#json(["tasks", "list", ...scope]));
+            if (refreshed.ok !== true)
+              throw protocolError(
+                "task_refresh_failed",
+                "The task changed, but OpenMinion could not refresh the task list.",
+              );
+            return taskControlValue(refreshed, requireArray(refreshed.tasks), actionResult);
+          } catch (error) {
+            if (!actionResult) throw error;
             return taskControlValue(
               { pending_actions: [], scheduler: null },
               [],
               actionResult,
               "The run was queued, but OpenMinion could not refresh the task list.",
             );
-          if (refreshed.ok !== true)
-            throw protocolError(
-              "task_refresh_failed",
-              "The task changed, but OpenMinion could not refresh the task list.",
-            );
-          payload = refreshed;
+          }
         }
-        const list =
-          action === "list" || action === "schedule" || schedulerAction || refreshTaskList;
+        const list = action === "list" || action === "schedule" || schedulerAction;
         return taskControlValue(
           payload,
           list ? requireArray(payload.tasks) : [payload.task],

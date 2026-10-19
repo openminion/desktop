@@ -1050,6 +1050,45 @@ describe("PyPI CLI client", () => {
     }
   });
 
+  it.each(["rejected", "non-json", "invalid-list"])(
+    "preserves an accepted run when task refresh is %s",
+    async (failure) => {
+      const run = vi.fn();
+      const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+      const created = await client.create({ agentId: "writer" });
+      if (!created.ok) throw new Error("Draft not created");
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout: '{"ok":true,"task_id":"task-1","run_id":"accepted-run-1"}',
+      });
+      if (failure === "rejected") run.mockRejectedValueOnce(new Error("Daemon unavailable"));
+      else
+        run.mockResolvedValueOnce({
+          exitCode: failure === "non-json" ? 1 : 0,
+          stderr: "",
+          stdout: failure === "non-json" ? "Unavailable" : '{"ok":true,"tasks":null}',
+        });
+      const result = await client.controlTasks({
+        sessionId: created.value.sessionId,
+        action: "run-now",
+        taskId: "task-1",
+      });
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          tasks: [],
+          actionResult: { runId: "accepted-run-1", taskId: "task-1" },
+          refreshWarning: "The run was queued, but OpenMinion could not refresh the task list.",
+        },
+      });
+      expect(run.mock.calls.map((call) => call[1].slice(0, 2))).toEqual([
+        ["tasks", "run-now"],
+        ["tasks", "list"],
+      ]);
+    },
+  );
+
   it("routes task updates, run-now, history deletion, and scheduler controls through the CLI", async () => {
     const run = vi.fn();
     const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
