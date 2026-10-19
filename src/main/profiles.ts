@@ -42,7 +42,11 @@ export class Profiles {
   }
 
   async #presets(executable: string) {
-    const result = await this.run(executable, ["setup", "--list-providers", "--json"], 30_000);
+    const result = await this.run(
+      executable,
+      ["setup", "--list-providers", "--json"],
+      SETUP_TIMEOUT_MS,
+    );
     if (result.exitCode !== 0)
       throw protocolError("setup_unavailable", "OpenMinion could not list setup providers.");
     let payload: Record<string, unknown>;
@@ -51,22 +55,11 @@ export class Profiles {
     } catch {
       throw protocolError("setup_unavailable", "OpenMinion returned an invalid setup catalog.");
     }
-    if (Object.keys(payload).length !== 1 || !("providers" in payload))
+    if (!("providers" in payload))
       throw protocolError("setup_unavailable", "OpenMinion returned an invalid setup catalog.");
     const presets = requireArray(payload.providers).map((entry) => {
       const provider = requireRecord(entry);
-      const expected = [
-        "base_url",
-        "credential_env",
-        "id",
-        "label",
-        "recommended_models",
-        "requires_credential",
-      ];
-      if (
-        Object.keys(provider).sort().join(",") !== expected.join(",") ||
-        typeof provider.requires_credential !== "boolean"
-      )
+      if (typeof provider.requires_credential !== "boolean")
         throw protocolError("setup_unavailable", "OpenMinion returned an invalid setup catalog.");
       const credentialEnv =
         provider.credential_env === null ? "" : requireString(provider.credential_env);
