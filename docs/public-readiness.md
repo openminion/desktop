@@ -1,7 +1,7 @@
 # OpenMinion Desktop Public Source Readiness
 
 Status: private preparation; visibility change not authorized
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 This checklist separates opening the source from shipping a certified Desktop
 release. OpenMinion CLI remains the execution owner. Public source does not
@@ -38,7 +38,7 @@ and dated evidence for each gate. Source validation alone cannot close them.
 | Dependency security | Record the full install/build audit, triage unresolved advisories and verify any upgrade with actual package builds | Forge 8.0.1 leaves four high audit reports in one DMG build chain; upstream resolution or explicit maintainer risk disposition remains open |
 | Reproducible contribution | Clean dependency install from the lockfile without private registry, Git credentials or sibling checkouts; both Quality jobs pass | Local and hosted evidence must identify the exact revision. Actions budget limits currently block new hosted acceptance; restore capacity and rerun required checks before promotion. Public fork proof follows the switch |
 | Merge controls | Require current Quality checks, up-to-date branches, reviewed promotion, and no force push/deletion on `main`; verify effective settings | GitHub returns a plan restriction for protection on this private repo; upgrade the plan or configure immediately at visibility change |
-| Private security reports | Enable private vulnerability reporting and verify the linked reporting route works for an external user | An advisory link alone is not proof that reporting is enabled |
+| Private security reports | Publish a private reporting destination; enable and externally verify GitHub private vulnerability reporting at launch | The maintainer selected `hello@openminion.com` for security fallback and conduct reports on 2026-10-19; both policies name it. GitHub reporting still needs launch verification |
 | Public fork policy | Require approval for first-time outside workflows; keep fork PR tokens read-only and secrets unavailable | Verify effective GitHub settings at launch; ordinary quality checks must not depend on maintainer secrets |
 
 The remaining audit chain is `@electron-forge/maker-dmg` →
@@ -66,10 +66,9 @@ Before source publication, record these decisions against the reviewed revision:
   disclosed build-tool limitation for source publication. This decision does not
   certify a stable binary or dismiss dependency risks in general.
 - **Launch controls:** choose a plan upgrade or immediate protection setup at the
-  approved visibility switch. Verify private vulnerability reporting externally;
-  if unavailable, establish a concrete private contact route before launch. Publish a
-  working private conduct-reporting destination in `CODE_OF_CONDUCT.md` as well;
-  a security advisory form is not a conduct-reporting channel.
+  approved visibility switch. Verify private vulnerability reporting externally.
+  The maintainer-designated email route is published in `SECURITY.md` and
+  `CODE_OF_CONDUCT.md`; keep it monitored for both kinds of reports.
 
 GitHub currently rejects protection readback for this private repository with a
 plan restriction, returns no usable private-reporting readback, and disallows
@@ -89,11 +88,18 @@ reviewing that hosted content.
 
 At the approved switch:
 
-1. Remove the two affected retained PR description revisions and recheck their
-   deletion state. Editing the current body does not remove its history. Retain
+1. Remove the original description revisions of PRs
+   [#18](https://github.com/openminion/desktop/pull/18) and
+   [#33](https://github.com/openminion/desktop/pull/33) and recheck their deletion
+   state. In each description’s edited menu, open the original revision and use
+   **Options → Delete revision from history**. Keep the current description and
+   PR intact. Editing the current body does not remove its history. Retain
    sanitized verification only; do not publish the original personal paths.
 2. Resolve the maintainer decisions above and verify the documented private
    contact routes. Restore Actions capacity and rerun blocked required checks.
+   [Public standard runners](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+   become free only after the visibility switch; it cannot prove a private pre-switch check passed. If capacity remains
+   unavailable, stop at this gate rather than silently bypassing it.
 3. Promote the reviewed source through the `dev` → `main` process and record the
    exact revision. Recheck the disclosure gates if either branch moved.
 4. Change visibility, enable/verify private security reporting, and immediately
