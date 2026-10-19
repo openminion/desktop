@@ -41,7 +41,7 @@ release promotion to `main` is a separate process.
 
 - [Releasing](../RELEASING.md): versioning, unsigned packages, and stable-release gates
 - [Certification Readiness Matrix](certification-readiness-matrix.md): proof by surface
-- [Public Source Readiness](public-readiness.md): private-to-public launch decisions
+- [Public Source Readiness](public-readiness.md): public launch evidence and remaining acceptance
 - [Changelog](../CHANGELOG.md): versioned changes
 
 ## Application Boundaries
