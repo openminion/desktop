@@ -75,9 +75,12 @@ and should be treated as a scam.
 
 [Download the unsigned 0.0.1 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.3)
 from the official runtime repository. The release includes checksums and a
-manifest identifying its exact source revision. Follow
-[download verification](SUPPORT.md#verify-a-development-download) before installing. Development packages can lag
-this repository's `dev` branch; use source development to test newer changes.
+manifest identifying its exact source revision. Use the
+[package selection and installation guide](SUPPORT.md#choose-a-development-download)
+to choose the correct architecture and verify its checksum. The published macOS
+package is for Apple Silicon; no Intel Mac package is available in this release.
+Development packages can lag this repository's `dev` branch; use source
+development to test newer changes.
 
 These packages are unsigned and macOS packages are not notarized. They do not
 establish stable-release or Windows/Linux runtime certification. Python 3.11
