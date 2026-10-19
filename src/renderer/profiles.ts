@@ -62,8 +62,11 @@ export function mountProfiles(
   const identitySourceStatus = get<HTMLElement>("identity-source-status");
   const identitySidecars = get<HTMLElement>("identity-sidecars");
   const identityGenerated = get<HTMLElement>("identity-generated");
+  const identityGeneratedDrift = get<HTMLElement>("identity-generated-drift");
+  const identityGeneratedNote = get<HTMLElement>("identity-generated-note");
   const identityEditability = get<HTMLElement>("identity-editability");
   const identityValidation = get<HTMLElement>("identity-validation");
+  const identityVerification = get<HTMLElement>("identity-verification");
   const identityIssues = get<HTMLElement>("identity-issues");
   const identityWarnings = get<HTMLElement>("identity-warnings");
   const identityStatus = get<HTMLElement>("identity-status");
@@ -82,7 +85,11 @@ export function mountProfiles(
   let returnFocus: HTMLElement = open;
   const sections = ["profiles", "identity", "chat", "runtime"] as const;
   type Section = (typeof sections)[number];
+  let pending = false;
+  let initialProfilesPending = false;
+  let selectedSection: Section = "profiles";
   const selectSection = (selected: Section) => {
+    selectedSection = selected;
     for (const section of sections) {
       get<HTMLElement>(`settings-${section}`).hidden = section !== selected;
       get<HTMLButtonElement>(`settings-${section}-button`).setAttribute(
@@ -95,7 +102,7 @@ export function mountProfiles(
   for (const section of sections) {
     get<HTMLButtonElement>(`settings-${section}-button`).addEventListener("click", () => {
       selectSection(section);
-      if (section === "identity") void loadIdentity();
+      if (section === "identity" && !initialProfilesPending) void loadIdentity();
     });
   }
   let presets: SetupPreset[] = [];
@@ -127,7 +134,6 @@ export function mountProfiles(
   let settings: ProfileSettings | null = null;
   let addingProfile = false;
   let displayedAgent = "";
-  let pending = false;
   let identitySettings: IdentitySettings | null = null;
   let identityPending = false;
   let displayedIdentityAgent = "";
@@ -178,13 +184,24 @@ export function mountProfiles(
     identitySourceStatus.textContent = identityStatusLabel(profile.sourceStatus);
     identitySidecars.textContent = identityStatusLabel(profile.generatedStatus);
     identityGenerated.textContent = profile.generatedFiles.join(", ") || "None";
+    identityGeneratedDrift.textContent = profile.generatedDriftedFiles.join(", ") || "None";
+    identityGeneratedNote.textContent =
+      profile.source === "yaml"
+        ? "Generated Markdown is a read-only view of this YAML profile. Saving YAML regenerates it."
+        : profile.source === "bundle"
+          ? "Bundle Markdown is authoritative and read-only in Desktop."
+          : "Generated Markdown is not managed for this identity source.";
     identityEditability.textContent = profile.readOnlyReason ?? "Editable direct YAML";
     identityValidation.textContent = profile.validationOk
       ? profile.validationWarnings.length
         ? "Valid with warnings"
         : "Valid"
       : "Needs attention";
-    setIdentityIssues(profile.verificationIssues);
+    identityVerification.textContent = profile.verificationOk ? "Verified" : "Needs attention";
+    setIdentityIssues([
+      ...profile.validationErrors.map((issue) => `Validation: ${issue}`),
+      ...profile.verificationIssues.map((issue) => `Verification: ${issue}`),
+    ]);
     setIdentityWarnings(profile.validationWarnings);
   };
   const setIdentityPending = (value: boolean) => {
@@ -435,6 +452,7 @@ export function mountProfiles(
     selectSection(section);
     dialog.showModal();
     settings = null;
+    initialProfilesPending = true;
     setPending(true);
     status.textContent = "Loading profiles…";
     try {
@@ -449,7 +467,9 @@ export function mountProfiles(
     } catch {
       status.textContent = "Could not load settings. Close and try again.";
     } finally {
+      initialProfilesPending = false;
       setPending(false);
+      if (selectedSection === "identity") void loadIdentity();
     }
   };
   open.addEventListener("click", () => void show());

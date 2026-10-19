@@ -4,7 +4,10 @@ import { mountProfiles } from "../../src/renderer/profiles.js";
 import type { NativeApi } from "../../src/shared/contracts.js";
 import type { ProfileSettings } from "../../src/shared/profiles.js";
 
-function profilePage(defaultAgent = "first") {
+function profilePage(
+  defaultAgent = "first",
+  readProfiles?: (settings: ProfileSettings) => Promise<{ ok: true; value: ProfileSettings }>,
+) {
   const nodes: Element[] = [];
   class Element {
     id = "";
@@ -108,6 +111,9 @@ function profilePage(defaultAgent = "first") {
       },
     ],
   }));
+  const readProfileSettings = vi.fn(() =>
+    readProfiles ? readProfiles(settings) : Promise.resolve({ ok: true as const, value: settings }),
+  );
   const identityProfile = {
     agentId: "first",
     displayName: "First",
@@ -119,11 +125,14 @@ function profilePage(defaultAgent = "first") {
     profileVersion: "profile-v2",
     sourceSha256: "source-v2",
     validationOk: false,
+    validationErrors: ["role.mission: Field required"],
     validationWarnings: ["responsibilities work best with three to seven entries"],
+    verificationOk: false,
     sourceStatus: "drifted",
     verificationIssues: ["source YAML does not match the stored profile"],
     generatedStatus: "clean",
     generatedFiles: ["AGENT.md", "SOUL.md"],
+    generatedDriftedFiles: ["AGENT.md"],
     render: {
       text: "Mission: Original",
       purpose: "act",
@@ -151,9 +160,12 @@ function profilePage(defaultAgent = "first") {
           profileVersion: "profile-v3",
           sourceSha256: null,
           validationOk: true,
+          validationErrors: [],
           validationWarnings: [],
+          verificationOk: true,
           sourceStatus: "not_applicable",
           verificationIssues: [],
+          generatedDriftedFiles: [],
         },
       ],
     },
@@ -173,7 +185,7 @@ function profilePage(defaultAgent = "first") {
     value: identityProfile,
   }));
   const api = {
-    profiles: { read: async () => ({ ok: true, value: settings }), save, setup, presets },
+    profiles: { read: readProfileSettings, save, setup, presets },
     identity: {
       read: readIdentity,
       verify: verifyIdentity,
@@ -182,15 +194,25 @@ function profilePage(defaultAgent = "first") {
     },
   } as unknown as NativeApi;
   mountProfiles(api, root, vi.fn());
-  return { get, confirm, save, setup, presets, readIdentity, verifyIdentity, saveIdentity };
+  return {
+    get,
+    confirm,
+    save,
+    setup,
+    presets,
+    readProfileSettings,
+    readIdentity,
+    verifyIdentity,
+    saveIdentity,
+  };
 }
 
 describe("identity settings", () => {
   it("humanizes known identity facts and preserves unknown future values", () => {
     expect(identitySourceLabel("yaml")).toBe("Direct YAML");
     expect(identityStatusLabel("not_applicable")).toBe("Not applicable");
-    expect(identitySourceLabel("future_source")).toBe("future_source");
-    expect(identityStatusLabel("future_status")).toBe("future_status");
+    expect(identitySourceLabel("future_source")).toBe("Unknown");
+    expect(identityStatusLabel("future_status")).toBe("Unknown");
   });
 
   it("shows health and render completeness without treating the preview as full YAML", async () => {
@@ -202,7 +224,11 @@ describe("identity settings", () => {
     expect(page.get("identity-source-status").textContent).toBe("Changed");
     expect(page.get("identity-sidecars").textContent).toBe("In sync");
     expect(page.get("identity-validation").textContent).toBe("Needs attention");
-    expect(page.get("identity-issues").textContent).toContain("source YAML does not match");
+    expect(page.get("identity-verification").textContent).toBe("Needs attention");
+    expect(page.get("identity-generated-drift").textContent).toBe("AGENT.md");
+    expect(page.get("identity-issues").textContent).toContain("Validation: role.mission");
+    expect(page.get("identity-issues").textContent).toContain("Verification: source YAML");
+    expect(page.get("identity-generated-note").textContent).toContain("read-only view");
     expect(page.get("identity-warnings").textContent).toContain("three to seven entries");
     expect(page.get("identity-render-purpose").textContent).toBe("act");
     expect(page.get("identity-render-budget").textContent).toBe("42/180 tokens");
@@ -224,6 +250,67 @@ describe("identity settings", () => {
     await page.get("settings-identity-button").dispatch("click");
 
     expect(page.get("identity-agent").value).toBe("first");
+  });
+
+  it("loads identity after profile settings resolve when Identity is selected early", async () => {
+    let resolveProfiles!: (value: { ok: true; value: ProfileSettings }) => void;
+    const page = profilePage(
+      "second",
+      () =>
+        new Promise((resolve) => {
+          resolveProfiles = resolve;
+        }),
+    );
+
+    page.get("show-settings").dispatch("click");
+    page.get("settings-identity-button").dispatch("click");
+    expect(page.readIdentity).not.toHaveBeenCalled();
+
+    resolveProfiles({
+      ok: true,
+      value: {
+        setupRequired: false,
+        revision: "revision",
+        defaultAgent: "second",
+        agents: ["first", "second"].map((id) => ({
+          id,
+          name: id,
+          provider: "openai",
+          model: `${id}-model`,
+          baseUrl: "https://example.com/v1",
+          keyConfigured: true,
+        })),
+        credentials: [],
+      },
+    });
+
+    await vi.waitFor(() => expect(page.get("identity-agent").value).toBe("second"));
+    expect(page.readIdentity).toHaveBeenCalledOnce();
+  });
+
+  it("loads identity after an initial profile settings failure settles", async () => {
+    const page = profilePage("second", async () => {
+      throw new Error("profiles unavailable");
+    });
+
+    page.get("show-settings").dispatch("click");
+    page.get("settings-identity-button").dispatch("click");
+
+    await vi.waitFor(() => expect(page.readIdentity).toHaveBeenCalledOnce());
+    expect(page.get("identity-agent").value).toBe("first");
+  });
+
+  it("does not block identity loading on a later profile save", async () => {
+    const page = profilePage();
+    page.get("show-settings").dispatch("click");
+    await vi.waitFor(() => expect(page.readProfileSettings).toHaveBeenCalledOnce());
+    page.save.mockReturnValueOnce(new Promise(() => {}));
+    page.get("profile-model").value = "changed-model";
+    page.get("profile-form").dispatch("submit");
+
+    page.get("settings-identity-button").dispatch("click");
+
+    await vi.waitFor(() => expect(page.readIdentity).toHaveBeenCalledOnce());
   });
 
   it.each(["rejected", "unavailable"])(
@@ -397,6 +484,9 @@ describe("identity settings", () => {
     );
     expect(page.get("identity-yaml").disabled).toBe(true);
     expect(page.get("identity-save").disabled).toBe(true);
+    expect(page.get("identity-generated-note").textContent).toContain(
+      "Bundle Markdown is authoritative",
+    );
 
     page.get("identity-agent").value = "first";
     page.get("identity-agent").dispatch("change");

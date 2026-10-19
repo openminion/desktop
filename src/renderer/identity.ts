@@ -15,9 +15,9 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function identitySourceLabel(source: string): string {
-  return SOURCE_LABELS[source] ?? source;
+  return SOURCE_LABELS[source] ?? "Unknown";
 }
 
 export function identityStatusLabel(status: string): string {
-  return STATUS_LABELS[status] ?? status;
+  return STATUS_LABELS[status] ?? "Unknown";
 }

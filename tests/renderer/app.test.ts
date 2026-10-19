@@ -2217,11 +2217,14 @@ describe("renderer status view", () => {
             profileVersion: "profile-v2",
             sourceSha256: "source-v2",
             validationOk: true,
+            validationErrors: ["role.mission: stored validation error"],
             validationWarnings: ["responsibilities are sparse"],
+            verificationOk: false,
             sourceStatus: "clean",
             verificationIssues: [],
             generatedStatus: "clean",
             generatedFiles: ["AGENT.md"],
+            generatedDriftedFiles: ["AGENT.md"],
             render: {
               text: "Mission: Write clearly.",
               purpose: "act",
@@ -2341,7 +2344,13 @@ describe("renderer status view", () => {
         expect(page.element("command-title").textContent).toBe("Identity verification"),
       );
       expect(page.element("command-result").children[0]?.textContent).toContain(
-        "Verification: valid",
+        "Validation: valid",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Verification: needs attention",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Generated file drift: AGENT.md",
       );
       expect(page.element("command-result").children[0]?.textContent).toContain(
         "Source: Direct YAML",
@@ -2355,6 +2364,9 @@ describe("renderer status view", () => {
       );
       expect(page.element("command-result").children[0]?.textContent).toContain(
         "Validation warning: responsibilities are sparse",
+      );
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Validation error: role.mission: stored validation error",
       );
       expect(page.element("command-result").children[0]?.textContent).toContain(
         "Render warning: non-critical fields omitted to fit budget",
