@@ -379,22 +379,41 @@ async function check() {
         .tools.map((tool) => tool.name)
         .sort(),
     );
-    const exposureStatus = await runCommand(
-      executable,
-      [
-        ...args,
-        "tools",
-        "exposure",
-        "status",
-        "--session",
-        sessionId,
-        "--runtime-source",
-        "daemon",
-      ],
-      30_000,
-    );
-    assert.equal(exposureStatus.exitCode, 0, exposureStatus.stderr);
-    const exposure = JSON.parse(exposureStatus.stdout).exposure;
+    const toolReport = await reportCommand("/tool list", "Tools");
+    const reportToolNames = toolReport
+      .split("\n")
+      .map((line) => line.replace(/ · disabled$/, ""))
+      .sort();
+    assert.deepEqual(reportToolNames, tools.value.tools.map((tool) => tool.name).sort());
+    const exposureArgs = [
+      ...args,
+      "tools",
+      "exposure",
+      "status",
+      "--session",
+      sessionId,
+      "--runtime-source",
+      "daemon",
+    ];
+    let exposure;
+    let priorExposure = "";
+    let stableExposureSamples = 0;
+    let exposureStable = false;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const exposureStatus = await runCommand(executable, exposureArgs, 30_000);
+      assert.equal(exposureStatus.exitCode, 0, exposureStatus.stderr);
+      exposure = JSON.parse(exposureStatus.stdout).exposure;
+      const currentExposure = JSON.stringify(exposure);
+      stableExposureSamples = currentExposure === priorExposure ? stableExposureSamples + 1 : 1;
+      if (stableExposureSamples === 3) {
+        exposureStable = true;
+        break;
+      }
+      priorExposure = currentExposure;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    assert.ok(exposure, "Daemon tool exposure is available");
+    assert.ok(exposureStable, "Daemon tool exposure settles before Desktop parity comparison");
     await fill("/tools status");
     await key("Return");
     await waitFor(
@@ -615,33 +634,20 @@ tool_posture:
     console.log(
       "PASS: DGUI-16 GUI schedule creation and pause match canonical CLI state without executing future work.",
     );
-    const scheduled = await runCommand(
-      executable,
-      [
-        ...args,
-        "tools",
-        "run",
-        "task.schedule",
-        "--runtime-source",
-        "inproc",
-        "--session",
-        sessionId,
-        "--confirm",
-        "--json",
-        JSON.stringify({
-          instruction: "Isolated Desktop task-control acceptance fixture.",
-          name: "Desktop work controls",
-          schedule: { kind: "at", at: "2099-01-01T00:00:00Z" },
-        }),
-      ],
-      30_000,
-    );
-    assert.equal(scheduled.exitCode, 0, scheduled.stdout || scheduled.stderr);
     const work = await evaluate(
-      `window.openminion.tasks.control({sessionId:${JSON.stringify(sessionId)},action:'list'})`,
+      `window.openminion.tasks.control({
+        sessionId:${JSON.stringify(sessionId)},
+        action:'schedule',
+        schedule:{
+          name:'Desktop work controls',
+          instruction:'Isolated Desktop task-control acceptance fixture.',
+          kind:'at',
+          value:'2099-01-01T00:00:00Z',
+          timezone:''
+        }
+      })`,
     );
     assert.equal(work.ok, true, JSON.stringify(work));
-    assert.ok(work.value.tasks.length > 0, scheduled.stdout);
     const taskId = work.value.tasks.find((task) => task.title === "Desktop work controls").id;
     const workCommand = async (text, state) => {
       await fill(text);
@@ -673,13 +679,21 @@ tool_posture:
     }
 
     await evaluate(
-      "Array.from(document.querySelectorAll('.runtime-task')).find(node => node.querySelector('h3').textContent === 'Desktop work controls').querySelectorAll('button')[1].click()",
+      `Array.from(document.querySelectorAll('.runtime-task')).find(node => node.textContent.includes(${JSON.stringify(taskId)})).querySelectorAll('button')[1].click()`,
     );
     await waitFor(
-      "[...document.querySelectorAll('.runtime-task')].find(node => node.querySelector('h3').textContent === 'Desktop work controls')?.textContent.includes('paused')",
+      `[...document.querySelectorAll('.runtime-task')].find(node => node.textContent.includes(${JSON.stringify(taskId)}))?.textContent.includes('paused')`,
     );
     await workCommand(`/task resume ${taskId}`, "active");
-    await workCommand(`/tasks cancel ${taskId}`, "cancelled");
+    await fill(`/tasks cancel ${taskId}`);
+    await evaluate("document.querySelector('#send').click()");
+    await waitFor("document.querySelector('#command-title').textContent === 'Cancel task'");
+    await evaluate(
+      "Array.from(document.querySelectorAll('#command-result button')).find(button => button.textContent === 'Confirm cancel task').click()",
+    );
+    await waitFor(
+      `[...document.querySelectorAll('.runtime-task')].find(node => node.textContent.includes(${JSON.stringify(taskId)}))?.textContent.includes('cancelled')`,
+    );
     const canonicalWork = await runCommand(
       executable,
       [...args, "tasks", "show", taskId, "--session", sessionId, "--json"],
@@ -840,7 +854,9 @@ tool_posture:
     }
     await click("clear-session-search");
     assert.equal(await evaluate("document.activeElement.id"), "session-search");
-    await evaluate("document.querySelectorAll('#session-list button')[0].click()");
+    await evaluate(
+      `document.querySelector('#session-list button[data-session-id="${secondId}"]').click()`,
+    );
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Second task via keyboard')",
     );
@@ -859,7 +875,9 @@ tool_posture:
       2,
     );
     await command("/sessions", "Choose a conversation");
-    await evaluate("document.querySelectorAll('#session-list button')[1].click()");
+    await evaluate(
+      `document.querySelector('#session-list button[data-session-id="${sessionId}"]').click()`,
+    );
     await waitFor(
       "document.querySelector('#timeline').textContent.includes('Published runtime GUI proof')",
     );
@@ -1278,9 +1296,7 @@ tool_posture:
     );
     await evaluate("document.querySelector('#cancel').click()");
     assert.equal(await evaluate("document.querySelector('#cancel').disabled"), true);
-    await waitFor(
-      "document.querySelector('#cancel').hidden && ['', 'Stopped.', 'Something went wrong. Check the reply before trying again.'].includes(document.querySelector('#chat-status').textContent)",
-    );
+    await waitFor("document.querySelector('#cancel').hidden");
     await waitFor("!document.querySelector('.session-spinner:not([hidden])')");
     console.log(
       "PASS: session spinner follows the running task across chat switches and clears after completion; progress excludes raw brain diagnostics.",
@@ -1294,10 +1310,9 @@ tool_posture:
     );
     const terminalState = cancellationHistory.value.events.at(-1).state;
     assert.ok(["completed", "cancelled"].includes(terminalState));
-    assert.equal(
-      await evaluate("document.querySelector('#chat-status').textContent"),
-      terminalState === "completed" ? "" : "Stopped.",
-    );
+    const terminalLabel = await evaluate("document.querySelector('#chat-status').textContent");
+    if (terminalState === "completed") assert.equal(terminalLabel, "");
+    else assert.ok(["Stopped.", "Turn cancelled."].includes(terminalLabel));
     assert.equal(await evaluate("document.querySelector('#chat-elapsed').textContent"), "");
     assert.equal(await evaluate("document.querySelector('#send').hidden"), false);
     assert.equal(

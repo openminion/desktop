@@ -35,8 +35,7 @@ Security reports follow [SECURITY.md](SECURITY.md), not the public issue templat
 Use Node.js 24 and npm 11. Provider-free source checks need no model credentials;
 Python 3.11 is needed when starting the managed OpenMinion runtime.
 
-Fork the repository, then clone your fork. While the repository remains private,
-access is required and forks may be unavailable; maintainers can use the
+Fork the public repository, then clone your fork. Maintainers can use the
 upstream checkout instead. For a fork, replace `YOUR-ACCOUNT` and choose a
 purpose-named branch:
 

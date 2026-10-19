@@ -55,7 +55,7 @@ artifacts still require integration.
 | `/status`                | Reports connection and partial session metadata                                                                                   | Include canonical agent, model, session, and working-directory facts                                                |
 | `/clear`, `/copy`        | Visible chat clearing and newest assistant/runtime-supplied tool copying exist; missing raw tool content is not reconstructed                                      | Match Focus transcript clearing and latest copyable agent/tool output; never copy user input as a fallback          |
 | Tool presentation        | `/quiet`, `/normal`, `/verbose` and `/details` share the saved tool display mode                                                                                       | Normal previews six supplied lines; verbose expands supplied output. `/expand` numbering and missing cold-history output remain open                        |
-| Type-ahead               | Ordinary text can enter the shared Core queue during a turn, then be reordered, removed, or started next; attachments remain drafts | Add remaining restart/effect acceptance and optional `/queue` presentation without duplicating the Core queue       |
+| Type-ahead               | Ordinary text can enter the shared Core queue during a turn, then be reordered, removed, or started next; attachments remain drafts | Automatic advancement and optional `/queue` presentation remain; bounded restart/effect acceptance passed       |
 | Recovery                 | Running turns survive conversation switches; known traces support explicit reconnect without resubmission                                                                                    | Reattach to the same running turn and pending approvals after restart                                               |
 
 The GUI's Context/files panel is not Focus's context-budget report. Screen
@@ -125,23 +125,31 @@ both interfaces at the same installation.
 
 ## Connected Task Controls
 
-On pinned PyPI 0.0.29, `/tasks` and `/task` use fixed `tasks list/show/pause/resume/cancel`
-CLI calls. Main derives agent scope from the selected canonical session and passes
-its session ID. Focus's task report and these CLI commands share OpenMinion's task
-surface; Desktop does not copy lifecycle transitions, task ownership, or scheduler
-logic. The CLI retains its default inventory limit of 50. GUI buttons come from
-returned `valid_actions`; core validates them again on execution.
+`/tasks` and `/task` use fixed CLI JSON calls. The baseline pinned PyPI 0.0.29
+supports list/show/pause/resume/cancel. A compatible source runtime additionally
+exposes run-now, complete instruction/schedule update with `schedule_revision`,
+terminal-history deletion, and scheduler status/pause/resume. Desktop discovers
+those controls from returned data and does not present scheduler mutations to an
+older runtime that lacks the scheduler revision field. Main derives agent scope
+from the selected canonical session and passes its session ID. Focus's task report
+and these CLI commands share OpenMinion's task surface; Desktop does not copy
+lifecycle transitions, task ownership, scheduler logic, or task persistence. The
+CLI retains its default inventory limit of 50. GUI buttons come from returned
+`valid_actions`; core validates them again on execution.
 
 The renderer receives task presentation fields and scoped pending-approval facts.
 When paired with a compatible source runtime, tool approval cards resolve the
 exact active request through the authenticated approval-resume route, not
 through task lifecycle commands.
 Task changes are fenced against active Desktop turns and Settings updates. Reads
-remain available during a turn. The inline form creates scheduled work using fixed `schedule create` arguments:
+and scheduler-status refresh remain available during a turn. Destructive history
+deletion and scheduler pause/resume require a visible two-step confirmation.
+Completed run rows can open the exact isolated result conversation returned by
+Core. The inline form creates scheduled work using fixed `schedule create` arguments:
 name, instruction, one-time ISO timestamp, interval in minutes, or cron expression
 with timezone. It carries the same session and agent scope, then reads back the
-canonical task list. Core owns schedule validation and execution. Pending
-decisions, non-scheduled task creation and richer run-history inspection still
+canonical task list. Core owns schedule validation, authorization, execution,
+and optimistic revisions. Pending decisions and non-scheduled task creation still
 need integration.
 
 Pinned PyPI 0.0.29 includes `/close`; Desktop routes that command to its
@@ -204,7 +212,11 @@ approval semantics. Known-trace response recovery uses status and replay
 attachment in the current Desktop process, with explicit user action and no
 prompt resubmission.
 A missing retained trace triggers canonical history readback, not an invented
-terminal outcome. App-restart discovery and other workflows still require their own proof before being called connected. An approval grant alone does not
+terminal outcome. The 2026-10-19 native check against published `0.1.7` proved
+queue and draft restoration across two Desktop processes, exact queued-prompt
+removal, and one approved file effect through Stop and run next. It used a
+controlled local provider. Automatic advancement and arbitrary running-turn
+discovery after app restart still require their own proof. An approval grant alone does not
 prove the original pending action resumed. Missing public semantics require an
 explicit generic-owner dependency; Desktop must not import private Python runtime
 code, start another interactive session, or duplicate those owners.

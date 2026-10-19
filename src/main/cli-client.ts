@@ -228,12 +228,48 @@ function runtimeTask(value: unknown): RuntimeTask {
     operatorState: optionalString(row.operator_state ?? null),
     resumeAction: optionalString(row.resume_action ?? null),
     sessionTarget: optionalString(row.session_target ?? null),
+    instruction: optionalString(row.instruction ?? null),
+    scheduleRevision: optionalString(row.schedule_revision ?? null),
+    scheduleInput: taskScheduleInput(row.schedule),
     validActions: requireArray(row.valid_actions ?? []).filter(
-      (action): action is "pause" | "resume" | "cancel" =>
-        action === "pause" || action === "resume" || action === "cancel",
+      (action): action is "pause" | "resume" | "cancel" | "run-now" | "update" | "delete-history" =>
+        action === "pause" ||
+        action === "resume" ||
+        action === "cancel" ||
+        action === "run-now" ||
+        action === "update" ||
+        action === "delete-history",
     ),
     recentRuns: requireArray(row.recent_runs ?? []).map(runtimeTaskRun),
   };
+}
+
+function taskScheduleInput(value: unknown): RuntimeTask["scheduleInput"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const schedule = value as Record<string, unknown>;
+  const kind = optionalString(schedule.kind ?? null);
+  if (kind === "at") {
+    const at = optionalString(schedule.at ?? null);
+    if (!at) return null;
+    const instant = new Date(at);
+    if (!Number.isFinite(instant.getTime())) return null;
+    const local = new Date(instant.getTime() - instant.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, -1);
+    return { kind, value: local, timezone: "UTC" };
+  }
+  if (kind === "every") {
+    const everyMs = schedule.every_ms;
+    return typeof everyMs === "number" && Number.isFinite(everyMs)
+      ? { kind, value: String(everyMs / 60_000), timezone: "UTC" }
+      : null;
+  }
+  if (kind === "cron") {
+    const expression = optionalString(schedule.expr ?? null);
+    const timezone = optionalString(schedule.tz ?? null);
+    return expression && timezone ? { kind, value: expression, timezone } : null;
+  }
+  return null;
 }
 
 function taskError(value: unknown): TaskError | null {
@@ -278,12 +314,16 @@ function runtimeTaskRun(value: unknown): TaskRun {
 function schedulerReadiness(value: unknown): SchedulerReadiness | null {
   if (value === null || value === undefined) return null;
   const row = requireRecord(value);
+  const paused = typeof row.paused === "boolean" ? row.paused : null;
   return {
     state: requireString(row.state),
     hostedBy: optionalString(row.hosted_by ?? null),
     reason: optionalString(row.reason ?? null),
     lastHeartbeatAt: optionalString(row.last_heartbeat_at ?? null),
     checkCommand: optionalString(row.check_command ?? null),
+    paused,
+    updatedAt: optionalString(row.updated_at ?? null),
+    updatedBy: optionalString(row.updated_by ?? row.actor ?? null),
   };
 }
 
@@ -297,11 +337,18 @@ function pendingTaskAction(value: unknown): PendingTaskAction {
   };
 }
 
-function taskControlValue(payload: Record<string, unknown>, tasks: unknown[]): TaskControlValue {
+function taskControlValue(
+  payload: Record<string, unknown>,
+  tasks: unknown[],
+  actionResult: TaskControlValue["actionResult"] = null,
+  refreshWarning: string | null = null,
+): TaskControlValue {
   return {
     tasks: tasks.map(runtimeTask),
     pendingActions: requireArray(payload.pending_actions ?? []).map(pendingTaskAction),
     scheduler: schedulerReadiness(payload.scheduler),
+    actionResult,
+    refreshWarning,
   };
 }
 
@@ -404,21 +451,46 @@ function scheduleArguments(input: unknown): string[] {
   )
     throw protocolError("invalid_request", "Enter a name and an instruction for this schedule.");
   const args = ["schedule", "create", `--name=${name}`, `--instruction=${instruction}`];
-  if (schedule.kind === "at") {
+  return [...args, ...taskTimingArguments(schedule.kind, timing, timezone)];
+}
+
+function taskTimingArguments(kind: unknown, timing: string, timezone: string): string[] {
+  if (kind === "at") {
     if (!Number.isFinite(Date.parse(timing)) || !/(?:Z|[+-]\d{2}:\d{2})$/.test(timing))
       throw protocolError("invalid_request", "Choose a date and time with a timezone.");
-    args.push(`--at=${timing}`);
-  } else if (schedule.kind === "every") {
+    return [`--at=${timing}`];
+  }
+  if (kind === "every") {
     const minutes = Number(timing);
     if (!Number.isSafeInteger(minutes * 60_000) || minutes <= 0)
       throw protocolError("invalid_request", "Enter a positive interval in minutes.");
-    args.push(`--every-ms=${minutes * 60_000}`);
-  } else if (schedule.kind === "cron") {
+    return [`--every-ms=${minutes * 60_000}`];
+  }
+  if (kind === "cron") {
     if (!timing || timing.length > 256 || !timezone || timezone.length > 128)
       throw protocolError("invalid_request", "Enter a cron expression and timezone.");
-    args.push(`--cron=${timing}`, `--tz=${timezone}`);
-  } else throw protocolError("invalid_request", "Choose a schedule type.");
-  return args;
+    return [`--cron=${timing}`, `--tz=${timezone}`];
+  }
+  throw protocolError("invalid_request", "Choose a schedule type.");
+}
+
+function updateArguments(input: unknown, expectedUpdatedAt: unknown): string[] {
+  const update = requireRecord(input);
+  if (
+    Object.keys(update).some((key) => !["instruction", "kind", "value", "timezone"].includes(key))
+  )
+    throw protocolError("invalid_request", "Choose the task settings shown in the form.");
+  const instruction = requireString(update.instruction).trim();
+  const timing = requireString(update.value).trim();
+  const timezone = requireString(update.timezone).trim();
+  const revision = requireString(expectedUpdatedAt).trim();
+  if (!instruction || instruction.length > 32_000 || !revision || /\0/.test(instruction + revision))
+    throw protocolError("invalid_request", "Enter an instruction and refresh the task revision.");
+  return [
+    `--instruction=${instruction}`,
+    ...taskTimingArguments(update.kind, timing, timezone),
+    `--expected-updated-at=${revision}`,
+  ];
 }
 
 export class CliClient {
@@ -751,12 +823,23 @@ export class CliClient {
             `  risk     ${optionalString(draft.risk_class ?? null) ?? ""}`,
             `  replay   ${record.replay_proof ? "recorded" : "missing"}`,
           ];
-          if (Object.keys(review).length)
-            lines.push(`  review   ${optionalString(review.status ?? null) ?? ""}`);
-          if (record.applied_addition) lines.push("  applied  yes");
-          lines.push(
-            `Review and apply from the operator CLI: openminion skill proposal-inspect ${value.proposalId}`,
-          );
+          const reviewStatus = optionalString(review.status ?? null) ?? "";
+          if (reviewStatus) lines.push(`  review   ${reviewStatus}`);
+          const addition = requireRecord(record.applied_addition ?? {});
+          if (Object.keys(addition).length) {
+            lines.push("  applied  yes");
+            const skillId = requireString(addition.added_skill_id);
+            const versionHash = requireString(addition.version_hash);
+            lines.push(
+              `Inspect the staged version from the operator CLI: openminion skill show ${skillId} --version ${versionHash}`,
+            );
+          } else if (reviewStatus === "accepted") {
+            lines.push(`Apply from the operator CLI: skillctl proposal-apply ${value.proposalId}`);
+          } else {
+            lines.push(
+              `Inspect from the operator CLI: skillctl proposal-inspect ${value.proposalId}`,
+            );
+          }
           return { kind: "learning", text: lines.join("\n") };
         }
         const [statusPayload, inboxPayload] = await Promise.all([
@@ -996,7 +1079,17 @@ export class CliClient {
       const value = requireRecord(input);
       if (
         Object.keys(value).some(
-          (key) => !["sessionId", "action", "taskId", "schedule"].includes(key),
+          (key) =>
+            ![
+              "sessionId",
+              "action",
+              "taskId",
+              "schedule",
+              "update",
+              "reason",
+              "expectedUpdatedAt",
+              "confirm",
+            ].includes(key),
         )
       )
         throw protocolError("invalid_request", "Choose a supported task operation.");
@@ -1006,22 +1099,70 @@ export class CliClient {
       if (sessionId.startsWith("-") || sessionId.includes("\0"))
         throw protocolError("invalid_request", "Choose a saved conversation.");
       const action = requireString(value.action);
-      if (!["list", "show", "pause", "resume", "cancel", "schedule"].includes(action))
+      if (
+        ![
+          "list",
+          "show",
+          "pause",
+          "resume",
+          "cancel",
+          "schedule",
+          "run-now",
+          "update",
+          "delete-history",
+          "scheduler-status",
+          "scheduler-pause",
+          "scheduler-resume",
+        ].includes(action)
+      )
         throw protocolError("invalid_request", "Choose a supported task action.");
       if (action !== "schedule" && value.schedule !== undefined)
         throw protocolError(
           "invalid_request",
           "Schedule fields are only valid when creating a schedule.",
         );
-      if (["list", "schedule"].includes(action) && value.taskId !== undefined)
+      if (action !== "update" && value.update !== undefined)
+        throw protocolError(
+          "invalid_request",
+          "Update fields are only valid when updating a task.",
+        );
+      if (action !== "scheduler-pause" && value.reason !== undefined)
+        throw protocolError(
+          "invalid_request",
+          "A reason is only valid when pausing the scheduler.",
+        );
+      if (!["update", "scheduler-pause", "scheduler-resume"].includes(action)) {
+        if (value.expectedUpdatedAt !== undefined)
+          throw protocolError("invalid_request", "This operation does not take a revision.");
+      }
+      const confirmationActions = [
+        "cancel",
+        "delete-history",
+        "scheduler-pause",
+        "scheduler-resume",
+      ];
+      if (!confirmationActions.includes(action) && value.confirm !== undefined)
+        throw protocolError("invalid_request", "This operation does not take confirmation.");
+      const taskActions = [
+        "show",
+        "pause",
+        "resume",
+        "cancel",
+        "run-now",
+        "update",
+        "delete-history",
+      ];
+      if (!taskActions.includes(action) && value.taskId !== undefined)
         throw protocolError("invalid_request", "This operation does not take a task ID.");
-      const taskId = ["list", "schedule"].includes(action) ? null : requireString(value.taskId);
+      const taskId = taskActions.includes(action) ? requireString(value.taskId) : null;
       if (
         taskId !== null &&
         (!taskId || taskId.startsWith("-") || /\s|\0/.test(taskId) || taskId.length > 512)
       )
         throw protocolError("invalid_request", "Choose an exact task ID from OpenMinion.");
-      const mutating = !["list", "show"].includes(action);
+      if (confirmationActions.includes(action) && value.confirm !== true)
+        throw protocolError("invalid_request", "Confirm this high-impact operation first.");
+      const mutating = !["list", "show", "scheduler-status"].includes(action);
       if (this.#configuring || this.#taskControls.has(sessionId))
         throw protocolError("task_control_busy", "Wait for the current operation to finish.");
       if (mutating && this.#active.has(sessionId))
@@ -1046,9 +1187,39 @@ export class CliClient {
             throw protocolError("schedule_failed", "OpenMinion did not create this schedule.");
           scheduled = true;
         }
-        const list = action === "list" || action === "schedule";
-        const args = ["tasks", list ? "list" : action, ...(taskId ? [taskId] : []), ...scope];
-        const payload = requireRecord(await this.#json(args));
+        const schedulerAction = action.startsWith("scheduler-");
+        let args: string[];
+        if (action === "update") {
+          args = [
+            "tasks",
+            "update",
+            taskId!,
+            ...updateArguments(value.update, value.expectedUpdatedAt),
+            ...scope,
+          ];
+        } else if (action === "delete-history") {
+          args = ["tasks", "delete-history", taskId!, "--confirm", ...scope];
+        } else if (schedulerAction) {
+          args = ["tasks", "scheduler", action.slice("scheduler-".length)];
+          if (action === "scheduler-pause") {
+            const reason = requireString(value.reason).trim();
+            if (!reason || reason.length > 500 || reason.includes("\0"))
+              throw protocolError("invalid_request", "Enter a scheduler pause reason.");
+            args.push(`--reason=${reason}`);
+          }
+          if (action !== "scheduler-status") {
+            const revision = requireString(value.expectedUpdatedAt).trim();
+            if (!revision || revision.includes("\0"))
+              throw protocolError("invalid_request", "Refresh the scheduler revision first.");
+            args.push(`--expected-updated-at=${revision}`);
+            args.push("--confirm");
+          }
+          args.push(...scope);
+        } else {
+          const list = action === "list" || action === "schedule";
+          args = ["tasks", list ? "list" : action, ...(taskId ? [taskId] : []), ...scope];
+        }
+        let payload = requireRecord(await this.#json(args));
         if (payload.ok !== true) {
           const detail =
             payload.error && typeof payload.error === "object"
@@ -1061,7 +1232,49 @@ export class CliClient {
               "OpenMinion did not complete this task operation.",
           );
         }
-        return taskControlValue(payload, list ? requireArray(payload.tasks) : [payload.task]);
+        const actionResult =
+          action === "run-now"
+            ? {
+                action: "run-now" as const,
+                taskId: requireString(payload.task_id),
+                runId: requireString(payload.run_id),
+                state: optionalString(payload.state ?? null),
+              }
+            : null;
+        if (schedulerAction) {
+          payload = requireRecord(await this.#json(["tasks", "list", ...scope]));
+          if (payload.ok !== true)
+            throw protocolError(
+              "task_refresh_failed",
+              "The scheduler changed, but OpenMinion could not refresh the task list.",
+            );
+        }
+        const refreshTaskList = ["run-now", "update", "delete-history"].includes(action);
+        if (refreshTaskList) {
+          try {
+            const refreshed = requireRecord(await this.#json(["tasks", "list", ...scope]));
+            if (refreshed.ok !== true)
+              throw protocolError(
+                "task_refresh_failed",
+                "The task changed, but OpenMinion could not refresh the task list.",
+              );
+            return taskControlValue(refreshed, requireArray(refreshed.tasks), actionResult);
+          } catch (error) {
+            if (!actionResult) throw error;
+            return taskControlValue(
+              { pending_actions: [], scheduler: null },
+              [],
+              actionResult,
+              "The run was queued, but OpenMinion could not refresh the task list.",
+            );
+          }
+        }
+        const list = action === "list" || action === "schedule" || schedulerAction;
+        return taskControlValue(
+          payload,
+          list ? requireArray(payload.tasks) : [payload.task],
+          actionResult,
+        );
       } catch (error) {
         if (scheduled)
           throw protocolError(

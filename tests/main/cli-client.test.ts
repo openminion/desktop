@@ -566,18 +566,22 @@ describe("PyPI CLI client", () => {
         ].join("\n"),
       },
     });
-    expect(
-      await client.readReport({
-        kind: "learning",
-        proposalId: "proposal-1",
-      }),
-    ).toMatchObject({
+    const proposalReport = await client.readReport({
+      kind: "learning",
+      proposalId: "proposal-1",
+    });
+    expect(proposalReport).toMatchObject({
       ok: true,
       value: {
         kind: "learning",
         text: expect.stringContaining("Learning proposal: proposal-1"),
       },
     });
+    if (!proposalReport.ok || proposalReport.value.kind !== "learning")
+      throw new Error("Learning report unavailable");
+    expect(proposalReport.value.text).toContain(
+      "Inspect from the operator CLI: skillctl proposal-inspect proposal-1",
+    );
     expect(
       await client.readReport({
         kind: "learning",
@@ -611,6 +615,50 @@ describe("PyPI CLI client", () => {
     });
     expect(fixture.requests).toHaveLength(10);
     expect(fixture.requests.every((request) => request.token === "test-private-token")).toBe(true);
+  });
+
+  it("shows the next valid operator action for each learning state", async () => {
+    const cases = [
+      {
+        proposal: { proposal_id: "proposal-1", queue_state: "pending" },
+        guidance: "Inspect from the operator CLI: skillctl proposal-inspect proposal-1",
+      },
+      {
+        proposal: {
+          proposal_id: "proposal-1",
+          queue_state: "reviewed",
+          review: { status: "accepted" },
+        },
+        guidance: "Apply from the operator CLI: skillctl proposal-apply proposal-1",
+      },
+      {
+        proposal: {
+          proposal_id: "proposal-1",
+          queue_state: "applied",
+          applied_addition: { added_skill_id: "emergent.inventory", version_hash: "v1" },
+        },
+        guidance:
+          "Inspect the staged version from the operator CLI: openminion skill show emergent.inventory --version v1",
+      },
+    ];
+    for (const item of cases) {
+      const fixture = await executableFixture(
+        "normal",
+        {},
+        {
+          proposal: { ok: true, proposal: item.proposal },
+        },
+      );
+      const client = new CliClient(() => ({
+        executable: fixture.executable,
+        args: fixture.args,
+      }));
+      const report = await client.readReport({ kind: "learning", proposalId: "proposal-1" });
+      expect(report).toMatchObject({ ok: true, value: { kind: "learning" } });
+      if (!report.ok || report.value.kind !== "learning")
+        throw new Error("Learning report missing");
+      expect(report.value.text).toContain(item.guidance);
+    }
   });
 
   it("reads scoped tool exposure and rejects invalid selectors", async () => {
@@ -1048,6 +1096,364 @@ describe("PyPI CLI client", () => {
         "writer",
       ]);
     }
+  });
+
+  it.each(["rejected", "non-json", "invalid-list"])(
+    "preserves an accepted run when task refresh is %s",
+    async (failure) => {
+      const run = vi.fn();
+      const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+      const created = await client.create({ agentId: "writer" });
+      if (!created.ok) throw new Error("Draft not created");
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout: '{"ok":true,"task_id":"task-1","run_id":"accepted-run-1"}',
+      });
+      if (failure === "rejected") run.mockRejectedValueOnce(new Error("Daemon unavailable"));
+      else
+        run.mockResolvedValueOnce({
+          exitCode: failure === "non-json" ? 1 : 0,
+          stderr: "",
+          stdout: failure === "non-json" ? "Unavailable" : '{"ok":true,"tasks":null}',
+        });
+      const result = await client.controlTasks({
+        sessionId: created.value.sessionId,
+        action: "run-now",
+        taskId: "task-1",
+      });
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          tasks: [],
+          actionResult: { runId: "accepted-run-1", taskId: "task-1" },
+          refreshWarning: "The run was queued, but OpenMinion could not refresh the task list.",
+        },
+      });
+      expect(run.mock.calls.map((call) => call[1].slice(0, 2))).toEqual([
+        ["tasks", "run-now"],
+        ["tasks", "list"],
+      ]);
+    },
+  );
+
+  it("routes task updates, run-now, history deletion, and scheduler controls through the CLI", async () => {
+    const run = vi.fn();
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    const taskInventory = {
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        '{"ok":true,"tasks":[{"id":"task-1","schedule_revision":"revision-2","valid_actions":[]}],"pending_actions":[]}',
+    };
+
+    const callsBeforeUnconfirmedCancel = run.mock.calls.length;
+    const unconfirmedCancel = await client.controlTasks({
+      sessionId,
+      action: "cancel",
+      taskId: "task-1",
+    });
+    expect(unconfirmedCancel).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    expect(run).toHaveBeenCalledTimes(callsBeforeUnconfirmedCancel);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        '{"ok":true,"task_id":"task-1","state":"cancelled","task":{"id":"task-1","lifecycle_state":"cancelled","valid_actions":[],"recent_runs":[]}}',
+    });
+    const cancelled = await client.controlTasks({
+      sessionId,
+      action: "cancel",
+      taskId: "task-1",
+      confirm: true,
+    });
+    expect(cancelled).toMatchObject({ ok: true, value: { tasks: [{ id: "task-1" }] } });
+    expect(run.mock.calls.at(-1)?.[1]).toEqual([
+      "tasks",
+      "cancel",
+      "task-1",
+      "--session",
+      sessionId,
+      "--json",
+      "--agent-id",
+      "writer",
+    ]);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-1","run_id":"run-1"}',
+    });
+    run.mockResolvedValueOnce(taskInventory);
+    const runNow = await client.controlTasks({ sessionId, action: "run-now", taskId: "task-1" });
+    expect(runNow).toMatchObject({
+      ok: true,
+      value: {
+        tasks: [{ id: "task-1", scheduleRevision: "revision-2" }],
+        actionResult: {
+          action: "run-now",
+          taskId: "task-1",
+          runId: "run-1",
+          state: null,
+        },
+      },
+    });
+    expect(run.mock.calls.at(-2)?.[1]).toEqual([
+      "tasks",
+      "run-now",
+      "task-1",
+      "--session",
+      sessionId,
+      "--json",
+      "--agent-id",
+      "writer",
+    ]);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-1","run_id":"run-2"}',
+    });
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":false,"error":{"code":"unavailable"}}',
+    });
+    const runNowWithoutRefresh = await client.controlTasks({
+      sessionId,
+      action: "run-now",
+      taskId: "task-1",
+    });
+    expect(runNowWithoutRefresh).toMatchObject({
+      ok: true,
+      value: {
+        tasks: [],
+        actionResult: { runId: "run-2", taskId: "task-1" },
+        refreshWarning: "The run was queued, but OpenMinion could not refresh the task list.",
+      },
+    });
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-1","task":{"job_id":"task-1"}}',
+    });
+    run.mockResolvedValueOnce(taskInventory);
+    await client.controlTasks({
+      sessionId,
+      action: "update",
+      taskId: "task-1",
+      update: {
+        instruction: "Review open pull requests",
+        kind: "cron",
+        value: "0 9 * * 1-5",
+        timezone: "America/Los_Angeles",
+      },
+      expectedUpdatedAt: "revision-1",
+    });
+    expect(run.mock.calls.at(-2)?.[1]).toEqual([
+      "tasks",
+      "update",
+      "task-1",
+      "--instruction=Review open pull requests",
+      "--cron=0 9 * * 1-5",
+      "--tz=America/Los_Angeles",
+      "--expected-updated-at=revision-1",
+      "--session",
+      sessionId,
+      "--json",
+      "--agent-id",
+      "writer",
+    ]);
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-1","deleted_count":2}',
+    });
+    run.mockResolvedValueOnce(taskInventory);
+    await client.controlTasks({
+      sessionId,
+      action: "delete-history",
+      taskId: "task-1",
+      confirm: true,
+    });
+    expect(run.mock.calls.at(-2)?.[1]).toEqual([
+      "tasks",
+      "delete-history",
+      "task-1",
+      "--confirm",
+      "--session",
+      sessionId,
+      "--json",
+      "--agent-id",
+      "writer",
+    ]);
+
+    for (const [action, extra, expected] of [
+      [
+        "scheduler-status",
+        {},
+        ["tasks", "scheduler", "status", "--session", sessionId, "--json", "--agent-id", "writer"],
+      ],
+      [
+        "scheduler-pause",
+        { reason: "Provider maintenance", expectedUpdatedAt: "scheduler-1", confirm: true },
+        [
+          "tasks",
+          "scheduler",
+          "pause",
+          "--reason=Provider maintenance",
+          "--expected-updated-at=scheduler-1",
+          "--confirm",
+          "--session",
+          sessionId,
+          "--json",
+          "--agent-id",
+          "writer",
+        ],
+      ],
+      [
+        "scheduler-resume",
+        { expectedUpdatedAt: "scheduler-2", confirm: true },
+        [
+          "tasks",
+          "scheduler",
+          "resume",
+          "--expected-updated-at=scheduler-2",
+          "--confirm",
+          "--session",
+          sessionId,
+          "--json",
+          "--agent-id",
+          "writer",
+        ],
+      ],
+    ] as const) {
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout:
+          '{"ok":true,"scheduler":{"state":"ready"},"scheduler_control":{"paused":false,"updated_at":"scheduler-3","actor":"operator"}}',
+      });
+      run.mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: "",
+        stdout:
+          '{"ok":true,"tasks":[],"pending_actions":[],"scheduler":{"state":"ready","paused":false,"updated_at":"scheduler-2"}}',
+      });
+      const result = await client.controlTasks({ sessionId, action, ...extra });
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          scheduler: {
+            state: "ready",
+            paused: false,
+            updatedAt: "scheduler-2",
+            updatedBy: null,
+          },
+        },
+      });
+      expect(run.mock.calls.at(-2)?.[1]).toEqual(expected);
+      expect(run.mock.calls.at(-1)?.[1]).toEqual([
+        "tasks",
+        "list",
+        "--session",
+        sessionId,
+        "--json",
+        "--agent-id",
+        "writer",
+      ]);
+    }
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"scheduler_control":{"paused":false,"updated_at":"scheduler-4"}}',
+    });
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        '{"ok":true,"tasks":[],"pending_actions":[],"scheduler":{"paused":false,"updated_at":"scheduler-4"}}',
+    });
+    await expect(
+      client.controlTasks({ sessionId, action: "scheduler-status" }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "invalid_daemon_response" } });
+
+    const calls = run.mock.calls.length;
+    for (const input of [
+      { sessionId, action: "delete-history", taskId: "task-1" },
+      { sessionId, action: "update", taskId: "task-1", expectedUpdatedAt: "revision-1" },
+      { sessionId, action: "scheduler-pause", expectedUpdatedAt: "scheduler-1", reason: "" },
+      { sessionId, action: "scheduler-resume", expectedUpdatedAt: "scheduler-2" },
+      { sessionId, action: "scheduler-status", taskId: "task-1" },
+    ])
+      expect(await client.controlTasks(input)).toMatchObject({ ok: false });
+    expect(run).toHaveBeenCalledTimes(calls);
+  });
+
+  it("round-trips one-time task schedules through datetime-local", async () => {
+    const run = vi.fn();
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+    const at = "2030-01-01T09:00:30.125Z";
+    const inventory = {
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify({
+        ok: true,
+        tasks: [
+          {
+            id: "task-at",
+            instruction: "One-time work",
+            schedule_revision: "revision-at",
+            schedule: { kind: "at", at },
+            valid_actions: ["update"],
+          },
+        ],
+        pending_actions: [],
+      }),
+    };
+    run.mockResolvedValueOnce(inventory);
+
+    const listed = await client.controlTasks({ sessionId, action: "list" });
+    if (!listed.ok) throw new Error("Task list failed");
+    const schedule = listed.value.tasks[0]?.scheduleInput;
+    expect(schedule?.kind).toBe("at");
+    expect(schedule?.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$/);
+    const submittedAt = new Date(schedule!.value).toISOString();
+    expect(submittedAt).toBe(new Date(at).toISOString());
+
+    run.mockResolvedValueOnce({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task_id":"task-at","task":{"job_id":"task-at"}}',
+    });
+    run.mockResolvedValueOnce(inventory);
+    await client.controlTasks({
+      sessionId,
+      action: "update",
+      taskId: "task-at",
+      update: {
+        instruction: "One-time work",
+        kind: "at",
+        value: submittedAt,
+        timezone: "UTC",
+      },
+      expectedUpdatedAt: "revision-at",
+    });
+
+    expect(run.mock.calls.at(-2)?.[1]).toContain(`--at=${submittedAt}`);
   });
 
   it("runs fixed session-scoped delegation operations and projects safe inspection facts", async () => {
@@ -2518,7 +2924,7 @@ function session(id: string) {
 async function executableFixture(
   mode = "normal",
   toolOutput: Record<string, unknown> = {},
-  skillResponses: { list?: unknown; detail?: unknown } = {},
+  skillResponses: { list?: unknown; detail?: unknown; proposal?: unknown } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "desktop-cli-test-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -2784,7 +3190,7 @@ async function executableFixture(
                           ],
                         }
                       : req.url === "/v1/skills/proposals/proposal-1"
-                        ? {
+                        ? (skillResponses.proposal ?? {
                             ok: true,
                             proposal: {
                               proposal_id: "proposal-1",
@@ -2797,7 +3203,7 @@ async function executableFixture(
                                 },
                               },
                             },
-                          }
+                          })
                         : {
                             ok: true,
                             tools: [

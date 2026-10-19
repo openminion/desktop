@@ -45,6 +45,7 @@ const profile = (state) => ({
   generated_sidecars: {
     status: "clean",
     files: ["AGENT.md", "SOUL.md", "README.md"],
+    drifted_files: [],
   },
   render: render(state.profileVersion),
 });

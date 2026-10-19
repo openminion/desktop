@@ -1,4 +1,3 @@
-import type { CustomCommand } from "../shared/reports.js";
 import type {
   ApprovalDecision,
   ApprovalDecisionV1,
@@ -25,17 +24,19 @@ import type {
   RuntimeUpdateStatus,
   SessionEventV1,
   SessionSummaryV1,
-  ToolProgressV1,
   ToolDisplay,
+  ToolProgressV1,
   TurnEventV1,
   TurnInputQueueEntry,
   TurnSubmitValue,
   TurnUsageDisplay,
 } from "../shared/contracts.js";
-import type { DelegationControlInput, ScheduleInput, TaskAction } from "../shared/tasks.js";
+import type { CustomCommand } from "../shared/reports.js";
+import type { DelegationControlInput, ScheduleInput, TaskControlInput } from "../shared/tasks.js";
 import { renderMarkdown } from "./markdown.js";
+import { identitySourceLabel, identityStatusLabel } from "./identity.js";
 import { mountProfiles } from "./profiles.js";
-import { renderDelegation, renderTasks } from "./tasks.js";
+import { renderDelegation, renderTasks, schedulerReadinessText } from "./tasks.js";
 import { renderToolProfile } from "./tool-profile.js";
 
 declare global {
@@ -1736,13 +1737,14 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.showDaemonStatus.addEventListener("click", () => void inspectDaemon("status"));
   elements.showDaemonLogs.addEventListener("click", () => void inspectDaemon("logs"));
 
-  const runTasks = async (action: TaskAction, taskId?: string, schedule?: ScheduleInput) => {
+  const runTasks = async (input: Omit<TaskControlInput, "sessionId">, schedule?: ScheduleInput) => {
+    const { action } = input;
     if (!selected || !api.tasks) {
       if (schedule) return "Choose a saved conversation first.";
       showCommandResult("Tasks", "Choose a saved conversation first.");
       return;
     }
-    if (chat.active && !["list", "show"].includes(action)) {
+    if (chat.active && !["list", "show", "scheduler-status"].includes(action)) {
       if (schedule) return "Finish or stop this turn before scheduling work.";
       showCommandResult("Turn in progress", "Finish or stop this turn before changing work.");
       return;
@@ -1756,8 +1758,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     const request = commandResultGeneration;
     const result = await api.tasks.control({
       sessionId,
-      action,
-      taskId,
+      ...input,
       ...(schedule ? { schedule } : {}),
     });
     if (request !== commandResultGeneration || selected?.sessionId !== sessionId) return;
@@ -1769,7 +1770,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         const refresh = root.createElement("button");
         refresh.type = "button";
         refresh.textContent = "Refresh work list";
-        refresh.addEventListener("click", () => void runTasks("list"));
+        refresh.addEventListener("click", () => void runTasks({ action: "list" }));
         elements.commandResult.append(refresh);
         return;
       }
@@ -1780,15 +1781,18 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     showCommandResult(
       "Tasks",
       [
-        result.value.tasks.length
-          ? "Tasks reported by OpenMinion for the current agent."
-          : "No tasks found.",
+        result.value.refreshWarning
+          ? "Task list unavailable."
+          : result.value.tasks.length
+            ? "Tasks reported by OpenMinion for the current agent."
+            : "No tasks found.",
+        result.value.actionResult &&
+          `Run ${result.value.actionResult.runId} queued for task ${result.value.actionResult.taskId}.`,
+        result.value.refreshWarning,
         result.value.scheduler
-          ? `Scheduler: ${result.value.scheduler.state}. ${
-              result.value.scheduler.state === "ready"
-                ? "Scheduled work is ready to run."
-                : "Saved schedules remain manageable, but execution readiness is degraded."
-            }`
+          ? `Global scheduler: ${result.value.scheduler.state}. ${schedulerReadinessText(
+              result.value.scheduler,
+            )}`
           : "",
         result.value.pendingActions.length
           ? `${result.value.pendingActions.length} pending approvals. Resolve them in Focus.`
@@ -1797,18 +1801,34 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         .filter(Boolean)
         .join("\n"),
     );
+    if (result.value.refreshWarning) {
+      const refresh = root.createElement("button");
+      refresh.type = "button";
+      refresh.textContent = "Refresh work list";
+      refresh.addEventListener("click", () => void runTasks({ action: "list" }));
+      elements.commandResult.append(refresh);
+      return;
+    }
     renderTasks(
       root,
       elements.commandResult,
       result.value,
       chat.active,
-      (nextAction, id) => {
-        if (selected?.sessionId === sessionId) void runTasks(nextAction, id);
+      (nextInput) => {
+        if (selected?.sessionId === sessionId) void runTasks(nextInput);
       },
       (schedule) =>
         selected?.sessionId === sessionId
-          ? runTasks("schedule", undefined, schedule)
+          ? runTasks({ action: "schedule" }, schedule)
           : Promise.resolve("Choose the original conversation before scheduling work."),
+      async (resultSessionId) => {
+        await loadSessions();
+        const resultSession = sessions.find((session) => session.sessionId === resultSessionId);
+        if (!resultSession)
+          return "The result conversation is not available to this Desktop session.";
+        await selectSession(resultSession);
+        hideCommandResult();
+      },
     );
   };
 
@@ -2125,18 +2145,33 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         break;
       }
       case "/tasks": {
-        if (!args.length) await runTasks("list");
-        else if (["pause", "resume", "cancel"].includes(args[0].toLowerCase()) && args.length === 2)
-          await runTasks(args[0].toLowerCase() as TaskAction, args[1]);
+        if (!args.length) await runTasks({ action: "list" });
         else if (
+          ["pause", "resume", "cancel"].includes(args[0].toLowerCase()) &&
+          args.length === 2
+        ) {
+          const action = args[0].toLowerCase() as "pause" | "resume" | "cancel";
+          const taskId = args[1];
+          if (action === "cancel") {
+            showCommandResult("Cancel task", `Cancel task ${taskId}?`);
+            const confirm = root.createElement("button");
+            confirm.type = "button";
+            confirm.textContent = "Confirm cancel task";
+            confirm.addEventListener(
+              "click",
+              () => void runTasks({ action: "cancel", taskId, confirm: true }),
+            );
+            elements.commandResult.append(confirm);
+          } else await runTasks({ action, taskId });
+        } else if (
           args.length === 1 &&
           !["pause", "resume", "cancel"].includes(args[0].toLowerCase())
         )
-          await runTasks("show", args[0]);
+          await runTasks({ action: "show", taskId: args[0] });
         else
           showCommandResult(
             "Task command",
-            "Use /tasks, /tasks <task-id>, or /tasks pause|resume|cancel <task-id>.",
+            "Use /tasks, /tasks <task-id>, or /tasks pause|resume|cancel <task-id>. Use capability-gated task cards for run-now, update, history deletion, and scheduler controls.",
           );
         break;
       }
@@ -2217,12 +2252,23 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
               : "Identity",
           [
             `${profile.displayName} (${profile.agentId})`,
-            `Source: ${profile.source}`,
+            `Source: ${identitySourceLabel(profile.source)}`,
             `Profile version: ${profile.profileVersion}`,
-            `Verification: ${profile.validationOk ? "valid" : "needs attention"}`,
-            `Source status: ${profile.sourceStatus}`,
-            `Generated files: ${profile.generatedStatus}`,
-            ...profile.verificationIssues.map((issue) => `Issue: ${issue}`),
+            `Validation: ${profile.validationOk ? "valid" : "needs attention"}`,
+            `Verification: ${profile.verificationOk ? "verified" : "needs attention"}`,
+            `Source status: ${identityStatusLabel(profile.sourceStatus)}`,
+            `Generated file sync: ${identityStatusLabel(profile.generatedStatus)}`,
+            `Generated files: ${profile.generatedFiles.join(", ") || "None"}`,
+            `Generated file drift: ${profile.generatedDriftedFiles.join(", ") || "None"}`,
+            `Purpose: ${profile.render.purpose}`,
+            `Render budget: ${profile.render.budget.usedTokens}/${profile.render.budget.maxTokens} tokens`,
+            `Render version: ${profile.render.renderVersion}`,
+            `Included fields: ${profile.render.includedFields.join(", ") || "None"}`,
+            `Omitted fields: ${profile.render.omittedFields.join(", ") || "None"}`,
+            ...profile.validationErrors.map((issue) => `Validation error: ${issue}`),
+            ...profile.validationWarnings.map((warning) => `Validation warning: ${warning}`),
+            ...profile.render.warnings.map((warning) => `Render warning: ${warning}`),
+            ...profile.verificationIssues.map((issue) => `Verification issue: ${issue}`),
             "",
             profile.render.text,
           ].join("\n"),
@@ -3254,8 +3300,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       pendingRunNext?.sessionId === event.sessionId &&
       live?.state.traceId !== event.traceId
     ) {
+      const state = {
+        ...initialChatState(),
+        sessionId: event.sessionId,
+        traceId: event.traceId,
+        active: true,
+        startedAt: Date.now(),
+        label: "Working…",
+        lastUpdateAt: Date.now(),
+      };
       live = {
-        state: initialChatState(),
+        state,
         messages: selected?.sessionId === event.sessionId ? messages : [],
         submittedText: pendingRunNext.text,
         responseText: "",
@@ -3264,6 +3319,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         activity: [],
       };
       liveTurns.set(event.sessionId, live);
+      if (selected?.sessionId === event.sessionId) chat = state;
       pendingRunNext = null;
     }
     if (live) {

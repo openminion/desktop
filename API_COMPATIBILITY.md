@@ -146,12 +146,17 @@ crosses into the renderer. No generic CLI or HTTP request method is exposed.
 
 ## Task Controls
 
-Main invokes only `tasks list/show/pause/resume/cancel --json`, with the selected
-session and its canonical agent. The bridge accepts a fixed action and IDs, never
-an executable, path, flags, or arbitrary command text. Only task presentation
-fields and pending-decision counts cross back to the renderer. OpenMinion's task
-surface remains responsible for scope, valid actions, scheduler effects, and
-persistence. Desktop does not write task records or implement lifecycle rules.
+Main invokes fixed `tasks list/show/pause/resume/cancel --json` operations with
+the selected session and its canonical agent. When the installed runtime returns
+the newer capability fields, the same bounded bridge also supports run-now,
+complete schedule/instruction update with `schedule_revision`, confirmed
+terminal-history deletion, and scheduler status/pause/resume. The renderer does
+not advertise those newer controls without the returned revisions/actions. The
+bridge accepts a fixed action and typed values, never an executable, path,
+arbitrary flags, or command text. Only task presentation, run, scheduler, and
+pending-decision facts cross back to the renderer. OpenMinion remains responsible
+for scope, confirmation policy, valid actions, scheduling, and persistence.
+Desktop does not write task records or implement lifecycle rules.
 
 ## Profile Configuration
 

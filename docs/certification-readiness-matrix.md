@@ -1,7 +1,7 @@
 # OpenMinion Desktop Certification Readiness Matrix
 
 Status: active
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 Purpose: summarize the current proof posture for the standalone Desktop
 application.
@@ -12,7 +12,7 @@ application.
 | --- | --- | --- |
 | Provider-free code quality | format, lint, type, public-surface, tests, and build | ready for pull-request use |
 | Public repository surface | required-file, local-link, portable-path, heading, lifecycle-metadata, and documented-command validation | aligned and enforced |
-| GitHub Actions definitions | actionlint plus successful hosted execution | aligned and enforced |
+| GitHub Actions definitions | actionlint, Linux quality, and macOS quality/package/native smoke passed at `dd3e793` in [CI attempt 2](https://github.com/openminion/desktop/actions/runs/39235407184/attempts/2) | fresh hosted proof required for each PR; see [public-source gates](public-readiness.md) |
 | Development dependency audit | Forge 8.0.1 reduces 37 findings to 4 high reports in one DMG build chain (`appdmg` → `image-size`) | upstream fix/disposition required; not a clean full audit |
 | Linux source compatibility | provider-free CI | supported as a CI host, not a packaged product |
 | macOS development app | local start, package smoke, and runtime-file allowlist | development-ready |
@@ -21,7 +21,7 @@ application.
 | Paired binary runtime staging | bounded immutable-release redirects, independent CLI/daemon integrity checks, pending activation and rollback-on-failure fixtures | implemented; public/native certification pending |
 | Text chat and saved sessions | real PyPI 0.0.29 CLI and production Electron GUI; first send, task switching, drafts, resizing, outage/restart recovery, canonical close | development-ready |
 | Provider errors and recovery | real PyPI daemon with a local controlled HTTP provider | locally verified; paid-provider acceptance pending |
-| Shared prompt queue | native bridge journey with published 0.1.7 list/enqueue/reorder/remove; focused cancel-and-run-next/trace-attachment tests | bounded qualification; default managed pin remains 0.0.29; automatic advancement, restart and exactly-once effect acceptance remain open |
+| Shared prompt queue | published 0.1.7 and native two-process Desktop check on macOS: queue/draft restoration, exact removal, stop-and-run-next, approved file write and one canonical completion | bounded restart/effect acceptance passed on 2026-10-19 using a controlled local provider; automatic advancement and arbitrary running-turn discovery remain open; managed pin remains 0.0.29 |
 | Cancellation | authenticated request and saved-event evidence; PyPI 0.0.29 can complete an in-flight provider request after acknowledgement | runtime interruption gap remains |
 | Request-bound tool approvals | pinned PyPI daemon + built Electron allow-once proof; deny/retry/replay/unit coverage | managed-runtime verified |
 | Identity settings and commands | pinned PyPI 0.0.29 inspect/validate/apply; native view, draft, verify, save, conflict, and reload proof | development-ready |
@@ -31,7 +31,7 @@ application.
 | Full runtime update, rollback, restore and uninstall | no complete end-to-end evidence | not ready |
 | Windows and Linux packages | unsigned package targets and development distribution workflow exist | runtime certification and current build acceptance remain separate |
 | Remote daemon operation | out of the current local profile | not ready |
-| Public source repository | contribution workflow and launch checklist | private; [public-source gates](public-readiness.md) remain open |
+| Public source repository | contribution workflow and launch checklist | public since 2026-10-19; [remaining launch acceptance](public-readiness.md) is tracked separately |
 | Public development distribution | unsigned prerelease process in `openminion/runtime` | development evidence only |
 | Stable public release | signing and platform certification incomplete | not ready |
 

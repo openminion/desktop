@@ -4,8 +4,9 @@
 
 Do not open a public issue containing exploit details. Use a
 [private GitHub security advisory](https://github.com/openminion/desktop/security/advisories/new).
-If that channel is unavailable, request a private handoff without including the
-exploit.
+If that channel is unavailable, email [hello@openminion.com](mailto:hello@openminion.com)
+with the subject “Desktop security report”. Do not include API keys or other
+credentials.
 
 Include the affected Desktop and OpenMinion revisions, reproduction steps,
 expected impact, and whether the issue crosses the renderer, preload, Electron

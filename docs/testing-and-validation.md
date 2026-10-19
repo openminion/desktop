@@ -299,6 +299,20 @@ The Electron test drives production main, preload, and renderer and covers:
 - cancellation requests while the real daemon is waiting on a local controlled provider,
   provider rejection, and a successful subsequent request.
 
+The separate queue-restart check uses the published `0.1.7` runtime with a
+local deterministic provider; it requires no paid-provider credentials:
+
+```bash
+OPENMINION_QUEUE_E2E_EXECUTABLE=/path/to/openminion npm run electron-check:queue
+```
+
+It runs two Desktop processes against one isolated daemon, restores the same
+queue and unsent draft after restart, removes the exact queued prompt, uses
+Stop and run next, approves one file write, and checks the final file and
+canonical completion event. This is bounded queue/effect acceptance; it does
+not certify automatic queue advancement, arbitrary running-turn discovery,
+provider-live behavior, or a managed-runtime upgrade.
+
 Fixed populated renderer viewport assertions use a hidden native window to
 avoid operating-system work-area clamps, then restore the visible app for
 interaction tests. This is

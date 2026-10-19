@@ -3,10 +3,41 @@ import type {
   DelegationControlInput,
   DelegationControlValue,
   ScheduleInput,
-  TaskAction,
+  TaskControlInput,
   TaskControlValue,
   TaskRun,
+  TaskUpdateInput,
 } from "../shared/tasks.js";
+
+export function schedulerReadinessText(
+  scheduler: NonNullable<TaskControlValue["scheduler"]>,
+): string {
+  if (scheduler.paused) {
+    return "Scheduled work is paused. Saved schedules will not dispatch until resumed.";
+  }
+  return scheduler.state === "ready"
+    ? "Scheduled work is ready to run."
+    : "Saved schedules remain manageable, but execution readiness is degraded.";
+}
+
+export function localDateTimeToIso(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(
+    value,
+  );
+  if (!match) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const expected = match.slice(1, 7).map((part) => Number(part ?? 0));
+  const actual = [
+    date.getFullYear(),
+    date.getMonth() + 1,
+    date.getDate(),
+    date.getHours(),
+    date.getMinutes(),
+    date.getSeconds(),
+  ];
+  return actual.every((part, index) => part === expected[index]) ? date.toISOString() : null;
+}
 
 export function renderDelegation(
   root: Document,
@@ -315,24 +346,93 @@ export function renderTasks(
   container: HTMLElement,
   value: TaskControlValue,
   busy: boolean,
-  onAction: (action: TaskAction, taskId?: string) => void,
+  onAction: (input: Omit<TaskControlInput, "sessionId">) => void,
   onSchedule: (schedule: ScheduleInput) => Promise<string | undefined>,
+  onOpenSession: (sessionId: string) => Promise<string | undefined> = async () =>
+    "This result conversation is not available.",
 ): void {
   if (value.scheduler) {
     const readiness = root.createElement("section");
     readiness.className = "task-readiness";
     readiness.textContent = [
-      `Scheduler: ${value.scheduler.state}`,
-      value.scheduler.state === "ready"
-        ? "Scheduled work is ready to run."
-        : "Saved schedules remain manageable, but execution readiness is degraded.",
+      `Global scheduler: ${value.scheduler.state}`,
+      schedulerReadinessText(value.scheduler),
       value.scheduler.reason && `Reason: ${value.scheduler.reason}`,
       value.scheduler.lastHeartbeatAt && `Last heartbeat: ${value.scheduler.lastHeartbeatAt}`,
+      value.scheduler.paused !== null &&
+        `Dispatch: ${value.scheduler.paused ? "paused" : "running"}`,
+      value.scheduler.updatedAt && `Revision: ${value.scheduler.updatedAt}`,
+      value.scheduler.updatedBy && `Changed by: ${value.scheduler.updatedBy}`,
       value.scheduler.checkCommand && `Check: ${value.scheduler.checkCommand}`,
     ]
       .filter(Boolean)
       .join("\n");
     container.append(readiness);
+    if (value.scheduler.updatedAt) {
+      const refreshScheduler = root.createElement("button");
+      refreshScheduler.type = "button";
+      refreshScheduler.className = "secondary-tool";
+      refreshScheduler.textContent = "Refresh scheduler status";
+      refreshScheduler.addEventListener("click", () => onAction({ action: "scheduler-status" }));
+      readiness.append(refreshScheduler);
+    }
+    if (value.scheduler.updatedAt && value.scheduler.paused !== null) {
+      if (value.scheduler.paused) {
+        const resume = root.createElement("button");
+        resume.type = "button";
+        resume.className = "secondary-tool";
+        resume.textContent = "Resume scheduling for all agents";
+        resume.disabled = busy;
+        resume.addEventListener("click", () => {
+          if (resume.dataset.confirmed !== "true") {
+            resume.dataset.confirmed = "true";
+            resume.textContent = "Confirm resume for all agents";
+            return;
+          }
+          onAction({
+            action: "scheduler-resume",
+            expectedUpdatedAt: value.scheduler!.updatedAt!,
+            confirm: true,
+          });
+        });
+        readiness.append(resume);
+      } else {
+        const reasonLabel = root.createElement("label");
+        reasonLabel.textContent = "Reason for pausing all scheduled task dispatch";
+        const reason = root.createElement("input");
+        reason.placeholder = "Reason for pausing all scheduled task dispatch";
+        reason.maxLength = 500;
+        reason.disabled = busy;
+        const reasonError = root.createElement("p");
+        reasonError.setAttribute("role", "alert");
+        const pause = root.createElement("button");
+        pause.type = "button";
+        pause.className = "secondary-tool";
+        pause.textContent = "Pause scheduling for all agents";
+        pause.disabled = busy;
+        pause.addEventListener("click", () => {
+          if (!reason.value.trim()) {
+            reasonError.textContent = "Enter a reason before pausing the scheduler.";
+            return;
+          }
+          if (pause.dataset.confirmed !== "true") {
+            pause.dataset.confirmed = "true";
+            pause.textContent = "Confirm pause for all agents";
+            reason.disabled = true;
+            return;
+          }
+          reasonError.textContent = "";
+          onAction({
+            action: "scheduler-pause",
+            reason: reason.value.trim(),
+            expectedUpdatedAt: value.scheduler!.updatedAt!,
+            confirm: true,
+          });
+        });
+        reasonLabel.append(reason);
+        readiness.append(reasonLabel, reasonError, pause);
+      }
+    }
   }
 
   if (value.pendingActions.length) {
@@ -384,10 +484,27 @@ export function renderTasks(
       const heading = root.createElement("h4");
       heading.textContent = "Recent runs";
       runs.append(heading);
-      for (const run of task.recentRuns) runs.append(renderRun(root, run));
+      for (const run of task.recentRuns) runs.append(renderRun(root, run, onOpenSession));
       card.append(runs);
     }
     for (const action of ["show", ...task.validActions] as const) {
+      if (action === "update") {
+        const update = root.createElement("button");
+        update.type = "button";
+        update.className = "secondary-tool";
+        update.textContent = "Update";
+        update.setAttribute("aria-label", `Update ${task.title ?? task.id}`);
+        update.disabled = busy;
+        const form = taskUpdateForm(root, task, busy, onAction);
+        form.hidden = true;
+        update.addEventListener("click", () => {
+          form.hidden = !form.hidden;
+          update.setAttribute("aria-expanded", String(!form.hidden));
+        });
+        update.setAttribute("aria-expanded", "false");
+        card.append(update, form);
+        continue;
+      }
       const button = root.createElement("button");
       button.type = "button";
       button.className = "secondary-tool";
@@ -396,9 +513,25 @@ export function renderTasks(
         pause: "Pause",
         resume: "Resume",
         cancel: "Cancel",
+        "run-now": "Run now",
+        "delete-history": "Delete run history",
       }[action];
+      button.setAttribute("aria-label", `${button.textContent} ${task.title ?? task.id}`);
       button.disabled = busy && action !== "show";
-      button.addEventListener("click", () => onAction(action, task.id));
+      if (action === "delete-history" || action === "cancel") {
+        button.addEventListener("click", () => {
+          if (button.dataset.confirmed !== "true") {
+            button.dataset.confirmed = "true";
+            button.textContent =
+              action === "cancel" ? "Confirm cancel task" : "Confirm delete run history";
+            button.setAttribute("aria-label", `${button.textContent} ${task.title ?? task.id}`);
+            return;
+          }
+          onAction({ action, taskId: task.id, confirm: true });
+        });
+      } else {
+        button.addEventListener("click", () => onAction({ action, taskId: task.id }));
+      }
       card.append(button);
     }
     container.append(card);
@@ -435,7 +568,7 @@ export function renderTasks(
   const [kind] = field("When", root.createElement("select"), "schedule-kind");
   for (const [value, label] of [
     ["at", "Once, at a date and time"],
-    ["every", "Every few minutes"],
+    ["every", "Repeat on an interval"],
     ["cron", "Advanced: cron schedule"],
   ]) {
     const option = root.createElement("option");
@@ -449,6 +582,7 @@ export function renderTasks(
     "schedule-value",
   );
   timing.type = "datetime-local";
+  timing.step = "0.001";
   timing.required = true;
   const [timezone, timezoneLabel] = field(
     "Timezone for cron",
@@ -460,6 +594,8 @@ export function renderTasks(
   kind.addEventListener("change", () => {
     timing.type =
       kind.value === "at" ? "datetime-local" : kind.value === "every" ? "number" : "text";
+    timing.step = kind.value === "at" ? "0.001" : kind.value === "every" ? "any" : "";
+    timing.min = kind.value === "every" ? String(10 / 60) : "";
     timing.value = "";
     timing.placeholder = kind.value === "every" ? "Minutes between runs" : "e.g. 0 9 * * 1-5";
     timezoneLabel.hidden = kind.value !== "cron";
@@ -467,7 +603,7 @@ export function renderTasks(
       kind.value === "at"
         ? "Date and time (your local timezone)"
         : kind.value === "every"
-          ? "Interval in minutes"
+          ? "Interval in minutes (decimals allowed)"
           : "Cron expression";
   });
   const note = root.createElement("p");
@@ -486,12 +622,12 @@ export function renderTasks(
     if (busy || create.disabled) return;
     let value = timing.value;
     if (kind.value === "at") {
-      const date = new Date(value);
-      if (!Number.isFinite(date.getTime())) {
+      const instant = localDateTimeToIso(value);
+      if (!instant) {
         error.textContent = "Choose a valid date and time.";
         return;
       }
-      value = date.toISOString();
+      value = instant;
     }
     create.disabled = true;
     error.textContent = "Creating schedule…";
@@ -510,13 +646,18 @@ export function renderTasks(
   refresh.type = "button";
   refresh.className = "command-option";
   refresh.textContent = "Refresh work list";
-  refresh.addEventListener("click", () => onAction("list"));
+  refresh.addEventListener("click", () => onAction({ action: "list" }));
   container.append(refresh);
 }
 
-function renderRun(root: Document, run: TaskRun): HTMLElement {
+function renderRun(
+  root: Document,
+  run: TaskRun,
+  onOpenSession: (sessionId: string) => Promise<string | undefined>,
+): HTMLElement {
+  const container = root.createElement("section");
+  container.className = "task-run";
   const details = root.createElement("p");
-  details.className = "task-run";
   details.textContent = [
     `Run: ${run.runId}`,
     `State: ${run.state ?? "Not reported"}`,
@@ -532,11 +673,124 @@ function renderRun(root: Document, run: TaskRun): HTMLElement {
     run.delivery?.mode && `Delivery mode: ${run.delivery.mode}`,
     run.delivery?.targets.length && `Delivery targets: ${run.delivery.targets.join(", ")}`,
     run.delivery?.error && `Delivery error: ${errorText(run.delivery.error)}`,
-    run.deliveryTargets.length && `Delivered markers: ${run.deliveryTargets.join(", ")}`,
+    run.deliveryTargets.length && `Delivery attempt claims: ${run.deliveryTargets.join(", ")}`,
   ]
     .filter(Boolean)
     .join("\n");
-  return details;
+  container.append(details);
+  if (run.isolatedSessionId) {
+    const open = root.createElement("button");
+    open.type = "button";
+    open.className = "secondary-tool";
+    open.textContent = "Open result conversation";
+    open.setAttribute("aria-label", `Open result conversation for run ${run.runId}`);
+    open.addEventListener("click", async () => {
+      const error = await onOpenSession(run.isolatedSessionId!);
+      if (error) details.textContent = `${details.textContent}\n${error}`;
+    });
+    container.append(open);
+  }
+  return container;
+}
+
+function taskUpdateForm(
+  root: Document,
+  task: TaskControlValue["tasks"][number],
+  busy: boolean,
+  onAction: (input: Omit<TaskControlInput, "sessionId">) => void,
+): HTMLFormElement {
+  const form = root.createElement("form");
+  form.className = "schedule-form";
+  const instruction = root.createElement("textarea");
+  instruction.required = true;
+  instruction.maxLength = 32_000;
+  instruction.value = task.instruction ?? "";
+  instruction.disabled = busy;
+  const instructionLabel = root.createElement("label");
+  instructionLabel.textContent = "Instruction";
+  instructionLabel.append(instruction);
+  const kind = root.createElement("select");
+  for (const [value, label] of [
+    ["at", "Once, at a date and time"],
+    ["every", "Repeat on an interval"],
+    ["cron", "Advanced: cron schedule"],
+  ]) {
+    const option = root.createElement("option");
+    option.value = value!;
+    option.textContent = label!;
+    kind.append(option);
+  }
+  kind.value = task.scheduleInput?.kind ?? "every";
+  kind.disabled = busy;
+  const kindLabel = root.createElement("label");
+  kindLabel.textContent = "When";
+  kindLabel.append(kind);
+  const timing = root.createElement("input");
+  timing.required = true;
+  timing.value = task.scheduleInput?.value ?? "";
+  timing.disabled = busy;
+  const timingLabel = root.createElement("label");
+  const timingCaption = root.createElement("span");
+  timingLabel.append(timingCaption, timing);
+  const timezone = root.createElement("input");
+  timezone.value = task.scheduleInput?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  timezone.disabled = busy;
+  const timezoneLabel = root.createElement("label");
+  timezoneLabel.textContent = "Timezone for cron";
+  timezoneLabel.append(timezone);
+  const syncTiming = () => {
+    timing.type =
+      kind.value === "at" ? "datetime-local" : kind.value === "every" ? "number" : "text";
+    timing.step = kind.value === "at" ? "0.001" : kind.value === "every" ? "any" : "";
+    timing.min = kind.value === "every" ? String(10 / 60) : "";
+    timingCaption.textContent =
+      kind.value === "at"
+        ? "Date and time (your local timezone)"
+        : kind.value === "every"
+          ? "Interval in minutes (decimals allowed)"
+          : "Cron expression";
+    timezoneLabel.hidden = kind.value !== "cron";
+  };
+  kind.addEventListener("change", () => {
+    timing.value = "";
+    syncTiming();
+  });
+  syncTiming();
+  const submit = root.createElement("button");
+  submit.type = "submit";
+  submit.className = "secondary-tool";
+  submit.textContent = "Save update";
+  submit.disabled = busy || !task.scheduleRevision;
+  const error = root.createElement("p");
+  error.setAttribute("role", "alert");
+  if (!task.scheduleRevision) error.textContent = "Refresh task details before updating.";
+  form.append(instructionLabel, kindLabel, timingLabel, timezoneLabel, error, submit);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!task.scheduleRevision) return;
+    let value = timing.value;
+    if (kind.value === "at") {
+      const instant = localDateTimeToIso(value);
+      if (!instant) {
+        error.textContent = "Choose a valid date and time.";
+        return;
+      }
+      value = instant;
+    }
+    const update: TaskUpdateInput = {
+      instruction: instruction.value,
+      kind: kind.value as TaskUpdateInput["kind"],
+      value,
+      timezone: timezone.value,
+    };
+    onAction({
+      action: "update",
+      taskId: task.id,
+      update,
+      expectedUpdatedAt: task.scheduleRevision,
+    });
+  });
+  return form;
 }
 
 function errorText(error: { code: string | null; message: string | null }): string {
