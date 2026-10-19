@@ -35,6 +35,11 @@ Desktop is an **early development alpha**. The current application version is
 development packages are available; signed stable releases and full Focus/CLI
 parity are still in progress.
 
+[![OpenMinion Desktop showing a sample conversation, conversation sidebar, Settings, and message composer](docs/images/desktop-preview.png)](docs/images/desktop-preview.png)
+
+*Desktop UI preview with sample conversation data; no model or daemon is connected.
+Captured from current development source. Downloaded builds may differ.*
+
 ## Read This First
 
 1. [Install](#install) a development package or [run from source](#run-from-source).

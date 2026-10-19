@@ -14,6 +14,8 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
 ### Recent changes
 
+- Add a labeled Desktop screenshot to the README using non-private sample chat.
+
 - Clarify packaged-app prerequisites, document Identity editing and verification,
   and correct the route to daemon diagnostics in Runtime settings.
 
