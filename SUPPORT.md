@@ -84,6 +84,10 @@ managed runtime installation still requires Python 3.11 and network access.
 - **A response disconnects:** use **Reconnect response** when offered. This
   attaches the known response without resending your message. Restart discovery
   remains unsupported; see [Workspace Basics](docs/getting-started.md#workspace-basics).
+- **Identity is empty or unavailable:** open **Settings → Identity** and use
+  **Try again**. If an upgrade is required, use the offered **Runtime settings**
+  shortcut. See [Identity settings](docs/getting-started.md#edit-an-agents-identity)
+  for draft verification and the existing CLI setup boundary.
 - **No runtime update is offered:** only explicitly compatible records qualify.
   An empty feed is not permission to install an arbitrary runtime. See
   [Runtime Updates](docs/getting-started.md#runtime-updates).
