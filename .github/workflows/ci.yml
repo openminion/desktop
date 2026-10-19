@@ -32,18 +32,19 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate GitHub Actions workflows
         if: matrix.os == 'ubuntu-latest'
-        uses: docker://rhysd/actionlint:1.7.12
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
         with:
           args: -color
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -56,12 +57,11 @@ jobs:
         shell: bash
         env:
           BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            git fetch --no-tags origin \
-              "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-            base_commit="$(git merge-base HEAD "origin/${GITHUB_BASE_REF}")"
+            base_commit="$(git merge-base HEAD "$PR_BASE_SHA")"
             node scripts/commit-message.mjs --range "${base_commit}..HEAD"
           elif [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]] && \
             git merge-base --is-ancestor "${BEFORE_SHA}" HEAD; then
@@ -82,7 +82,8 @@ jobs:
         run: npm run electron-check
 
   prepare-package-release:
-    if: github.event_name == 'workflow_dispatch' && inputs.packages
+    needs: quality
+    if: github.repository == 'openminion/desktop' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.packages
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -105,7 +106,7 @@ jobs:
 
   package:
     name: Package (${{ matrix.target }})
-    if: github.event_name == 'workflow_dispatch' && inputs.packages
+    if: github.repository == 'openminion/desktop' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.packages
     needs: [quality, prepare-package-release]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
@@ -124,12 +125,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm

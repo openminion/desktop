@@ -14,6 +14,493 @@ afterEach(async () => {
 });
 
 describe("PyPI CLI client", () => {
+  it("preserves canonical session catalog and detail metadata without inventing missing facts", async () => {
+    let facts: Record<string, unknown> = { channel: "cli", turns: 0, age: "2m" };
+    const run = vi.fn(async (_executable: string, args: readonly string[]) => ({
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        args[1] === "export"
+          ? ""
+          : JSON.stringify(
+              args[1] === "list"
+                ? [{ ...session("saved"), ...facts }]
+                : { ...session("saved"), ...facts },
+            ),
+    }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    expect(await client.list({})).toMatchObject({
+      ok: true,
+      value: {
+        sessions: [
+          {
+            channel: "cli",
+            messageCount: 0,
+            updatedLabel: "2m",
+          },
+        ],
+      },
+    });
+    expect(await client.load({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: {
+        session: {
+          channel: "cli",
+          messageCount: 0,
+          updatedLabel: null,
+          updatedAt: now,
+        },
+      },
+    });
+    facts = {};
+    expect(await client.list({})).toMatchObject({
+      ok: true,
+      value: {
+        sessions: [
+          {
+            channel: null,
+            messageCount: null,
+            updatedLabel: null,
+          },
+        ],
+      },
+    });
+    for (const invalid of ["2", -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      facts = { turns: invalid };
+      expect(await client.list({})).toMatchObject({
+        ok: false,
+        error: { code: "invalid_daemon_response" },
+      });
+    }
+    for (const invalid of [{ channel: 1 }, { age: false }]) {
+      facts = invalid;
+      expect(await client.list({})).toMatchObject({ ok: false });
+    }
+  });
+
+  it("reads persisted status without exporting history and keeps draft status local", async () => {
+    let row = { ...session("saved"), channel: "cli", turns: 8, metadata: { secret: "private" } };
+    const run = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: JSON.stringify(row) }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const result = await client.readReport({ kind: "status", sessionId: "saved" });
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        kind: "status",
+        session: {
+          sessionId: "saved",
+          channel: "cli",
+          messageCount: 8,
+          updatedAt: now,
+          model: { provider: null, modelId: null },
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("private");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenLastCalledWith(
+      "openminion",
+      ["sessions", "show", "saved", "--json"],
+      expect.any(Number),
+    );
+    const draft = await client.create({});
+    if (!draft.ok) throw new Error("Draft not created");
+    run.mockClear();
+    expect(
+      await client.readReport({ kind: "status", sessionId: draft.value.sessionId }),
+    ).toMatchObject({ ok: true, value: { kind: "status", session: { isDraft: true } } });
+    for (const input of [
+      { kind: "status" },
+      { kind: "status", sessionId: "--help" },
+      { kind: "status", sessionId: "saved\0" },
+      { kind: "status", sessionId: "saved", toolView: "status" },
+      { kind: "status", sessionId: "saved", agentFilter: undefined },
+    ])
+      expect(await client.readReport(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(run).not.toHaveBeenCalled();
+    row = { ...row, id: "other" };
+    expect(await client.readReport({ kind: "status", sessionId: "saved" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    row = { ...row, id: "saved", turns: -1 };
+    expect(await client.readReport({ kind: "status", sessionId: "saved" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    run.mockResolvedValueOnce({ exitCode: 1, stderr: "Session unavailable", stdout: "" });
+    expect(await client.readReport({ kind: "status", sessionId: "saved" })).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("uses authenticated session custom-command routes without exposing private fields", async () => {
+    const requests: {
+      path: string | undefined;
+      token: string | string[] | undefined;
+      body: string;
+    }[] = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        requests.push({ path: req.url, token: req.headers["x-ipc-token"], body });
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify(
+            req.method === "GET"
+              ? {
+                  ok: true,
+                  session_id: "saved",
+                  commands: [
+                    {
+                      name: "/summarize",
+                      description: "Summarize",
+                      usage: "/summarize <text>",
+                      private: "not exposed",
+                    },
+                  ],
+                }
+              : {
+                  ok: true,
+                  session_id: "saved",
+                  name: "/summarize",
+                  prompt: "Summarize first  second",
+                  private: "not exposed",
+                },
+          ),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("No server address");
+    const run = vi.fn(async (_executable: string, args: readonly string[]) => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify(
+        args[0] === "daemon"
+          ? { reachable: true, host: "127.0.0.1", port: address.port }
+          : { runtime: { ipc_token: "private-test-token" } },
+      ),
+    }));
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    expect(await client.readReport({ kind: "commands", sessionId: "saved" })).toEqual({
+      ok: true,
+      value: {
+        kind: "commands",
+        commands: [{ name: "/summarize", description: "Summarize", usage: "/summarize <text>" }],
+      },
+    });
+    expect(
+      await client.readReport({
+        kind: "command",
+        sessionId: "saved",
+        commandName: "/summarize",
+        arguments: "first  second",
+      }),
+    ).toEqual({ ok: true, value: { kind: "command", prompt: "Summarize first  second" } });
+    expect(requests).toEqual([
+      { path: "/v1/sessions/saved/custom-commands", token: "private-test-token", body: "" },
+      {
+        path: "/v1/sessions/saved/custom-commands/summarize/render",
+        token: "private-test-token",
+        body: JSON.stringify({ arguments: "first  second" }),
+      },
+    ]);
+    for (const invalid of [
+      { kind: "command", sessionId: "saved", commandName: "../private", arguments: "" },
+      { kind: "commands", sessionId: "saved", arguments: "hidden" },
+      { kind: "tokens", sessionId: "saved", commandName: "/hidden" },
+    ])
+      expect(await client.readReport(invalid)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(requests).toHaveLength(2);
+  });
+
+  it("changes tool exposure through scoped authenticated operations without implicit approval", async () => {
+    const fixture = await executableFixture();
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    expect(
+      await client.controlTools({
+        sessionId: "saved",
+        action: "activate",
+        profileId: "web",
+        targetId: "example.com",
+        taskId: "work-1",
+        ttlSeconds: 60,
+        credentialScopes: ["search"],
+        dependencies: ["network"],
+        reason: "Research",
+      }),
+    ).toEqual({ ok: true, value: { text: "Activated: web (audit-1)" } });
+    const activation = fixture.requests.find(
+      (item) => item.path === "/v1/tools/exposure/activate",
+    )!;
+    expect(activation.body).toEqual({
+      session_id: "saved",
+      profile_id: "web",
+      target_id: "example.com",
+      task_id: "work-1",
+      ttl_seconds: 60,
+      credential_scopes: ["search"],
+      dependencies: ["network"],
+      activation_reason: "Research",
+    });
+    expect(activation.token).toBe("test-private-token");
+    expect(
+      await client.controlTools({
+        sessionId: "saved",
+        action: "deactivate",
+        profileId: "web",
+        targetId: "example.com",
+        taskId: "work-1",
+      }),
+    ).toEqual({ ok: true, value: { text: "Deactivated: web" } });
+    const before = fixture.requests.length;
+    for (const input of [
+      { action: "activate", approved: "true" },
+      { action: "activate", credentialScopes: ["search", 42] },
+      { action: "activate", ttlSeconds: -1 },
+      { action: "deactivate", approved: true },
+      { action: "activate", apiKey: "do not forward" },
+    ])
+      expect(
+        await client.controlTools({ sessionId: "saved", profileId: "web", ...input }),
+      ).toMatchObject({ ok: false });
+    expect(fixture.requests).toHaveLength(before);
+  });
+
+  it("does not run delegation commands on a runtime without the scoped contract", async () => {
+    const run = vi.fn().mockResolvedValue({ exitCode: 0, stdout: "--limit --json", stderr: "" });
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("No draft");
+    expect(
+      await client.controlDelegation({ sessionId: created.value.sessionId, action: "list" }),
+    ).toMatchObject({ ok: false, error: { code: "delegation_unavailable" } });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      "openminion",
+      ["agent", "delegate-list", "--help"],
+      30_000,
+    );
+    run.mockClear();
+    expect(
+      await client.controlDelegation({
+        sessionId: created.value.sessionId,
+        action: "resume",
+        taskId: "task-1",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "unsupported_operation" } });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "all 25 skills",
+      payload: {
+        ok: true,
+        skills: Array.from({ length: 25 }, (_, i) => ({
+          skill_id: `skill-${i}`,
+          private: "hidden",
+        })),
+      },
+      expected: {
+        ok: true,
+        value: { kind: "skills", skills: Array.from({ length: 25 }, (_, i) => `skill-${i}`) },
+      },
+    },
+    {
+      label: "empty catalog",
+      payload: { ok: true, skills: [] },
+      expected: { ok: true, value: { kind: "skills", skills: [] } },
+    },
+    {
+      label: "unavailable catalog",
+      payload: { ok: false },
+      expected: { ok: false, error: { code: "report_unavailable" } },
+    },
+    {
+      label: "malformed skill",
+      payload: { ok: true, skills: [{ skill_id: 7 }] },
+      expected: { ok: false, error: { code: "invalid_daemon_response" } },
+    },
+  ])("reads $label without truncating or inventing records", async ({ payload, expected }) => {
+    const fixture = await executableFixture("normal", {}, { list: payload });
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    expect(await client.readReport({ kind: "skills" })).toMatchObject(expected);
+  });
+
+  it("scopes stored skills to fresh session facts and the same draft default as chat", async () => {
+    const fixture = await executableFixture();
+    let row = session("saved");
+    let failed = false;
+    const run = vi.fn(async (executable: string, args: readonly string[], timeout: number) => {
+      if (args[1] === "sessions")
+        return failed
+          ? { exitCode: 1, stderr: "Session unavailable", stdout: "" }
+          : { exitCode: 0, stderr: "", stdout: JSON.stringify(row) };
+      return runCommand(executable, args, timeout);
+    });
+    const client = new CliClient(
+      () => ({ executable: fixture.executable, args: fixture.args }),
+      run,
+    );
+    for (const agent of ["writer", "reviewer+notes&scope=other"]) {
+      row = { ...row, agent };
+      expect(await client.readReport({ kind: "skills", sessionId: "saved" })).toMatchObject({
+        ok: true,
+        value: { kind: "skills", agentId: agent, skills: ["example"] },
+      });
+      expect(fixture.requests.at(-1)).toMatchObject({
+        path: `/v1/skills?agent_id=${encodeURIComponent(agent)}`,
+        token: "test-private-token",
+      });
+    }
+    for (const agentId of [undefined, "draft-agent"]) {
+      const draft = await client.create(agentId ? { agentId } : {});
+      if (!draft.ok) throw new Error("Draft not created");
+      run.mockClear();
+      expect(
+        await client.readReport({ kind: "skills", sessionId: draft.value.sessionId }),
+      ).toMatchObject({
+        ok: true,
+        value: { agentId: agentId ?? "writer" },
+      });
+      expect(run.mock.calls.some(([, args]) => args[1] === "sessions")).toBe(false);
+      expect(fixture.requests.at(-1)?.path).toBe(`/v1/skills?agent_id=${agentId ?? "writer"}`);
+    }
+    row = { ...row, id: "different" };
+    const reads = fixture.requests.length;
+    expect(await client.readReport({ kind: "skills", sessionId: "saved" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    failed = true;
+    expect(await client.readReport({ kind: "skills", sessionId: "saved" })).toMatchObject({
+      ok: false,
+    });
+    expect(fixture.requests).toHaveLength(reads);
+    expect(run.mock.calls.some(([, args]) => args.includes("export"))).toBe(false);
+  });
+
+  it.each(["agents", "mcp"])(
+    "reads fresh %s scope without trusting renderer agent IDs",
+    async (kind) => {
+      const fixture = await executableFixture();
+      let row = session("saved");
+      let failed = false;
+      const run = vi.fn(async (executable: string, args: readonly string[], timeout: number) => {
+        if (args[1] === "sessions")
+          return failed
+            ? { exitCode: 1, stderr: "Session unavailable", stdout: "" }
+            : { exitCode: 0, stderr: "", stdout: JSON.stringify(row) };
+        return runCommand(executable, args, timeout);
+      });
+      const client = new CliClient(
+        () => ({ executable: fixture.executable, args: fixture.args }),
+        run,
+      );
+      for (const agent of ["writer", "reviewer+notes&scope=other"]) {
+        row = { ...row, agent };
+        const result = await client.readReport({ kind, sessionId: "saved" });
+        expect(result).toMatchObject({
+          ok: true,
+          value:
+            kind === "agents"
+              ? { activeAgentId: agent }
+              : { text: expect.stringContaining(`  agent       ${agent}`) },
+        });
+        expect(fixture.requests.at(-1)).toMatchObject({
+          path:
+            kind === "agents"
+              ? "/v1/agents"
+              : `/v1/runtime/capabilities?agent_id=${encodeURIComponent(agent)}`,
+          token: "test-private-token",
+        });
+      }
+      for (const agentId of [undefined, "draft-agent"]) {
+        const draft = await client.create(agentId ? { agentId } : {});
+        if (!draft.ok) throw new Error("Draft not created");
+        run.mockClear();
+        const result = await client.readReport({ kind, sessionId: draft.value.sessionId });
+        expect(result).toMatchObject({
+          ok: true,
+          value:
+            kind === "agents"
+              ? { activeAgentId: agentId ?? "writer" }
+              : { text: expect.stringContaining(`  agent       ${agentId ?? "writer"}`) },
+        });
+        expect(run.mock.calls.some(([, args]) => args[1] === "sessions")).toBe(false);
+      }
+      expect(await client.readReport({ kind })).toMatchObject({
+        ok: true,
+        value:
+          kind === "agents"
+            ? { activeAgentId: null }
+            : { text: expect.not.stringContaining("  agent ") },
+      });
+      expect(fixture.requests.at(-1)?.path).toBe(
+        kind === "agents" ? "/v1/agents" : "/v1/runtime/capabilities",
+      );
+      const reads = fixture.requests.length;
+      for (const extra of [
+        { sessionId: "--help" },
+        { sessionId: "saved\0" },
+        { agentId: "writer" },
+        { proposalId: "proposal" },
+      ])
+        expect(await client.readReport({ kind, ...extra })).toMatchObject({
+          ok: false,
+          error: { code: "invalid_request" },
+        });
+      row = { ...row, id: "different" };
+      expect(await client.readReport({ kind, sessionId: "saved" })).toMatchObject({
+        ok: false,
+        error: { code: "invalid_daemon_response" },
+      });
+      failed = true;
+      expect(await client.readReport({ kind, sessionId: "saved" })).toMatchObject({ ok: false });
+      expect(fixture.requests).toHaveLength(reads);
+      expect(run.mock.calls.some(([, args]) => args.includes("export"))).toBe(false);
+    },
+  );
+
+  it("rejects a different skill identity and unrelated skill report inputs", async () => {
+    const fixture = await executableFixture(
+      "normal",
+      {},
+      { detail: { ok: true, skill: { skill_id: "other" } } },
+    );
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    expect(await client.readReport({ kind: "skills", skillId: "example" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_daemon_response" },
+    });
+    const reads = fixture.requests.length;
+    for (const extra of [
+      { sessionId: "session", skillId: "example" },
+      { sessionId: "--help" },
+      { sessionId: "saved\0" },
+      { agentId: "writer" },
+      { arguments: "extra" },
+    ]) {
+      expect(await client.readReport({ kind: "skills", ...extra })).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    }
+    expect(fixture.requests).toHaveLength(reads);
+  });
+
   it("reads authenticated inventories and excludes private discovery fields", async () => {
     const fixture = await executableFixture();
     const client = new CliClient(() => ({
@@ -22,7 +509,7 @@ describe("PyPI CLI client", () => {
     }));
     expect(await client.readReport({ kind: "agents" })).toEqual({
       ok: true,
-      value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
+      value: { kind: "agents", activeAgentId: null, agents: [{ id: "writer", label: "Writer" }] },
     });
     expect(await client.readReport({ kind: "agents", agentFilter: "Writer" })).toMatchObject({
       ok: true,
@@ -46,7 +533,8 @@ describe("PyPI CLI client", () => {
       ok: true,
       value: {
         kind: "skills",
-        text: "Skills:\n  - example · catalog\nUse /skills <skill-id> to view details.",
+        agentId: null,
+        skills: ["example"],
       },
     });
     expect(await client.readReport({ kind: "skills", skillId: "example" })).toMatchObject({
@@ -99,12 +587,13 @@ describe("PyPI CLI client", () => {
       ok: false,
       error: { code: "invalid_request" },
     });
-    expect(await client.readReport({ kind: "mcp", agentId: "writer" })).toEqual({
+    expect(await client.readReport({ kind: "mcp", sessionId: "saved" })).toEqual({
       ok: true,
       value: {
         kind: "mcp",
         text: [
           "MCP:",
+          "  agent       writer",
           "  configured  local",
           "  exposed     local",
           "  tools       2 exposed · 3 registered",
@@ -164,6 +653,47 @@ describe("PyPI CLI client", () => {
         error: { code: "invalid_request" },
       });
     expect(fixture.requests).toHaveLength(3);
+  });
+
+  it("reads graph readiness with fixed configuration and rejects unrelated authority", async () => {
+    const run = vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stdout: "GraphFakos installed: no\nNext: install viewer",
+      stderr: "",
+    });
+    const client = new CliClient(
+      () => ({ executable: "openminion", args: ["--config", "/private/config"] }),
+      run,
+    );
+    expect(await client.readReport({ kind: "graph", graphView: "status" })).toEqual({
+      ok: true,
+      value: { kind: "graph", text: "GraphFakos installed: no\nNext: install viewer" },
+    });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      "openminion",
+      ["--config", "/private/config", "graph", "status"],
+      30_000,
+    );
+    for (const input of [
+      { kind: "graph", graphView: "refresh" },
+      { kind: "graph", graphView: ["status"] },
+      { kind: "graph", graphView: "status", sessionId: "session-1" },
+      { kind: "graph", graphView: "status", provider: "custom" },
+      { kind: "graph", graphView: "status", path: "/private" },
+      { kind: "graph", graphView: "status", agentFilter: undefined },
+      { kind: "tokens", graphView: "status", sessionId: "session-1" },
+    ])
+      expect(await client.readReport(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    expect(run).toHaveBeenCalledTimes(1);
+    run.mockResolvedValueOnce({ exitCode: 1, stdout: "", stderr: "Private failure" });
+    expect(await client.readReport({ kind: "graph", graphView: "status" })).toMatchObject({
+      ok: false,
+      error: { code: "report_unavailable", message: "OpenMinion could not read the graph report." },
+    });
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it("uses canonical token formatting and transcript export without renderer paths", async () => {
@@ -524,7 +1054,10 @@ describe("PyPI CLI client", () => {
     const run = vi.fn();
     const client = new CliClient(
       () => ({ executable: "openminion", args: ["--config", "/private/config.json"] }),
-      run,
+      (executable, args, timeout) =>
+        args.at(-1) === "--help"
+          ? Promise.resolve({ exitCode: 0, stderr: "", stdout: "--parent-agent-id --session-id" })
+          : run(executable, args, timeout),
     );
     const created = await client.create({ agentId: "writer" });
     if (!created.ok) throw new Error("Draft not created");
@@ -682,7 +1215,13 @@ describe("PyPI CLI client", () => {
     "drops terminal %s child prose from delegation inspection",
     async (state) => {
       const run = vi.fn();
-      const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+      const client = new CliClient(
+        () => ({ executable: "openminion", args: [] }),
+        (executable, args, timeout) =>
+          args.at(-1) === "--help"
+            ? Promise.resolve({ exitCode: 0, stderr: "", stdout: "--parent-agent-id --session-id" })
+            : run(executable, args, timeout),
+      );
       const created = await client.create({ agentId: "writer" });
       if (!created.ok) throw new Error("Draft not created");
       run.mockResolvedValueOnce({
@@ -1890,6 +2429,78 @@ describe("PyPI CLI client", () => {
       }),
     );
   });
+
+  it("manages queued prompts and starts the next prompt through the shared daemon contract", async () => {
+    const fixture = await executableFixture("wait");
+    const client = new CliClient(() => ({ executable: fixture.executable, args: fixture.args }));
+    const currentEvents: TurnEventV1[] = [];
+    const submitted = await client.submit({ sessionId: "saved", message: "current" }, (event) =>
+      currentEvents.push(event),
+    );
+    if (!submitted.ok) throw new Error("Turn not accepted");
+
+    const first = await client.enqueueTurnInput({
+      sessionId: "saved",
+      agentId: "writer",
+      text: "first queued prompt",
+    });
+    const second = await client.enqueueTurnInput({
+      sessionId: "saved",
+      agentId: "writer",
+      text: "second queued prompt",
+    });
+    if (!first.ok || !second.ok) throw new Error("Prompt not queued");
+    expect(await client.listTurnInputs({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: [
+        { queueId: first.value.queueId, text: "first queued prompt", status: "queued" },
+        { queueId: second.value.queueId, text: "second queued prompt", status: "queued" },
+      ],
+    });
+
+    const moved = await client.moveTurnInput({
+      sessionId: "saved",
+      queueId: second.value.queueId,
+      statusVersion: second.value.statusVersion,
+      beforeQueueId: first.value.queueId,
+    });
+    if (!moved.ok) throw new Error("Prompt not moved");
+    expect(await client.listTurnInputs({ sessionId: "saved" })).toMatchObject({
+      ok: true,
+      value: [{ queueId: second.value.queueId }, { queueId: first.value.queueId }],
+    });
+
+    const dropped = await client.dropTurnInput({
+      sessionId: "saved",
+      queueId: first.value.queueId,
+      statusVersion: first.value.statusVersion,
+    });
+    expect(dropped).toMatchObject({ ok: true, value: { status: "dropped" } });
+
+    const nextEvents: TurnEventV1[] = [];
+    const next = await client.cancelAndRunNext(
+      {
+        sessionId: "saved",
+        traceId: submitted.value.traceId,
+        agentId: "writer",
+        expectedQueueId: second.value.queueId,
+      },
+      (event) => nextEvents.push(event),
+    );
+    expect(next).toMatchObject({ ok: true, value: { sessionId: "saved" } });
+    await vi.waitFor(() =>
+      expect(nextEvents.at(-1)).toMatchObject({ kind: "done", outcome: "complete" }),
+    );
+    expect(nextEvents).toContainEqual(
+      expect.objectContaining({ kind: "response", finalText: "Next reply" }),
+    );
+    expect(fixture.requests).toContainEqual(
+      expect.objectContaining({
+        method: "GET",
+        path: "/v1/sessions/saved/turn-inputs?status=queued&status=steer_deferred",
+      }),
+    );
+  });
 });
 
 const now = "2026-09-08T00:00:00Z";
@@ -1904,27 +2515,67 @@ function session(id: string) {
   };
 }
 
-async function executableFixture(mode = "normal", toolOutput: Record<string, unknown> = {}) {
+async function executableFixture(
+  mode = "normal",
+  toolOutput: Record<string, unknown> = {},
+  skillResponses: { list?: unknown; detail?: unknown } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "desktop-cli-test-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const requests: Array<{
     body: Record<string, unknown>;
     token: string | string[] | undefined;
     path?: string;
+    method?: string;
   }> = [];
   let complete: ((cancelled: boolean) => void) | null = null;
   let emitSse: ((event: string, value: unknown) => void) | null = null;
   let activeSessionId = "";
   let traceId = "";
+  let nextTraceId = "";
   let traceExpired = false;
+  let queueSequence = 0;
+  const queue: Record<string, unknown>[] = [];
   const server = createServer((req, res) => {
     if (req.method === "GET") {
       requests.push({
         body: {},
         token: req.headers["x-ipc-token"],
         path: req.url,
+        method: req.method,
       });
       res.setHeader("Content-Type", "application/json");
+      if (req.url?.startsWith("/v1/sessions/saved/turn-inputs")) {
+        res.end(
+          JSON.stringify({
+            ok: true,
+            entries: queue.filter((entry) => entry.status === "queued"),
+          }),
+        );
+        return;
+      }
+      if (nextTraceId && req.url === `/v1/turn/${nextTraceId}/stream?after_sequence=0`) {
+        res.setHeader("Content-Type", "text/event-stream");
+        const output = (event: string, value: unknown) =>
+          res.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
+        output("meta", {
+          session_id: "saved",
+          trace_id: nextTraceId,
+          request_id: "request-next",
+          stream_schema_version: "openminion.turn-stream.v1",
+          capabilities: ["active_turn_replay"],
+        });
+        output("chunk", {
+          trace_id: nextTraceId,
+          kind: "final_text",
+          data: { text: "Next reply" },
+          ts: now,
+        });
+        output("response", { trace_id: nextTraceId, final_text: "Next reply", errors: [] });
+        output("done", { trace_id: nextTraceId, status: "complete" });
+        res.end();
+        return;
+      }
       if (
         req.url === `/v1/turn/${traceId}/status` ||
         req.url?.startsWith(`/v1/turn/${traceId}/stream?`)
@@ -2073,7 +2724,8 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
                   },
                 ],
               }
-            : req.url === "/v1/runtime/capabilities?agent_id=writer"
+            : req.url === "/v1/runtime/capabilities" ||
+                req.url?.startsWith("/v1/runtime/capabilities?")
               ? {
                   ok: true,
                   capabilities: {
@@ -2088,13 +2740,13 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
                     mcp: { failed_servers: {} },
                   },
                 }
-              : req.url === "/v1/skills"
-                ? {
+              : req.url === "/v1/skills" || req.url?.startsWith("/v1/skills?")
+                ? (skillResponses.list ?? {
                     ok: true,
                     skills: [{ skill_id: "example", private: "private" }],
-                  }
+                  })
                 : req.url === "/v1/skills/example"
-                  ? {
+                  ? (skillResponses.detail ?? {
                       ok: true,
                       skill: {
                         skill_id: "example",
@@ -2108,7 +2760,7 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
                         sections: { instructions: "Use the approved tool." },
                         private: "private",
                       },
-                    }
+                    })
                   : req.url === "/v1/skills/suggestions/status"
                     ? {
                         ok: true,
@@ -2167,7 +2819,82 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
     });
     req.on("end", () => {
       const body = JSON.parse(data);
-      requests.push({ body, token: req.headers["x-ipc-token"] });
+      requests.push({
+        body,
+        token: req.headers["x-ipc-token"],
+        path: req.url,
+        method: req.method,
+      });
+      if (req.url === "/v1/sessions/saved/turn-inputs") {
+        queueSequence += 1;
+        const entry = {
+          queue_id: `queue-${queueSequence}`,
+          session_id: "saved",
+          agent_id: body.agent_id,
+          text: body.text,
+          intent: "queue_next",
+          source_client: body.source_client,
+          idempotency_key: body.idempotency_key,
+          priority: 0,
+          metadata: {},
+          status: "queued",
+          status_version: 1,
+          created_at: now,
+          trace_id: null,
+        };
+        queue.push(entry);
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, entry }));
+        return;
+      }
+      const queuePath = req.url?.match(/^\/v1\/sessions\/saved\/turn-inputs\/([^/]+)$/);
+      if (req.method === "DELETE" && queuePath) {
+        const entry = queue.find((item) => item.queue_id === queuePath[1]);
+        if (!entry) throw new Error("Queue fixture entry not found");
+        entry.status = "dropped";
+        entry.status_version = Number(entry.status_version) + 1;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, entry }));
+        return;
+      }
+      const movePath = req.url?.match(/^\/v1\/sessions\/saved\/turn-inputs\/([^/]+)\/move$/);
+      if (movePath) {
+        const index = queue.findIndex((item) => item.queue_id === movePath[1]);
+        const before = queue.findIndex((item) => item.queue_id === body.before_queue_id);
+        if (index < 0 || before < 0) throw new Error("Queue fixture move target not found");
+        const [entry] = queue.splice(index, 1);
+        queue.splice(
+          queue.findIndex((item) => item.queue_id === body.before_queue_id),
+          0,
+          entry!,
+        );
+        entry!.status_version = Number(entry!.status_version) + 1;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true, entry }));
+        return;
+      }
+      if (req.url === `/v1/turn/${traceId}/cancel-and-run-next`) {
+        const entry = queue.find((item) => item.queue_id === body.expected_queue_id);
+        if (!entry) throw new Error("Queue fixture next entry not found");
+        nextTraceId = "trace-next";
+        entry.status = "running";
+        entry.status_version = Number(entry.status_version) + 1;
+        entry.trace_id = nextTraceId;
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            ok: true,
+            cancelled: true,
+            trace_id: traceId,
+            next_trace_id: nextTraceId,
+            entry,
+          }),
+        );
+        complete?.(true);
+        return;
+      }
       if (req.url?.endsWith("/cancel")) {
         expect(req.url).toBe(`/v1/turn/${traceId}/cancel`);
         expect(req.headers["x-ipc-token"]).toBe("test-private-token");
@@ -2240,6 +2967,21 @@ async function executableFixture(mode = "normal", toolOutput: Record<string, unk
           }),
         );
         complete?.(false);
+        return;
+      }
+      if (req.url === "/v1/tools/exposure/activate") {
+        requests.push({ path: req.url, body, token: req.headers["x-ipc-token"] });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            activation: { profile_id: "web", audit_id: "audit-1", private: "not exposed" },
+          }),
+        );
+        return;
+      }
+      if (req.url === "/v1/tools/exposure/deactivate") {
+        requests.push({ path: req.url, body, token: req.headers["x-ipc-token"] });
+        res.end(JSON.stringify({ ok: true, deactivated: true }));
         return;
       }
       expect(req.url).toBe("/v1/turn/stream");

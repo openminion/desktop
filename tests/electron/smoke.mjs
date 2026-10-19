@@ -505,7 +505,10 @@ async function check() {
     `);
     await waitFor("document.querySelector('#chat-display-status').textContent.includes('Saved')");
     assert.equal(await evaluate("document.querySelector('#chat-display').value"), "quiet");
-    assert.equal((await evaluate("window.openminion.presentation.load()")).value.quietTools, true);
+    assert.equal(
+      (await evaluate("window.openminion.presentation.load()")).value.toolDisplay,
+      "quiet",
+    );
     await click("settings-runtime-button");
     assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
     assert.equal(
@@ -624,7 +627,10 @@ async function check() {
       display.dispatchEvent(new Event('change', {bubbles:true})); }
     `);
     await waitFor("document.querySelector('#chat-display-status').textContent.includes('Saved')");
-    assert.equal((await evaluate("window.openminion.presentation.load()")).value.quietTools, false);
+    assert.equal(
+      (await evaluate("window.openminion.presentation.load()")).value.toolDisplay,
+      "normal",
+    );
     await click("close-settings");
     await evaluate("document.querySelector('#rename-dialog').showModal()");
     await key(",", [process.platform === "darwin" ? "meta" : "control"]);
@@ -731,7 +737,7 @@ async function check() {
       true,
     );
     assert.equal(
-      (await evaluate("window.openminion.presentation.save({quietTools:false})")).ok,
+      (await evaluate("window.openminion.presentation.save({toolDisplay:'normal'})")).ok,
       true,
     );
     window.reload();
@@ -768,6 +774,35 @@ async function check() {
       "document.querySelector('.tool-output summary')?.textContent === 'Show available output'",
     );
     assert.equal(await evaluate("document.querySelector('.tool-output').open"), false);
+    assert.equal(
+      await evaluate("document.querySelector('.tool-preview').textContent"),
+      toolContent.split("\n").slice(0, 6).join("\n"),
+    );
+    const displayCommand = async (command, mode) => {
+      await click("composer");
+      await evaluate("document.querySelector('#composer').value = ''");
+      await window.webContents.insertText(command);
+      await key("Return");
+      await waitFor(
+        `document.querySelector('#chat-display').value === '${mode}' && !document.querySelector('#chat-display').disabled`,
+      );
+      assert.equal(
+        (await evaluate("window.openminion.presentation.load()")).value.toolDisplay,
+        mode,
+      );
+    };
+    await displayCommand("/verbose", "verbose");
+    assert.equal(await evaluate("document.querySelector('.tool-output').open"), true);
+    assert.equal(
+      await evaluate("getComputedStyle(document.querySelector('.tool-preview')).display"),
+      "none",
+    );
+    await displayCommand("/details off", "normal");
+    assert.equal(await evaluate("document.querySelector('.tool-output').open"), false);
+    assert.notEqual(
+      await evaluate("getComputedStyle(document.querySelector('.tool-preview')).display"),
+      "none",
+    );
     await evaluate("document.querySelector('.tool-output summary').focus()");
     await key("Space");
     assert.equal(await evaluate("document.querySelector('.tool-output').open"), true);

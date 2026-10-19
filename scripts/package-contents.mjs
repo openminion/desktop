@@ -1,9 +1,9 @@
 // Verify that a packaged app contains only reviewed runtime files.
 
-import { listPackage } from "@electron/asar";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { listPackage } from "@electron/asar";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const outputRoot = join(repositoryRoot, "out");
@@ -17,6 +17,8 @@ if (applicationDirectories.length === 0) {
 
 const allowedRoots = new Set(["dist", "LICENSE", "NOTICE", "package.json"]);
 const required = [
+  "/LICENSE",
+  "/NOTICE",
   "/dist/src/main/bootstrap.js",
   "/dist/src/main/desktop-store.js",
   "/dist/src/main/index.js",

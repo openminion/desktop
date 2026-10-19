@@ -30,6 +30,7 @@ const api: NativeApi = {
     load: () => ipcRenderer.invoke(IPC_CHANNELS.presentationLoad),
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.presentationSave, input),
   },
+  tools: { control: (input) => ipcRenderer.invoke(IPC_CHANNELS.toolsControl, input) },
   reports: { read: (input) => ipcRenderer.invoke(IPC_CHANNELS.reportsRead, input) },
   tasks: {
     control: (input) => ipcRenderer.invoke(IPC_CHANNELS.tasksControl, input),
@@ -98,6 +99,21 @@ const api: NativeApi = {
     },
     reconnect(input) {
       return ipcRenderer.invoke(IPC_CHANNELS.turnsReconnect, input);
+    },
+    listQueue(input) {
+      return ipcRenderer.invoke(IPC_CHANNELS.turnsQueueList, input);
+    },
+    enqueue(input) {
+      return ipcRenderer.invoke(IPC_CHANNELS.turnsQueueEnqueue, input);
+    },
+    drop(input) {
+      return ipcRenderer.invoke(IPC_CHANNELS.turnsQueueDrop, input);
+    },
+    move(input) {
+      return ipcRenderer.invoke(IPC_CHANNELS.turnsQueueMove, input);
+    },
+    cancelAndRunNext(input) {
+      return ipcRenderer.invoke(IPC_CHANNELS.turnsCancelAndRunNext, input);
     },
     subscribe(listener) {
       if (activeTurnListener) {

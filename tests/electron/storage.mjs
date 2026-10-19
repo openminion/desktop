@@ -149,10 +149,10 @@ async function checkStorage() {
       if (phase === "migrate") {
         assert.deepEqual(await evaluate("window.openminion.presentation.load()"), {
           ok: true,
-          value: { quietTools: false },
+          value: { toolDisplay: "normal" },
         });
         assert.equal(
-          (await evaluate("window.openminion.presentation.save({quietTools:true})")).ok,
+          (await evaluate("window.openminion.presentation.save({toolDisplay:'verbose'})")).ok,
           true,
         );
         assert.equal(
@@ -175,10 +175,10 @@ async function checkStorage() {
       }
       assert.deepEqual(await evaluate("window.openminion.presentation.load()"), {
         ok: true,
-        value: { quietTools: true },
+        value: { toolDisplay: "verbose" },
       });
       const db = new DatabaseSync(join(desktopRoot, "desktop.sqlite"), { readOnly: true });
-      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 5);
+      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 6);
       assert.equal(db.prepare("SELECT runtime_home FROM installation").get().runtime_home, legacy);
       db.close();
       assert.equal(readFileSync(join(legacy, "runtime", "keep"), "utf8"), "existing environment");

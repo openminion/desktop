@@ -22,6 +22,7 @@ import {
   waitingTime,
 } from "../../src/renderer/app.js";
 import { renderTasks } from "../../src/renderer/tasks.js";
+import { renderMarkdown } from "../../src/renderer/markdown.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
 import type {
   ArtifactCatalogItemV1,
@@ -37,16 +38,18 @@ import type {
   ObservationStatusV1,
   SessionSummaryV1,
   TurnEventV1,
+  TurnInputQueueEntry,
 } from "../../src/shared/contracts.js";
 
 function mount(api: NativeApi, root: Document): Promise<void> {
   api.chatNames ??= namesApi();
+  api.reports ??= { read: async () => ({ ok: true, value: { kind: "commands", commands: [] } }) };
   api.drafts ??= {
     load: async () => ({ ok: true, value: [] }),
     save: async () => ({ ok: true, value: "00000000-0000-4000-8000-000000000001" }),
   };
   api.presentation ??= {
-    load: async () => ({ ok: true, value: { quietTools: false } }),
+    load: async () => ({ ok: true, value: { toolDisplay: "normal" } }),
     save: async () => ({ ok: true, value: null }),
   };
   api.runtime ??= {
@@ -82,6 +85,11 @@ function mount(api: NativeApi, root: Document): Promise<void> {
     }),
     control: vi.fn(),
   };
+  api.turns.listQueue ??= async () => ({ ok: true, value: [] });
+  api.turns.enqueue ??= vi.fn();
+  api.turns.drop ??= vi.fn();
+  api.turns.move ??= vi.fn();
+  api.turns.cancelAndRunNext ??= vi.fn();
   return mountRenderer(api, root);
 }
 
@@ -105,6 +113,173 @@ function namesApi(): NativeApi["chatNames"] {
 }
 
 describe("renderer computer observation", () => {
+  it("discovers session commands and sends only their canonical rendered prompt", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    const commands = [
+      { name: "/summarize", description: "Summarize notes", usage: "/summarize <notes>" },
+    ];
+    api.reports = {
+      read: vi.fn(async (input) =>
+        input.kind === "commands"
+          ? { ok: true as const, value: { kind: "commands" as const, commands } }
+          : {
+              ok: true as const,
+              value: { kind: "command" as const, prompt: "/literal prompt\nKeep  two spaces" },
+            },
+      ),
+    };
+    vi.mocked(api.turns.submit).mockResolvedValue({
+      ok: true,
+      value: { sessionId: "session-1", traceId: "trace-1", requestId: "request-1" },
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/summarize first  second";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+      expect(api.reports.read).toHaveBeenCalledWith({
+        kind: "command",
+        sessionId: "session-1",
+        commandName: "/summarize",
+        arguments: "first  second",
+      });
+      expect(api.turns.submit).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "/literal prompt\nKeep  two spaces" }),
+      );
+      expect(commandMatches("/summ", commands).map((item) => item.name)).toEqual(["/summarize"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps a custom-command draft when Core refuses local expansion", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.reports = {
+      read: vi.fn(async (input) =>
+        input.kind === "commands"
+          ? {
+              ok: true as const,
+              value: {
+                kind: "commands" as const,
+                commands: [{ name: "/local", description: "Local", usage: "/local" }],
+              },
+            }
+          : {
+              ok: false as const,
+              error: {
+                code: "unsupported_custom_command_expansion",
+                message: "This command requires terminal-local file or shell expansion.",
+                retryable: false,
+                retryAfterMs: null,
+              },
+            },
+      ),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/local";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "This command requires terminal-local file or shell expansion.",
+        ),
+      );
+      expect(page.element("composer").value).toBe("/local");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not replace an edited draft with a delayed custom command", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    let finish!: (value: unknown) => void;
+    api.reports = {
+      read: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          value: {
+            kind: "commands",
+            commands: [{ name: "/notes", description: "Notes", usage: "/notes" }],
+          },
+        })
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        ),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/notes";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.reports.read).toHaveBeenCalledTimes(2));
+      page.element("composer").value = "My revised draft";
+      finish({ ok: true, value: { kind: "command", prompt: "Old expanded prompt" } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(page.element("composer").value).toBe("My revised draft");
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("opens a scoped tool form with approval unselected and submits only on user action", async () => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.tools = {
+      control: vi.fn().mockResolvedValue({ ok: true, value: { text: "Activated: web (audit-1)" } }),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/tools activate web";
+      page.element("composer-form").dispatch("submit");
+      const form = page
+        .element("command-result")
+        .descendants()
+        .find((item) => item.tagName === "form")!;
+      expect(form).toBeDefined();
+      const approval = form.descendants().find((item) => item.type === "checkbox")!;
+      expect(approval.checked).toBe(false);
+      expect(api.tools.control).not.toHaveBeenCalled();
+      approval.checked = true;
+      form.dispatch("submit");
+      await vi.waitFor(() => expect(api.tools.control).toHaveBeenCalledOnce());
+      expect(api.tools.control).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: "session-1",
+          action: "activate",
+          profileId: "web",
+          approved: true,
+        }),
+      );
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("loads and saves quiet/normal as Desktop presentation preferences", async () => {
     const save = vi.fn<NativeApi["presentation"]["save"]>(async () => ({
       ok: true,
@@ -115,7 +290,7 @@ describe("renderer computer observation", () => {
       daemon: { status: async () => status({ state: "degraded" }) },
       turns: { subscribe: () => () => {} },
       presentation: {
-        load: vi.fn(async () => ({ ok: true, value: { quietTools: true } })),
+        load: vi.fn(async () => ({ ok: true, value: { toolDisplay: "quiet" } })),
         save,
       },
     } as unknown as NativeApi;
@@ -127,11 +302,40 @@ describe("renderer computer observation", () => {
       expect(page.element("chat-display").value).toBe("quiet");
       page.element("composer").value = "/normal";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: false }));
+      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: "normal" }));
       page.element("composer").value = "/quiet";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ quietTools: true }));
+      await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: "quiet" }));
       await vi.waitFor(() => expect(page.element("chat-display").value).toBe("quiet"));
+      for (const [command, expected] of [
+        ["/verbose", "verbose"],
+        ["/details", "normal"],
+        ["/details toggle", "verbose"],
+        ["/details off", "normal"],
+        ["/details on", "verbose"],
+        ["/details quiet", "quiet"],
+        ["/details", "verbose"],
+        ["/details normal", "normal"],
+        ["/details full", "verbose"],
+        ["/details concise", "normal"],
+        ["/details details", "verbose"],
+        ["/details verbose", "verbose"],
+      ]) {
+        save.mockClear();
+        page.element("composer").value = command!;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: expected }));
+        await vi.waitFor(() => expect(page.element("chat-display").disabled).toBe(false));
+        expect(page.element("chat-display").value).toBe(expected);
+      }
+      save.mockClear();
+      for (const command of ["/details never", "/details on off", "/verbose extra"]) {
+        page.element("composer").value = command;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await Promise.resolve();
+        expect(save).not.toHaveBeenCalled();
+        expect(page.element("chat-display").value).toBe("verbose");
+      }
       page.element("chat-display").value = "normal";
       page.element("chat-display").dispatch("change");
       await vi.waitFor(() =>
@@ -423,6 +627,8 @@ describe("renderer computer observation", () => {
     expect(html).toContain('id="identity-verify"');
     expect(html).toContain('id="identity-save"');
     expect(html).toContain('id="identity-preview"');
+    expect(html).toContain('aria-describedby="identity-status identity-issues"');
+    expect(html).toMatch(/id="identity-preview"[^>]*readonly/);
   });
 });
 
@@ -440,6 +646,157 @@ function status(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
 }
 
 describe("renderer status view", () => {
+  it("queues a message during an active turn and can stop to run it next", async () => {
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    let emit!: (event: TurnEventV1) => void;
+    const entry = {
+      queueId: "queue-1",
+      sessionId: "session-1",
+      agentId: "openminion",
+      text: "Run the checks next",
+      status: "queued" as const,
+      statusVersion: 1,
+      createdAt: "2026-08-19T00:00:02Z",
+      traceId: null,
+    };
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.turns.subscribe = vi.fn((listener) => {
+      emit = listener;
+      return vi.fn();
+    });
+    api.turns.listQueue = vi.fn().mockResolvedValue({ ok: true, value: [] });
+    api.turns.enqueue = vi.fn().mockResolvedValue({ ok: true, value: entry });
+    api.turns.submit = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        sessionId: "session-1",
+        traceId: "trace-current",
+        requestId: "request-current",
+      },
+    });
+    api.turns.cancelAndRunNext = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { sessionId: "session-1", traceId: "trace-next", requestId: "request-next" },
+    });
+    const page = new FixtureDocument();
+    await mount(api, page.asDocument());
+    page.element("composer").value = "Start the current turn";
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+    emit({
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-current",
+      requestId: "request-current",
+    });
+
+    page.element("composer").value = entry.text;
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.enqueue).toHaveBeenCalledOnce());
+    expect(api.turns.enqueue).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      agentId: "openminion",
+      text: entry.text,
+    });
+    expect(page.element("turn-queue").hidden).toBe(false);
+    expect(
+      page
+        .element("turn-queue-list")
+        .descendants()
+        .map((item) => item.textContent),
+    ).toContain(entry.text);
+    expect(page.element("run-next").hidden).toBe(false);
+
+    page.element("run-next").click();
+    await vi.waitFor(() => expect(api.turns.cancelAndRunNext).toHaveBeenCalledOnce());
+    expect(api.turns.cancelAndRunNext).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      traceId: "trace-current",
+      agentId: "openminion",
+      expectedQueueId: "queue-1",
+    });
+  });
+
+  it("keeps a late queue response with its original conversation", async () => {
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    let emit!: (event: TurnEventV1) => void;
+    let finishEnqueue!: (result: ClientResult<TurnInputQueueEntry>) => void;
+    const sessions = [
+      sessionSummary(),
+      { ...sessionSummary(), sessionId: "session-2", title: "Other conversation" },
+    ];
+    const api = approvalRendererApi(vi.fn(), sessions);
+    api.sessions.events = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { events: [], nextCursor: null, hasMore: false } });
+    api.turns.subscribe = vi.fn((listener) => {
+      emit = listener;
+      return vi.fn();
+    });
+    api.turns.listQueue = vi.fn().mockResolvedValue({ ok: true, value: [] });
+    api.turns.submit = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        sessionId: "session-1",
+        traceId: "trace-current",
+        requestId: "request-current",
+      },
+    });
+    api.turns.enqueue = vi.fn(
+      () =>
+        new Promise<ClientResult<TurnInputQueueEntry>>((resolve) => {
+          finishEnqueue = resolve;
+        }),
+    );
+    const page = new FixtureDocument();
+    await mount(api, page.asDocument());
+    page.element("composer").value = "Start";
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.submit).toHaveBeenCalledOnce());
+    emit({
+      schemaVersion: 1,
+      kind: "started",
+      sessionId: "session-1",
+      traceId: "trace-current",
+      requestId: "request-current",
+    });
+    page.element("composer").value = "Queued elsewhere";
+    page.element("composer").dispatch("input");
+    page.element("composer").dispatch("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(api.turns.enqueue).toHaveBeenCalledOnce());
+
+    page
+      .sessionButtons()
+      .find((button) => button.textContent === "Other conversation")!
+      .click();
+    await vi.waitFor(() =>
+      expect(page.element("current-title").textContent).toBe("Other conversation"),
+    );
+    finishEnqueue({
+      ok: true,
+      value: {
+        queueId: "queue-1",
+        sessionId: "session-1",
+        agentId: "openminion",
+        text: "Queued elsewhere",
+        status: "queued",
+        statusVersion: 1,
+        createdAt: "2026-08-19T00:00:02Z",
+        traceId: null,
+      },
+    });
+
+    await vi.waitFor(() => expect(page.element("turn-queue").hidden).toBe(true));
+    expect(page.element("current-title").textContent).toBe("Other conversation");
+  });
+
   it.each([
     [
       "verified",
@@ -508,7 +865,7 @@ describe("renderer status view", () => {
                 role: "user",
               },
               {
-                ...message("reply", "minimax: **Answer**"),
+                ...message("reply", "minimax: **Answer**\n\n```python\nprint('hello')\n```"),
                 profileName: "minimax",
               },
             ],
@@ -530,7 +887,7 @@ describe("renderer status view", () => {
       const buttons = page
         .element("timeline")
         .descendants()
-        .filter((item) => item.className.includes("message-copy"));
+        .filter((item) => item.title === "Copy message");
       expect(buttons).toHaveLength(2);
       const times = page
         .element("timeline")
@@ -547,7 +904,14 @@ describe("renderer status view", () => {
       expect(copyText).toHaveBeenLastCalledWith("First line\nSecond line");
       buttons[1]!.click();
       await vi.waitFor(() => expect(buttons[1]!.textContent).toBe("Copied"));
-      expect(copyText).toHaveBeenLastCalledWith("**Answer**");
+      expect(copyText).toHaveBeenLastCalledWith("**Answer**\n\n```python\nprint('hello')\n```");
+      const codeCopy = page
+        .element("timeline")
+        .descendants()
+        .find((item) => item.title === "Copy code")!;
+      codeCopy.click();
+      await vi.waitFor(() => expect(codeCopy.textContent).toBe("Copied"));
+      expect(copyText).toHaveBeenLastCalledWith("print('hello')\n");
       await vi.waitFor(() => expect(buttons[1]!.disabled).toBe(false), {
         timeout: 2500,
       });
@@ -561,6 +925,32 @@ describe("renderer status view", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("offers exact code separately from Markdown and keeps code and language labels literal", () => {
+    const page = new FixtureDocument();
+    const body = page.createElement("div");
+    const copyCode = vi.fn<(code: string) => HTMLButtonElement>(
+      () => page.createElement("button") as unknown as HTMLButtonElement,
+    );
+    renderMarkdown(
+      page.asDocument(),
+      body as unknown as HTMLElement,
+      '```<img> extra metadata\n  <script>alert("x")</script>\n\n```\n\n    indented code\n\n`inline`',
+      copyCode,
+    );
+    expect(copyCode.mock.calls.map(([code]) => code)).toEqual([
+      '  <script>alert("x")</script>\n\n',
+      "indented code\n",
+    ]);
+    const nodes = body.descendants();
+    expect(nodes.filter((node) => node.tagName === "pre")).toHaveLength(2);
+    expect(nodes.some((node) => node.tagName === "script" || node.tagName === "img")).toBe(false);
+    expect(
+      nodes
+        .filter((node) => node.className === "code-header")
+        .map((node) => node.children[0]!.textContent),
+    ).toEqual(["<img>", "Code"]);
   });
 
   it("clears a sending draft immediately, preserves new typing, and keeps terminal errors after refresh", async () => {
@@ -753,6 +1143,444 @@ describe("renderer status view", () => {
       expect(page.element("settings-runtime-button").focus).toHaveBeenCalled();
       expect(result.descendants().some((item) => item.textContent === "Late status")).toBe(false);
       expect(page.element("composer").value).toBe("Keep my draft");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("refreshes the session picker without replacing the chat and ignores failed or stale reads", async () => {
+    const original = sessionSummary();
+    const fresh = {
+      ...original,
+      sessionId: "external-session",
+      title: original.title,
+      channel: "cli",
+      messageCount: 0,
+      updatedLabel: "2m",
+    };
+    const list = vi.fn<NativeApi["sessions"]["list"]>().mockResolvedValue({
+      ok: true,
+      value: { sessions: [original], nextCursor: null, hasMore: false },
+    });
+    const load = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      ok: true,
+      value: {
+        session: sessionId === original.sessionId ? original : fresh,
+        messages: [message("reply", "Saved reply")],
+        nextMessageCursor: null,
+        messagesHasMore: false,
+      },
+    }));
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list,
+        load,
+        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      },
+      reports: { read: async () => ({ ok: true, value: { kind: "status", session: fresh } }) },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const command = (text: string) => {
+        page.element("composer").value = text;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+      };
+      list.mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [original], nextCursor: "next", hasMore: true },
+      });
+      list.mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [fresh], nextCursor: null, hasMore: false },
+      });
+      command("/sessions");
+      await vi.waitFor(() => expect(page.element("command-result").children).toHaveLength(4));
+      expect(list).toHaveBeenLastCalledWith({ cursor: "next", limit: 100 });
+      expect(page.element("command-result").children[3]!.children[1]!.textContent).toBe(
+        "external-session",
+      );
+      expect(page.element("command-result").children[3]!.children[2]!.textContent).toContain(
+        "Channel: cli · Messages: 0 · Updated: 2m",
+      );
+      expect(page.element("command-result").children[2]!.getAttribute("aria-current")).toBe("true");
+      expect(page.sessionButtons()).toHaveLength(1);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(page.findText()).toContain("Saved reply");
+      const freshButton = page.element("command-result").children[3]!;
+      list.mockResolvedValueOnce({
+        ok: true,
+        value: { sessions: [fresh], nextCursor: "next", hasMore: true },
+      });
+      list.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "connection_lost",
+          message: "Catalog unavailable",
+          retryable: true,
+          retryAfterMs: null,
+        },
+      });
+      command("/sessions");
+      await vi.waitFor(() =>
+        expect(page.element("command-title").textContent).toBe("Conversations unavailable"),
+      );
+      expect(page.element("command-result").children).toHaveLength(2);
+      expect(page.sessionButtons()).toHaveLength(1);
+      expect(page.findText()).toContain("Saved reply");
+      expect(load).toHaveBeenCalledTimes(1);
+      for (const supersede of ["dismiss", "command", "selection", "repeat"]) {
+        let finish!: (value: Awaited<ReturnType<NativeApi["sessions"]["list"]>>) => void;
+        list.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+        command("/sessions");
+        if (supersede === "dismiss")
+          page.element("composer").dispatch("keydown", { key: "Escape" });
+        else if (supersede === "command") command("/status");
+        else if (supersede === "selection") freshButton.click();
+        else command("/sessions");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const title = page.element("command-title").textContent;
+        const hidden = page.element("command-panel").hidden;
+        finish({
+          ok: false,
+          error: {
+            code: "connection_lost",
+            message: "Stale failure",
+            retryable: true,
+            retryAfterMs: null,
+          },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(page.element("command-title").textContent).toBe(title);
+        expect(page.element("command-panel").hidden).toBe(hidden);
+        expect(page.element("command-result").children[0]?.textContent).not.toBe("Stale failure");
+      }
+      expect(load).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sessionId: "external-session" }),
+      );
+      expect(page.sessionButtons()).toHaveLength(2);
+      expect(page.sessionButtons()[1]!.className).toContain("selected");
+      command("/status");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain(
+          "Channel: cli\nMessages: 0",
+        ),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("browses the complete stored skill catalog without losing drafts or accepting stale reports", async () => {
+    const session = sessionSummary();
+    const other = { ...session, sessionId: "other" };
+    const read = vi.fn();
+    const api = {
+      app: {
+        info: async () => ({ shellVersion: "test" }),
+        copyText: vi.fn().mockResolvedValue({ ok: true, value: null }),
+      },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list: async () => ({
+          ok: true,
+          value: { sessions: [session, other], nextCursor: null, hasMore: false },
+        }),
+        load: async ({ sessionId }: { sessionId: string }) => ({
+          ok: true,
+          value: {
+            session: sessionId === other.sessionId ? other : session,
+            messages: [],
+            nextMessageCursor: null,
+            messagesHasMore: false,
+          },
+        }),
+        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      },
+      reports: { read },
+      turns: { subscribe: () => () => {} },
+    } as unknown as NativeApi;
+    read.mockResolvedValue({ ok: true, value: { kind: "commands", commands: [] } });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const skills = [...Array.from({ length: 24 }, (_, i) => `skill-${i}`), "--help"];
+      const catalog = { ok: true, value: { kind: "skills", agentId: "fresh-agent", skills } };
+      read.mockResolvedValue(catalog);
+      page.element("composer").value = "/skills";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.children).toHaveLength(25),
+      );
+      expect(page.element("command-title").textContent).toBe("Stored skills for fresh-agent");
+      page.element("conversation").scrollHeight = 1000;
+      page.element("conversation").clientHeight = 400;
+      page.element("conversation").dispatch("scroll");
+      expect(page.element("jump-latest").hidden).toBe(true);
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
+      page.element("command-result").children[1]!.click();
+      await vi.waitFor(() =>
+        expect(api.app.copyText).toHaveBeenCalledWith(
+          `Stored skills for fresh-agent:\n${skills.join("\n")}`,
+        ),
+      );
+      page.element("composer").value = "Keep my skill draft";
+      page.element("composer").dispatch("input");
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "skills", text: "Skill: Help reference" },
+      });
+      page.element("command-result").children[0]!.children[24]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "Skill: Help reference",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "--help" });
+      expect(page.element("composer").value).toBe("Keep my skill draft");
+      expect(page.element("command-title").textContent).toBe("Skill details");
+      page.element("command-result").children[2]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.children).toHaveLength(25),
+      );
+      expect(page.element("composer").value).toBe("Keep my skill draft");
+      read.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "report_unavailable",
+          message: "Skill unavailable",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      page.element("command-result").children[0]!.children[24]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Skill unavailable"),
+      );
+      expect(page.element("command-result").children[2]?.textContent).toBe("Back to catalog");
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "skills", agentId: "fresh-agent", skills: [] },
+      });
+      page.element("command-result").children[2]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "No stored skills for this agent.",
+        ),
+      );
+      expect(page.element("composer").value).toBe("Keep my skill draft");
+      let finishSkills!: (value: unknown) => void;
+      for (const action of ["dismiss", "replace", "selection"]) {
+        read.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishSkills = resolve;
+            }),
+        );
+        page.element("composer").value = "/skills";
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        if (action === "dismiss") {
+          page.element("close-command").click();
+          expect(page.element("jump-latest").hidden).toBe(false);
+        } else if (action === "replace") {
+          page.element("composer").value = "/help";
+          page.element("composer").dispatch("keydown", { key: "Enter" });
+        } else {
+          page.sessionButtons()[1]!.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        finishSkills(catalog);
+        await Promise.resolve();
+        expect(page.element("command-result").children[0]?.children).toHaveLength(0);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reads fresh status without replacing chat and settles across same-session turn completion", async () => {
+    const session = sessionSummary();
+    const other = { ...session, sessionId: "other", title: "Other" };
+    const fresh = {
+      ...session,
+      status: "paused" as const,
+      channel: "cli",
+      messageCount: 8,
+      updatedAt: "2026-10-13T12:00:00Z",
+    };
+    const read = vi
+      .fn<NativeApi["reports"]["read"]>()
+      .mockResolvedValue({ ok: true, value: { kind: "status", session: fresh } });
+    let receive!: (event: TurnEventV1) => void;
+    const load = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      ok: true,
+      value: {
+        session: sessionId === session.sessionId ? session : other,
+        messages: [message("reply", "Saved reply")],
+        nextMessageCursor: null,
+        messagesHasMore: false,
+      },
+    }));
+    const api = {
+      app: { info: async () => ({ shellVersion: "test" }) },
+      daemon: {
+        status: async () =>
+          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+      },
+      sessions: {
+        list: async () => ({
+          ok: true,
+          value: { sessions: [session, other], nextCursor: null, hasMore: false },
+        }),
+        load,
+        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
+      },
+      reports: { read },
+      turns: {
+        subscribe: (listener: typeof receive) => {
+          receive = listener;
+          return () => {};
+        },
+        submit: async () => ({
+          ok: true,
+          value: { sessionId: session.sessionId, traceId: "trace", requestId: "request" },
+        }),
+      },
+    } as unknown as NativeApi;
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      const command = (text = "/status") => {
+        page.element("composer").value = text;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+      };
+      command();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain("State: paused"),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "status", sessionId: session.sessionId });
+      expect(page.element("command-result").children[0]?.textContent).toContain(
+        "Messages: 8\nUpdated: 2026-10-13T12:00:00Z",
+      );
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(page.sessionButtons()).toHaveLength(2);
+      expect(page.findText()).toContain("Saved reply");
+      for (const supersede of ["dismiss", "command", "repeat", "selection"]) {
+        let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
+        read.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+        command();
+        if (supersede === "dismiss") page.element("close-command").click();
+        else if (supersede === "command") command("/model");
+        else if (supersede === "repeat") command();
+        else page.sessionButtons()[1]!.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const hidden = page.element("command-panel").hidden;
+        const title = page.element("command-title").textContent;
+        finish({
+          ok: false,
+          error: {
+            code: "connection_lost",
+            message: "Old failure",
+            retryable: true,
+            retryAfterMs: null,
+          },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(page.element("command-panel").hidden).toBe(hidden);
+        expect(page.element("command-title").textContent).toBe(title);
+        expect(page.element("command-result").children[0]?.textContent).not.toBe("Old failure");
+      }
+      page.sessionButtons()[0]!.click();
+      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe(session.title));
+      read.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "connection_lost",
+          message: "Status unavailable",
+          retryable: true,
+          retryAfterMs: null,
+        },
+      });
+      command();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Status unavailable"),
+      );
+      expect(page.findText()).toContain("Saved reply");
+      page.element("composer").value = "Request";
+      page.element("composer").dispatch("input");
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "graph", text: "Graph readiness during turn" },
+      });
+      command("/graph status");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "Graph readiness during turn",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
+      expect(page.element("chat-status").textContent).toBe("Working…");
+      read.mockResolvedValueOnce({
+        ok: true,
+        value: { kind: "skills", agentId: "openminion", skills: ["read-only"] },
+      });
+      command("/skills");
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.children[0]?.textContent).toBe(
+          "read-only",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
+      expect(page.element("chat-status").textContent).toBe("Working…");
+
+      let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
+      read.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      command();
+      page.element("composer").value = "Keep drafting";
+      page.element("composer").dispatch("input");
+      const loads = load.mock.calls.length;
+      receive({
+        schemaVersion: 1,
+        kind: "done",
+        sessionId: session.sessionId,
+        traceId: "trace",
+        outcome: "complete",
+      });
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(loads + 1));
+      finish({ ok: true, value: { kind: "status", session: fresh } });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain("State: paused"),
+      );
+      expect(page.element("composer").value).toBe("Keep drafting");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1480,13 +2308,18 @@ describe("renderer status view", () => {
       });
       read.mockResolvedValue({
         ok: true,
-        value: { kind: "agents", agents: [{ id: "writer", label: "Writer" }] },
+        value: {
+          kind: "agents",
+          activeAgentId: "writer",
+          agents: [{ id: "writer", label: "Writer" }],
+        },
       });
       page.element("composer").value = "/agent Writer";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toContain("Writer"),
       );
+      expect(page.element("command-result").children[0]?.textContent).toBe("● writer — Writer");
       expect(read).toHaveBeenLastCalledWith({
         kind: "agents",
         agentFilter: "Writer",
@@ -1514,20 +2347,13 @@ describe("renderer status view", () => {
       page.element("composer").value = "/identity unknown";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Identity command");
-      read.mockResolvedValue({
-        ok: true,
-        value: { kind: "skills", text: "Skill: Example" },
-      });
+      read.mockResolvedValueOnce({ ok: true, value: { kind: "skills", text: "Skill: Example" } });
       page.element("composer").value = "/skills example";
-      page.element("composer").dispatch("input");
       page.element("composer").dispatch("keydown", { key: "Enter" });
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe("Skill: Example"),
       );
-      expect(read).toHaveBeenLastCalledWith({
-        kind: "skills",
-        skillId: "example",
-      });
+      expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "example" });
       read.mockResolvedValue({
         ok: true,
         value: {
@@ -1555,7 +2381,7 @@ describe("renderer status view", () => {
       );
       expect(read).toHaveBeenLastCalledWith({
         kind: "mcp",
-        agentId: session.activeAgentId,
+        sessionId: session.sessionId,
       });
       let finishReport!: (value: unknown) => void;
       read.mockImplementationOnce(
@@ -1580,8 +2406,8 @@ describe("renderer status view", () => {
       expect(page.element("command-result").children[0]?.textContent).not.toContain("old result");
       page.element("composer").value = "/tools enable search";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      expect(page.element("command-title").textContent).toBe("Command arguments");
-      expect(read).toHaveBeenCalledTimes(6);
+      expect(page.element("command-title").textContent).toBe("Tool access");
+      expect(read).toHaveBeenCalledTimes(7);
       read.mockImplementationOnce(
         () =>
           new Promise((resolve) => {
@@ -1694,7 +2520,7 @@ describe("renderer status view", () => {
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Command help");
       expect(page.element("command-result").children[0]?.textContent).toContain(
-        "/graph — Show installed OpenMinion graph help",
+        "/graph — Show graph help or check readiness",
       );
       read.mockResolvedValue({
         ok: true,
@@ -1702,20 +2528,76 @@ describe("renderer status view", () => {
       });
       page.element("composer").value = "/graph";
       page.element("composer").dispatch("keydown", { key: "Enter" });
-      expect(page.element("command-title").textContent).toBe("Graph viewer");
+      expect(page.element("command-title").textContent).toBe("Graph help");
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe(
           "usage: openminion graph",
         ),
       );
       expect(read).toHaveBeenLastCalledWith({ kind: "graph" });
+      expect(page.element("command-result").children[2]!.textContent).toBe("Check readiness");
+      page.element("composer").value = "Keep this unsent draft";
+      page.element("composer").dispatch("input");
+      read.mockResolvedValue({
+        ok: true,
+        value: { kind: "graph", text: "GraphFakos installed: no\nConfigured graph sources: none" },
+      });
+      page.element("command-result").children[2]!.click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain(
+          "GraphFakos installed: no",
+        ),
+      );
+      expect(page.element("command-title").textContent).toBe("Graph status");
+      expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
+      expect(page.element("composer").value).toBe("Keep this unsent draft");
+      expect(page.element("command-result").children).toHaveLength(2);
+      const graphReads = read.mock.calls.length;
+      for (const text of [
+        "/graph query test",
+        "/graph status extra",
+        "/graph status --provider custom",
+      ]) {
+        page.element("composer").value = text;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        expect(page.element("command-title").textContent).toBe("Graph commands");
+      }
+      expect(read).toHaveBeenCalledTimes(graphReads);
+      read.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "report_unavailable",
+          message: "Graph unavailable",
+          retryable: false,
+          retryAfterMs: null,
+        },
+      });
+      page.element("composer").value = "/graph status";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Graph unavailable"),
+      );
+      read.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishReport = resolve;
+          }),
+      );
+      page.element("composer").value = "/graph status";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      page.element("close-command").click();
+      finishReport({ ok: true, value: { kind: "graph", text: "Late readiness" } });
+      await Promise.resolve();
+      expect(page.element("command-panel").hidden).toBe(true);
       page.element("composer").value = "/editor";
       page.element("composer").dispatch("keydown", { key: "Enter" });
       expect(page.element("command-title").textContent).toBe("Desktop composer");
       for (const command of ["/files", "/screenshot", "/cancel", "/retry", "/resume"]) {
         page.element("composer").value = command;
         page.element("composer").dispatch("keydown", { key: "Enter" });
-        expect(page.element("command-title").textContent).toBe("Command unavailable");
+        await vi.waitFor(() =>
+          expect(page.element("command-title").textContent).toBe("Command unavailable"),
+        );
       }
       expect(submit).not.toHaveBeenCalled();
       page.element("composer").value = "Preserve during outage";
@@ -2492,7 +3374,7 @@ describe("renderer status view", () => {
         durationMs: 10,
         exitCode: 0,
         createdAt: "2026-10-05T00:00:02Z",
-        content: "  output\nsecond line\n",
+        content: "  output\nsecond line\nthird\nfourth\nfifth\nsixth\nseventh\n",
         truncated: true,
       };
       receive(tool);
@@ -2501,6 +3383,21 @@ describe("renderer status view", () => {
         .element("timeline")
         .descendants()
         .find((item) => item.className === "tool-output")!;
+      expect(
+        page
+          .element("timeline")
+          .descendants()
+          .find((item) => item.className === "tool-preview")!.textContent,
+      ).toBe("  output\nsecond line\nthird\nfourth\nfifth\nsixth");
+      for (const [command, expanded] of [
+        ["/verbose", true],
+        ["/details off", false],
+      ] as const) {
+        page.element("composer").value = command;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await vi.waitFor(() => expect(output.open).toBe(expanded));
+        expect(page.element("timeline").descendants()).toContain(output);
+      }
       expect(output.tagName).toBe("details");
       expect(output.open).toBe(false);
       expect(output.children[0]!.tagName).toBe("summary");
@@ -2890,7 +3787,7 @@ describe("renderer status view", () => {
         subscribe: vi.fn().mockReturnValue(vi.fn()),
       },
       presentation: {
-        load: async () => ({ ok: true, value: { quietTools } }),
+        load: async () => ({ ok: true, value: { toolDisplay: quietTools ? "quiet" : "normal" } }),
         save: vi.fn(),
       },
       approvals: { decide },
@@ -5092,6 +5989,10 @@ class FixtureElement {
 
   constructor(readonly tagName: string) {}
 
+  querySelector(tag: string): FixtureElement | null {
+    return this.descendants().find((item) => item !== this && item.tagName === tag) ?? null;
+  }
+
   contains(element: FixtureElement | null): boolean {
     return element !== null && this.descendants().includes(element);
   }
@@ -5228,6 +6129,10 @@ class FixtureDocument {
     "chat-detail",
     "chat-update",
     "chat-elapsed",
+    "turn-queue",
+    "turn-queue-status",
+    "turn-queue-list",
+    "run-next",
     "composer-hint",
     "composer-form",
     "composer",
