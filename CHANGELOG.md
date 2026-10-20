@@ -14,6 +14,9 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
 ### Recent changes
 
+- Preserve keyboard focus and visible feedback when copying messages or code,
+  including clipboard failures.
+
 - Navigate Settings sections with Left/Right, Home/End and Enter/Space, with
   correctly labeled tabs and a single Tab stop for the selected section.
 

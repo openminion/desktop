@@ -944,7 +944,13 @@ describe("renderer status view", () => {
         ),
       ).toBe(true);
       buttons[0]!.click();
+      buttons[0]!.click();
+      expect(copyText).toHaveBeenCalledTimes(1);
+      expect(buttons[0]!.disabled).toBe(false);
+      expect(buttons[0]!.getAttribute("aria-disabled")).toBe("true");
       await vi.waitFor(() => expect(buttons[0]!.textContent).toBe("Copied"));
+      buttons[0]!.click();
+      expect(copyText).toHaveBeenCalledTimes(1);
       expect(copyText).toHaveBeenLastCalledWith("First line\nSecond line");
       buttons[1]!.click();
       await vi.waitFor(() => expect(buttons[1]!.textContent).toBe("Copied"));
@@ -956,7 +962,7 @@ describe("renderer status view", () => {
       codeCopy.click();
       await vi.waitFor(() => expect(codeCopy.textContent).toBe("Copied"));
       expect(copyText).toHaveBeenLastCalledWith("print('hello')\n");
-      await vi.waitFor(() => expect(buttons[1]!.disabled).toBe(false), {
+      await vi.waitFor(() => expect(buttons[1]!.getAttribute("aria-disabled")).toBe("false"), {
         timeout: 2500,
       });
       expect(buttons[1]!.textContent).toBe("Copy");

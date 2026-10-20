@@ -4711,7 +4711,8 @@ function createMessageCopyButton(
   copy.setAttribute("aria-label", label);
   copy.setAttribute("aria-live", "polite");
   copy.addEventListener("click", async () => {
-    copy.disabled = true;
+    if (copy.getAttribute("aria-disabled") === "true") return;
+    copy.setAttribute("aria-disabled", "true");
     try {
       const result = await copyText(text);
       copy.textContent = result.ok ? "Copied" : "Copy failed";
@@ -4726,7 +4727,7 @@ function createMessageCopyButton(
       copy.dataset.copyState = "";
       copy.title = label;
       copy.setAttribute("aria-label", label);
-      copy.disabled = false;
+      copy.setAttribute("aria-disabled", "false");
     }, 1500);
   });
   return copy;
