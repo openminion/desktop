@@ -2220,7 +2220,7 @@ code {
   font-size: 13px;
 }
 .settings-nav button:not(:disabled):hover,
-.settings-nav button[aria-pressed="true"] {
+.settings-nav button[aria-selected="true"] {
   background: var(--surface-raised);
   color: var(--text);
 }
