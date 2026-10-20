@@ -105,6 +105,18 @@ async function check() {
     await evaluate("document.querySelector('.message-actions .message-copy').click()");
     await settle();
     assert.equal(
+      await evaluate(
+        "document.activeElement === document.querySelector('.message-actions .message-copy')",
+      ),
+      true,
+      "Copy feedback keeps keyboard focus on the message action",
+    );
+    assert.equal(
+      await evaluate("getComputedStyle(document.querySelector('.message-actions')).opacity"),
+      "1",
+      "Copy feedback remains visible without pointer hover",
+    );
+    assert.equal(
       await evaluate("document.querySelector('.message-actions .message-copy').dataset.copyState"),
       "error",
     );
@@ -165,6 +177,21 @@ async function check() {
     assert.equal(
       await evaluate("document.querySelector('.code-header button').getAttribute('aria-label')"),
       "Copy failed",
+    );
+    assert.equal(
+      await evaluate("document.activeElement === document.querySelector('.code-header button')"),
+      true,
+      "Copy code retains keyboard focus after clipboard failure",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+    assert.equal(
+      await evaluate("document.activeElement === document.querySelector('.code-header button')"),
+      true,
+      "Restoring the Copy action does not move keyboard focus",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('.code-header button').getAttribute('aria-disabled')"),
+      "false",
     );
     console.log(
       "PASS: code headers, keyboard access, compact Copy and responsive layout; preview clipboard denial is visible.",

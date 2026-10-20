@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-10-19
+Last updated: 2026-10-20
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -396,7 +396,9 @@ covering conversation messages or text input at all three window sizes, and
 that the labeled chat actions do not overlap the title. It deliberately uses a missing daemon executable and never requests
 native capture. Hosted macOS CI runs this in addition to the normal package
 gate; importing TypeScript under a mocked Electron module cannot prove that
-Electron can load the distributed preloads.
+Electron can load the distributed preloads. The same command also runs the
+Identity journey and the preview-backed message-action check below, including
+keyboard focus during Copy feedback.
 
 Run the request-bound approval proof against an OpenMinion source checkout:
 
@@ -457,7 +459,8 @@ node_modules/.bin/electron tests/electron/message-actions.mjs
 This runs the real renderer with explicit preview data. It checks code-block
 language headers, keyboard access and Copy feedback, plus the message copy icon,
 local message time, hover and keyboard focus, stable layout at compact and normal
-sizes, and clipboard-error feedback. Preview deliberately denies clipboard
+sizes, and focus retained through clipboard-error feedback and action reset.
+Preview deliberately denies clipboard
 access; successful copy and message-body selection are covered by renderer tests
 and the real-daemon PyPI campaign. It makes no provider calls.
 
