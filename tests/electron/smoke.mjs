@@ -57,6 +57,9 @@ async function check() {
         keyCode,
         modifiers,
       });
+      if (keyCode === "Return") {
+        window.webContents.sendInputEvent({ type: "char", keyCode: "\r", modifiers });
+      }
       window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
       await settled();
     };
@@ -494,7 +497,44 @@ async function check() {
     assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
     await key("k", [process.platform === "darwin" ? "meta" : "control"]);
     assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
-    await click("settings-chat-button");
+    await evaluate("document.querySelector('#settings-profiles-button').focus()");
+    await key("Left");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-runtime-button");
+    assert.equal(
+      await evaluate("document.querySelector('#settings-profiles').hidden"),
+      false,
+      "Moving between tabs does not activate a section or load its runtime data",
+    );
+    await key("Right");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-profiles-button");
+    await key("End");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-runtime-button");
+    await key("Home");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-profiles-button");
+    await key("Right");
+    await key("Right");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-chat-button");
+    await key("Return");
+    assert.equal(await evaluate("document.querySelector('#settings-chat').hidden"), false);
+    assert.deepEqual(
+      await evaluate(`Array.from(document.querySelectorAll('.settings-nav [role="tab"]'))
+      .map(tab => [tab.getAttribute('aria-selected'), tab.tabIndex])`),
+      [
+        ["false", -1],
+        ["false", -1],
+        ["true", 0],
+        ["false", -1],
+      ],
+    );
+    await key("Tab");
+    assert.equal(await evaluate("document.activeElement.id"), "chat-display");
+    await key("Tab", ["shift"]);
+    assert.equal(await evaluate("document.activeElement.id"), "settings-chat-button");
+    await key("Right");
+    await key("Space");
+    assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
+    await key("Left");
+    await key("Return");
     assert.equal(await evaluate("document.querySelector('#settings-chat').hidden"), false);
     assert.equal(await evaluate("document.querySelector('#settings-profiles').hidden"), true);
     await evaluate(`
@@ -513,7 +553,7 @@ async function check() {
     assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
     assert.equal(
       await evaluate(
-        "document.querySelector('#settings-runtime-button').getAttribute('aria-pressed')",
+        "document.querySelector('#settings-runtime-button').getAttribute('aria-selected')",
       ),
       "true",
     );

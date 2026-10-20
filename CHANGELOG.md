@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-18
+Last updated: 2026-10-20
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -13,6 +13,9 @@ supersede their limitations. Use [Current Capabilities](README.md#current-capabi
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
 ### Recent changes
+
+- Navigate Settings sections with Left/Right, Home/End and Enter/Space, with
+  correctly labeled tabs and a single Tab stop for the selected section.
 
 - Add a labeled Desktop screenshot to the README using non-private sample chat.
 

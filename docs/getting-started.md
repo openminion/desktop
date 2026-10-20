@@ -255,6 +255,10 @@ keys are cleared when Settings closes.
 When the default profile is missing a key required by its provider, Desktop also
 opens Settings on startup so you can complete it before chatting.
 
+When a Settings tab has focus, use Left/Right to move between sections or
+Home/End to reach the first/last section. Press Enter or Space to open it;
+Tab moves into its controls. Moving between tabs does not save or discard edits.
+
 Use **Add profile** to create another agent with the installed CLI’s provider
 catalog, model and API-key fields. Creation makes it the default for new chats;
 existing chats retain their agent. Choose a new agent ID; duplicates are rejected.
