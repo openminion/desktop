@@ -196,11 +196,19 @@ async function check() {
     assert.equal(await evaluate("document.activeElement.id"), "session-search");
     assert.equal(await evaluate("document.querySelector('#session-search').value"), "");
     await window.webContents.insertText("Again");
+    assert.equal(
+      await evaluate(`document.querySelector('#session-search').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
+      )`),
+      true,
+    );
+    assert.equal(await evaluate("document.querySelector('#session-search').value"), "Again");
+    assert.equal(await evaluate("document.activeElement.id"), "session-search");
     await key("Escape");
     assert.equal(await evaluate("document.querySelector('#session-search').value"), "");
     assert.equal(await evaluate("document.activeElement.id"), "session-search");
     console.log(
-      "PASS: native task search typing, empty catalog, Clear/Escape focus and three window sizes.",
+      "PASS: native task search typing, empty catalog, Clear/Escape focus, synthetic composition Escape and three window sizes.",
     );
     for (const [width, height] of [
       [760, 560],

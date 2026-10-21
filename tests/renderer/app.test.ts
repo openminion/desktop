@@ -1729,6 +1729,11 @@ describe("renderer status view", () => {
       page.sessionButtons()[0]!.click();
       await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Résumé [.*]"));
       expect(search.value).toBe("SESSION-3");
+      const composingEscape = { key: "Escape", isComposing: true, preventDefault: vi.fn() };
+      search.dispatch("keydown", composingEscape);
+      expect(composingEscape.preventDefault).not.toHaveBeenCalled();
+      expect(search.value).toBe("SESSION-3");
+      expect(page.sessionButtons()).toHaveLength(1);
       search.dispatch("keydown", { key: "Escape", preventDefault: vi.fn() });
       expect(search.value).toBe("");
       expect(page.element("session-search-count").hidden).toBe(true);
