@@ -2916,7 +2916,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.sessionSearch.addEventListener("input", renderSessionList);
   elements.clearSessionSearch.addEventListener("click", clearSessionSearch);
   elements.sessionSearch.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && !event.isComposing) {
       event.preventDefault();
       clearSessionSearch();
     }
