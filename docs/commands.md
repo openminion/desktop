@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-10-19
+Last updated: 2026-10-25
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -97,8 +97,12 @@ denied from their request-bound card. Task lifecycle controls remain separate
 and do not grant or deny them.
 The inventory uses the public CLI's default limit of 50.
 
-`/delegate <agent> <instruction>` waits for a result; add `async` after the
-command to start a background task. `/delegate list [1-200]` shows recent work.
+`/delegate <agent> <instruction>` waits for a result; explicit `sync` does the
+same, while `async` starts a background task. Instruction spaces and line breaks
+are preserved. `/delegate list [1-200]` shows recent work and accepts a decimal
+integer limit. Malformed task commands show usage without starting delegated work.
+Focus's `review`, `accept`, `reject`, and `--child-permission-mode` forms are not
+connected in Desktop yet; Desktop reports that limit without executing them.
 Use `/delegate inspect <task-id>` for the structural parent/child tree and A2A
 protocol timeline. Status, result, and cancel use the same task ID. Resume explains that Core cannot resume delegated jobs; it does not issue a pretend resume operation. Desktop invokes fixed CLI operations in
 trusted main with the selected conversation's exact agent and session; the

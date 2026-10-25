@@ -14,6 +14,9 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
 ### Recent changes
 
+- Preserve spaces and line breaks in delegation instructions, show sync/async
+  usage, and reject malformed or unsupported delegation forms before execution.
+
 - Preserve newer chat-name edits made while Save or Reset name is still finishing,
   so the rename dialog stays open until the newer draft is saved or dismissed.
 

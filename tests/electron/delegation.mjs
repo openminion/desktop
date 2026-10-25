@@ -95,6 +95,22 @@ async function check() {
     const parentAgentId = loadedSession.value.session.activeAgentId;
     assert.equal(parentAgentId, "openminion");
 
+    for (const [command, message] of [
+      ["/delegate status task-1 extra", "Use /delegate status <task-id>."],
+      ["/delegate list 1e2", "Use /delegate list [1-200]."],
+      ["/delegate review '{}'", "not connected in Desktop yet"],
+    ]) {
+      await submit(
+        command,
+        `document.querySelector('#command-title').textContent === 'Delegation command' && document.querySelector('#command-result').textContent.includes(${JSON.stringify(message)})`,
+      );
+    }
+    await submit(
+      "/delegate list",
+      "document.querySelector('#command-title').textContent === 'Delegation' && document.querySelector('#command-result').textContent.includes('0 delegated tasks')",
+    );
+    assert.equal(await evaluate("document.querySelectorAll('.message').length"), 2);
+
     const cliStarted = await cli(
       "agent",
       "delegate",
@@ -183,7 +199,7 @@ async function check() {
     }
 
     await submit(
-      "/delegate async agent.worker Desktop to CLI provider-free fixture PRIVATE-DESKTOP-INSTRUCTION",
+      "/delegate async agent.worker Desktop to CLI provider-free fixture\n  PRIVATE-DESKTOP-INSTRUCTION",
       "document.querySelector('#command-title').textContent === 'Delegation' && /Delegation [0-9a-f-]+ · running/.test(document.querySelector('#command-result').textContent)",
     );
     const desktopText = await evaluate("document.querySelector('#command-result').textContent");
