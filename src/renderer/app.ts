@@ -3576,6 +3576,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (!renamingSession || savingName || !savedNames.ok) return;
     const session = renamingSession;
     const generation = renameGeneration;
+    const draft = elements.taskName.value;
     savingName = true;
     elements.renameError.textContent = "Saving…";
     const result = await api.chatNames.save({
@@ -3592,6 +3593,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (generation !== renameGeneration) return;
     if (!result.ok) {
       elements.renameError.textContent = result.error.message;
+      return;
+    }
+    if (elements.taskName.value !== draft) {
+      elements.renameError.textContent = "Saved. You have unsaved changes.";
       return;
     }
     elements.renameDialog.close();
