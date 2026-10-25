@@ -1907,6 +1907,49 @@ describe("renderer status view", () => {
     }
   });
 
+  it.each(["save", "reset"])(
+    "preserves a newer rename draft after a pending %s",
+    async (action) => {
+      const api = approvalRendererApi(vi.fn());
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        const persist = api.chatNames.save;
+        let finish!: () => void;
+        const pending = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        const save = vi.spyOn(api.chatNames, "save").mockImplementationOnce(async (input) => {
+          await pending;
+          return persist(input);
+        });
+        page.element("rename-session").click();
+        page.element("task-name").value = "First name";
+        if (action === "reset") page.element("rename-reset").click();
+        else page.element("rename-form").dispatch("submit");
+        page.element("task-name").value = "Newer draft";
+        page.element("task-name").dispatch("input");
+        finish();
+        await vi.waitFor(() =>
+          expect(page.element("rename-error").textContent).toBe("Saved. You have unsaved changes."),
+        );
+        expect(page.element("rename-dialog").open).toBe(true);
+        expect(page.element("task-name").value).toBe("Newer draft");
+        expect(page.element("current-title").textContent).toBe(
+          action === "reset" ? "Recovered chat" : "First name",
+        );
+        expect(save).toHaveBeenCalledOnce();
+        page.element("rename-form").dispatch("submit");
+        await vi.waitFor(() => expect(page.element("rename-dialog").open).toBe(false));
+        expect(page.element("current-title").textContent).toBe("Newer draft");
+        expect(save).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
   it("tracks two running sidebar sessions independently and clears a background completion", async () => {
     const sessions = [
       sessionSummary(),

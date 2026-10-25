@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-21
+Last updated: 2026-10-25
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -13,6 +13,9 @@ supersede their limitations. Use [Current Capabilities](README.md#current-capabi
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
 ### Recent changes
+
+- Preserve newer chat-name edits made while Save or Reset name is still finishing,
+  so the rename dialog stays open until the newer draft is saved or dismissed.
 
 - Keep conversation search intact when Escape cancels active text composition;
   Escape outside composition still clears the search.
