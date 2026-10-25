@@ -14,6 +14,9 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
 ### Recent changes
 
+- Make `/copy` skip empty saved replies like Focus, and keep delayed clipboard
+  feedback from reopening dismissed results or replacing another command.
+
 - Preserve spaces and line breaks in delegation instructions, show sync/async
   usage, and reject malformed or unsupported delegation forms before execution.
 

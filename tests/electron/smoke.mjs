@@ -761,7 +761,14 @@ async function check() {
           ok: true,
           value: {
             session: toolSession,
-            messages: [],
+            messages: ["Saved reply before empty message", " \n\t"].map((body, index) => ({
+              schemaVersion: 1,
+              id: `copy-fixture-${index}`,
+              sessionId: toolSession.sessionId,
+              role: "assistant",
+              body,
+              createdAt: `2026-10-05T00:00:0${index}Z`,
+            })),
             nextMessageCursor: null,
             messagesHasMore: false,
           },
@@ -791,8 +798,16 @@ async function check() {
     window.reload();
     await new Promise((resolve) => window.webContents.once("did-finish-load", resolve));
     await waitFor(
-      "document.querySelector('#current-title').textContent === 'Tool output fixture' && !document.querySelector('#composer').disabled",
+      "document.querySelector('#current-title').textContent === 'Tool output fixture' && !document.querySelector('#composer').disabled && document.querySelector('#timeline').textContent.includes('Saved reply before empty message')",
     );
+    await click("composer");
+    await window.webContents.insertText("/copy");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-result').textContent.includes('Copied to clipboard.')",
+    );
+    assert.equal(await clipboard.readText(), "Saved reply before empty message");
+    await key("Escape");
     await click("composer");
     await window.webContents.insertText("Run fixture tool");
     await key("Return");
@@ -928,6 +943,29 @@ async function check() {
     assert.equal(await evaluate("document.querySelectorAll('.tool-output').length"), 1);
     console.log(
       "PASS: controlled tool events through production preload, native output expansion, literal content, insertion focus/scroll, exact Copy, missing-output honesty and responsive layout.",
+    );
+
+    let finishCopy;
+    ipcMain.removeHandler(IPC_CHANNELS.copyText);
+    ipcMain.handle(
+      IPC_CHANNELS.copyText,
+      () =>
+        new Promise((resolve) => {
+          finishCopy = resolve;
+        }),
+    );
+    await click("composer");
+    await window.webContents.insertText("/copy");
+    await key("Return");
+    await waitFor("document.querySelector('#command-result').textContent.includes('Copying…')");
+    assert.equal(typeof finishCopy, "function");
+    await key("Escape");
+    finishCopy({ ok: true, value: null });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settled();
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    console.log(
+      "PASS: /copy skips empty saved replies and late clipboard feedback respects Escape.",
     );
 
     const worker = new BrowserWindow({

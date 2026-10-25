@@ -2444,7 +2444,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       case "/copy": {
         const reply = messages
           .slice(hiddenMessageCount)
-          .findLast((item) => item.role === "assistant");
+          .findLast(
+            (item) =>
+              item.role === "assistant" && assistantBody(item.body, item.profileName).trim(),
+          );
         let text = latestCopyText ?? (reply ? assistantBody(reply.body, reply.profileName) : null);
         if (latestCopyText === null) {
           let latestAt = reply ? Date.parse(reply.createdAt) : -Infinity;
@@ -2459,12 +2462,16 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         }
         if (!text) showCommandResult("Copy", "There is no reply or tool output to copy yet.");
         else {
+          showCommandResult("Copy", "Copying…");
+          const request = commandResultGeneration;
+          let feedback: string;
           try {
             const result = await api.app.copyText(text);
-            showCommandResult("Copy", result.ok ? "Copied to clipboard." : result.error.message);
+            feedback = result.ok ? "Copied to clipboard." : result.error.message;
           } catch {
-            showCommandResult("Copy", "Copy failed");
+            feedback = "Copy failed";
           }
+          if (request === commandResultGeneration) showCommandResult("Copy", feedback);
         }
         break;
       }
