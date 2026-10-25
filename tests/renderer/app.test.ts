@@ -3535,6 +3535,92 @@ describe("renderer status view", () => {
     }
   });
 
+  it.each(["", " \n\t", "writer: "])("copies past an empty saved reply: %j", async (body) => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.load = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        session: sessionSummary(),
+        messages: [
+          message("reply", "Earlier usable reply"),
+          { ...message("empty", body), profileName: "writer" },
+          { ...message("user", "Do not copy the user message"), role: "user" },
+        ],
+        nextMessageCursor: "3",
+        messagesHasMore: false,
+      },
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/copy";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.app.copyText).toHaveBeenCalledWith("Earlier usable reply"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(["dismiss", "another command", "switch conversation"])(
+    "does not show a late clipboard result after %s",
+    async (action) => {
+      const sessions = [
+        sessionSummary(),
+        { ...sessionSummary(), sessionId: "session-2", title: "Other conversation" },
+      ];
+      const api = approvalRendererApi(vi.fn(), sessions);
+      api.sessions.load = async ({ sessionId }) => ({
+        ok: true,
+        value: {
+          session: sessions.find((item) => item.sessionId === sessionId)!,
+          messages: [message("reply", "Saved reply")],
+          nextMessageCursor: "1",
+          messagesHasMore: false,
+        },
+      });
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        for (const failed of [false, true]) {
+          let finish!: () => void;
+          api.app.copyText = vi.fn().mockImplementation(
+            () =>
+              new Promise((resolve, reject) => {
+                finish = () =>
+                  failed
+                    ? reject(new Error("Clipboard unavailable"))
+                    : resolve({ ok: true, value: null });
+              }),
+          );
+          page.element("composer").value = "/copy";
+          page.element("composer-form").dispatch("submit");
+          await vi.waitFor(() => expect(api.app.copyText).toHaveBeenCalledOnce());
+          if (action === "dismiss") page.element("close-command").click();
+          else if (action === "another command") {
+            page.element("composer").value = "/help copy";
+            page.element("composer-form").dispatch("submit");
+          } else {
+            page.sessionButtons()[failed ? 0 : 1]!.click();
+            await vi.waitFor(() =>
+              expect(page.element("current-title").textContent).toBe(
+                failed ? "Recovered chat" : "Other conversation",
+              ),
+            );
+          }
+          finish();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          if (action === "another command")
+            expect(page.element("command-title").textContent).toBe("Command help");
+          else expect(page.element("command-panel").hidden).toBe(true);
+        }
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
   it("copies tool output in stream order, keeps truncation visible, and does not invent reloaded output", async () => {
     const session = sessionSummary();
     let receive!: (event: TurnEventV1) => void;
