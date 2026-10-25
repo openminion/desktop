@@ -2757,6 +2757,86 @@ describe("renderer status view", () => {
     expect(JSON.stringify(view)).not.toMatch(/token|host|port|path/i);
   });
 
+  it.each(["", "sync ", "async "])(
+    "preserves delegation instruction formatting with mode %j",
+    async (mode) => {
+      const api = approvalRendererApi(vi.fn());
+      api.sessions.events = vi.fn().mockResolvedValue({
+        ok: true,
+        value: { events: [], nextCursor: null, hasMore: false },
+      });
+      api.delegation = {
+        control: vi.fn().mockResolvedValue({
+          ok: false,
+          error: { code: "unavailable", message: "Test runtime unavailable" },
+        }),
+      };
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        const instruction = 'Keep  two spaces and "quotes".\n\n  Indented\tline';
+        page.element("composer").value = `/delegate ${mode}reviewer  ${instruction}`;
+        page.element("composer-form").dispatch("submit");
+        await vi.waitFor(() => expect(api.delegation.control).toHaveBeenCalledOnce());
+        expect(api.delegation.control).toHaveBeenCalledWith({
+          sessionId: "session-1",
+          action: mode.trim() || "sync",
+          targetAgentId: "reviewer",
+          instruction,
+          timeoutSeconds: 120,
+        });
+        expect(api.turns.submit).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each([
+    ["list 1 extra", "Use /delegate list"],
+    ["list 1e2", "Use /delegate list"],
+    ["list 0x10", "Use /delegate list"],
+    ["list 1.0", "Use /delegate list"],
+    ["list 0", "Use /delegate list"],
+    ["list 201", "Use /delegate list"],
+    ...["status", "result", "cancel", "resume", "inspect"].flatMap((action) => [
+      [action, `Use /delegate ${action}`],
+      [`${action} task-1 extra`, `Use /delegate ${action}`],
+    ]),
+    ...["review", "accept", "reject"].map((action) => [
+      `${action} '{"instruction":"Review changes"}'`,
+      "not connected in Desktop yet",
+    ]),
+    ["--child-permission-mode readonly reviewer Read code", "not connected in Desktop yet"],
+    ["async --child-permission-mode readonly reviewer Read code", "not connected in Desktop yet"],
+    ["sync reviewer", "Use /delegate [sync|async]"],
+  ])("does not execute malformed or unsupported delegation: %s", async (args, message) => {
+    const api = approvalRendererApi(vi.fn());
+    api.delegation = { control: vi.fn() };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = `/delegate ${args}`;
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(page.element("command-title").textContent).toBe("Delegation command"),
+      );
+      expect(
+        page
+          .element("command-result")
+          .descendants()
+          .map((item) => item.textContent)
+          .join("\n"),
+      ).toContain(message);
+      expect(api.delegation.control).not.toHaveBeenCalled();
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("renders native delegation inspection with separate tree, session, and timeline navigation", async () => {
     const parent = sessionSummary();
     const child = { ...sessionSummary(), sessionId: "child-session", title: "Child review" };
