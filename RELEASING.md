@@ -1,7 +1,7 @@
 # OpenMinion Desktop Releasing
 
 Status: unsigned development distribution enabled; stable distribution not enabled
-Last updated: 2026-10-19
+Last updated: 2026-10-26
 
 Purpose: define the unsigned development-package process and the additional
 proof required before OpenMinion Desktop can enable stable distribution.
@@ -13,9 +13,11 @@ Desktop updater, rollback contract, or clean-machine certification yet.
 
 The manual `CI` workflow stages unsigned macOS, Windows, and Linux packages in
 a private draft release. Transfer every package to a public development
-prerelease, verify every public download, then delete the private draft. This is
-public development distribution, not platform certification or a stable
-Desktop update.
+prerelease, verify every public download, then run **Desktop source release**
+from the same reviewed `main` revision with that runtime release tag. Delete the
+private draft only after both public release records pass readback. This is
+public development distribution, not platform certification or a stable Desktop
+update.
 
 The separate `Runtime qualification` workflow is not a Desktop distribution
 release. It builds a real-version packaged Desktop on all supported hosts to
@@ -77,14 +79,16 @@ For each new Desktop release:
 3. Publish and verify the development packages using the checklist below. The
    source SHA in `desktop-release.json` must be the same commit being tagged,
    and its application version must match `package.json` at that commit.
-4. Create an annotated `v<desktop-version>` tag on that exact commit in
-   `openminion/desktop` and push only that tag. Never move or reuse a published
-   version tag. A different application release needs a new version.
-5. Create the Desktop GitHub Release from the existing tag, with the bare version
-   as its title (for example, tag `v0.0.2`, title `0.0.2`). Include release notes,
-   the matching `openminion/runtime` download link, checksums, and the supported
-   platform boundary. Mark current alpha/unsigned releases as **prerelease**;
-   a version tag does not imply signing or stable-release acceptance.
+4. Dispatch **Desktop source release** from that exact `main` revision with the
+   public `desktop-dev-v<desktop-version>-build.<number>` tag. The workflow
+   verifies version, source commit, release status, asset names, sizes, and
+   SHA-256 digests before creating the annotated `v<desktop-version>` tag.
+5. Require the workflow to create and read back the Desktop GitHub Release with
+   the bare version as its title (for example, tag `v0.0.2`, title `0.0.2`). It
+   links the matching `openminion/runtime` downloads, attaches the package
+   manifest and checksums, and marks the release as a **prerelease**. Never move
+   or reuse a published version tag; a different application release needs a
+   new version.
 6. Verify the public tag resolves to the recorded build SHA and that the Desktop
    release links to the verified package release. Record both release URLs and
    the tag SHA in the release receipt.
@@ -95,9 +99,18 @@ repositories. Link them through the exact source SHA in the package manifest;
 do not replace the artifact repository's existing naming scheme. Temporary
 `desktop-package-*` draft releases are transfer staging, not version releases.
 
-There is no tag-triggered Desktop publisher today. Creating a tag alone does not
-build or publish installers. Follow this checklist with the existing manual
-package workflow; no Python package release workflow is needed.
+The source-release workflow does not build or publish installers. It accepts
+only an already-public unsigned runtime prerelease whose manifest matches its
+exact Desktop `main` revision. Packaging remains in the existing manual `CI`
+workflow, and no Python package release workflow is needed.
+
+A Desktop development release is complete only when both public records exist:
+
+1. `openminion/runtime` has the verified unsigned package prerelease, and
+2. `openminion/desktop` has the matching immutable source tag and prerelease.
+
+If either record is unavailable, report the Desktop release as blocked rather
+than silently omitting it from a broader release closeout.
 
 ## Release floor
 
@@ -140,7 +153,10 @@ Desktop development release:
 5. publish the Release as a prerelease whose notes clearly say unsigned and not
    notarized, stable, or automatic-update eligible,
 6. anonymously download every public asset and verify every digest, and
-7. delete the private transfer draft only after public readback passes.
+7. dispatch **Desktop source release** with the published runtime tag and verify
+   its annotated source tag, prerelease status, metadata assets, and source SHA,
+8. record both public release URLs, then
+9. delete the private transfer draft only after public readback passes.
 
 Do not add an unsigned Desktop prerelease to any stable update manifest or call
 it a supported Desktop release.
@@ -193,3 +209,8 @@ An unsigned public prerelease is downloadable development evidence, not a
 stable release candidate. Do not add a stable release workflow or
 `.github/release.yml` until the distribution activation requirements have
 owners and passing evidence.
+
+The first complete source/package pair is Desktop
+[`v0.0.1`](https://github.com/openminion/desktop/releases/tag/v0.0.1) with
+unsigned package release
+[`desktop-dev-v0.0.1-build.4`](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.4).

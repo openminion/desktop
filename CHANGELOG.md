@@ -35,6 +35,16 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 - Navigate Settings sections with Left/Right, Home/End and Enter/Space, with
   correctly labeled tabs and a single Tab stop for the selected section.
 
+## 0.0.1 - 2026-10-26
+
+The first versioned Desktop development release records source
+[`v0.0.1`](https://github.com/openminion/desktop/releases/tag/v0.0.1) and the
+matching unsigned packages in
+[`desktop-dev-v0.0.1-build.4`](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.4).
+It is an unsigned prerelease, not a signed or automatic-update-eligible build.
+
+### Included changes
+
 - Add a labeled Desktop screenshot to the README using non-private sample chat.
 
 - Clarify packaged-app prerequisites, document Identity editing and verification,
