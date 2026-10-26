@@ -14,6 +14,9 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
 ### Recent changes
 
+- Keep unsent chat drafts when choosing a command from Help or opening tool-access
+  forms from a tool report. Inspecting commands no longer clears the composer.
+
 - Preserve exact agent labels in `/agents` and `/agent` lookups, including
   repeated spaces, instead of silently changing the requested name.
 

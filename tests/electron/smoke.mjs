@@ -841,7 +841,45 @@ async function check() {
     console.log(
       "PASS: exact agent label survives alias completion, native Enter and the production preload.",
     );
+    ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
+    ipcMain.handle(IPC_CHANNELS.reportsRead, () => ({
+      ok: true,
+      value: { kind: "tools", tools: [] },
+    }));
+    for (const [command, action, title] of [
+      ["/help", "/editor  ", "Desktop composer"],
+      ["/tools", "Activate profile…", "Tool access"],
+      ["/tools", "Deactivate profile…", "Tool access"],
+    ]) {
+      await click("composer");
+      await evaluate("document.querySelector('#composer').select()");
+      await window.webContents.insertText(command);
+      await key("Return");
+      await waitFor(
+        `Array.from(document.querySelectorAll('#command-result button')).some(button => button.textContent.startsWith(${JSON.stringify(action)}))`,
+      );
+      const draft = "Keep  this draft\n日本語";
+      await click("composer");
+      await window.webContents.insertText(draft);
+      await evaluate(
+        `Array.from(document.querySelectorAll('#command-result button')).find(button => button.textContent.startsWith(${JSON.stringify(action)})).id = 'draft-action-fixture'`,
+      );
+      await click("draft-action-fixture");
+      await waitFor(
+        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)}`,
+      );
+      assert.equal(await evaluate("document.querySelector('#composer').value"), draft);
+      await waitFor(
+        `(async () => (await window.openminion.drafts.load()).value.some(item => item.sessionId === ${JSON.stringify(toolSession.sessionId)} && item.text === ${JSON.stringify(draft)}))()`,
+      );
+      await key("Escape");
+      assert.equal(await evaluate("document.querySelector('#composer').value"), draft);
+    }
+    console.log(
+      "PASS: Help and tool-access actions preserve the composer and saved draft through native clicks.",
+    );
     await click("composer");
+    await evaluate("document.querySelector('#composer').select()");
     await window.webContents.insertText("Run fixture tool");
     await key("Return");
     await waitFor("document.querySelector('#chat-status').textContent === 'Working…'");

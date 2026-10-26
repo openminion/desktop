@@ -2119,7 +2119,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
               button.className = "secondary-tool";
               button.textContent =
                 action === "activate" ? "Activate profile…" : "Deactivate profile…";
-              button.addEventListener("click", () => void runCommand(`/tools ${action}`));
+              button.addEventListener("click", () => {
+                commandDraft = elements.composer.value;
+                void runCommand(`/tools ${action}`);
+              });
               elements.commandResult.append(button);
             }
           }
@@ -2322,6 +2325,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           button.className = "command-option";
           button.textContent = `${item.name}  ${item.description}`;
           button.addEventListener("click", () => {
+            commandDraft = elements.composer.value;
             hideCommandResult();
             void runCommand(item.name);
           });

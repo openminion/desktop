@@ -117,6 +117,51 @@ function namesApi(): NativeApi["chatNames"] {
 }
 
 describe("renderer computer observation", () => {
+  it.each([
+    ["/help", "/editor  ", "Desktop composer"],
+    ["/tools", "Activate profile…", "Tool access"],
+    ["/tools", "Deactivate profile…", "Tool access"],
+  ])("preserves an unsent draft when %s opens %s", async (command, action, title) => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = async () => ({
+      ok: true,
+      value: { events: [], nextCursor: "0", hasMore: false },
+    });
+    api.reports = {
+      read: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { kind: "tools", tools: [] },
+      }),
+    };
+    api.tools = { control: vi.fn() };
+    api.drafts = {
+      load: async () => ({ ok: true, value: [] }),
+      save: vi.fn().mockResolvedValue({ ok: true, value: "session-1" }),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = command;
+      page.element("composer-form").dispatch("submit");
+      const result = page.element("command-result");
+      await vi.waitFor(() =>
+        expect(result.children.some((item) => item.textContent.startsWith(action))).toBe(true),
+      );
+      const draft = "Keep  this draft\n日本語";
+      page.element("composer").value = draft;
+      page.element("composer").dispatch("input");
+      result.children.find((item) => item.textContent.startsWith(action))!.click();
+      await vi.waitFor(() => expect(page.element("command-title").textContent).toBe(title));
+      expect(page.element("composer").value).toBe(draft);
+      expect(api.drafts.save).toHaveBeenLastCalledWith({ sessionId: "session-1", text: draft });
+      expect(api.turns.submit).not.toHaveBeenCalled();
+      expect(api.tools.control).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each(["/agents", "/agent"])("preserves exact agent labels through %s", async (command) => {
     const api = approvalRendererApi(vi.fn());
     const label = "Design  review [日本語]";
