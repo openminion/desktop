@@ -1,0 +1,165 @@
+name: Desktop source release
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_release_tag:
+        description: Exact openminion/runtime unsigned Desktop prerelease tag
+        required: true
+        type: string
+
+concurrency:
+  group: desktop-source-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.repository == 'openminion/desktop' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUNTIME_RELEASE_TAG: ${{ inputs.runtime_release_tag }}
+    steps:
+      - name: Check out the reviewed Desktop revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Verify the public unsigned package release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/desktop-release"
+          mkdir -p "$directory"
+          gh release download "$RUNTIME_RELEASE_TAG" \
+            --repo openminion/runtime \
+            --pattern desktop-release.json \
+            --pattern SHA256SUMS \
+            --dir "$directory"
+          gh release view "$RUNTIME_RELEASE_TAG" \
+            --repo openminion/runtime \
+            --json tagName,isDraft,isPrerelease,publishedAt,url,assets \
+            > "$directory/runtime-release.json"
+          node scripts/desktop-release.mjs \
+            "$directory/desktop-release.json" \
+            package.json \
+            "$directory/runtime-release.json" \
+            "$directory/SHA256SUMS" \
+            "$GITHUB_SHA" \
+            "$RUNTIME_RELEASE_TAG" \
+            > "$directory/release.json"
+          {
+            echo "version=$(jq -r .version "$directory/release.json")"
+            echo "tag=$(jq -r .tag "$directory/release.json")"
+            echo "runtime_url=$(jq -r .runtimeReleaseUrl "$directory/release.json")"
+            echo "build_run=$(jq -r .buildRun "$directory/release.json")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create the annotated source tag
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            tag_ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")
+            test "$(jq -r .object.type <<< "$tag_ref")" = tag
+            tag_object=$(jq -r .object.sha <<< "$tag_ref")
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object" --jq .object.sha)" = "$GITHUB_SHA"
+          else
+            tag_object=$(gh api \
+              --method POST \
+              "repos/$GITHUB_REPOSITORY/git/tags" \
+              -f tag="$TAG" \
+              -f message="OpenMinion Desktop $VERSION" \
+              -f object="$GITHUB_SHA" \
+              -f type=commit \
+              --jq .sha)
+            gh api \
+              --method POST \
+              "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="$tag_object" \
+              >/dev/null
+          fi
+
+      - name: Publish and verify the Desktop prerelease
+        shell: bash
+        env:
+          BUILD_RUN: ${{ steps.release.outputs.build_run }}
+          RUNTIME_URL: ${{ steps.release.outputs.runtime_url }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/desktop-release"
+          notes="$directory/release-notes.md"
+          {
+            echo "OpenMinion Desktop $VERSION development prerelease."
+            echo
+            echo "Unsigned development packages: $RUNTIME_URL"
+            echo
+            echo "Build identity:"
+            echo
+            echo "- Desktop source: \`$GITHUB_SHA\`"
+            echo "- Package workflow: $BUILD_RUN"
+            echo "- Package manifest: \`desktop-release.json\`"
+            echo
+            echo "Checksums:"
+            echo
+            echo '```text'
+            cat "$directory/SHA256SUMS"
+            echo '```'
+            echo
+            echo "These packages are unsigned development artifacts. They are not signed, notarized, clean-machine certified, stable, or eligible for automatic application updates."
+          } > "$notes"
+
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "$VERSION" \
+              --prerelease \
+              --notes-file "$notes" \
+              "$directory/desktop-release.json#desktop-release.json" \
+              "$directory/SHA256SUMS#SHA256SUMS"
+          fi
+
+          gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,url,assets \
+            > "$directory/desktop-source-release.json"
+          manifest_digest="sha256:$(sha256sum "$directory/desktop-release.json" | cut -d ' ' -f 1)"
+          sums_digest="sha256:$(sha256sum "$directory/SHA256SUMS" | cut -d ' ' -f 1)"
+          jq -e \
+            --arg tag "$TAG" \
+            --arg version "$VERSION" \
+            --arg manifest_digest "$manifest_digest" \
+            --arg sums_digest "$sums_digest" \
+            '.tagName == $tag and .name == $version and (.isDraft | not) and .isPrerelease and ([.assets[].name] | sort) == (["SHA256SUMS", "desktop-release.json"] | sort) and ([.assets[] | select(.name == "desktop-release.json") | .digest] == [$manifest_digest]) and ([.assets[] | select(.name == "SHA256SUMS") | .digest] == [$sums_digest])' \
+            "$directory/desktop-source-release.json" \
+            >/dev/null
+          release_url=$(jq -r .url "$directory/desktop-source-release.json")
+          {
+            echo "## Desktop source release published"
+            echo
+            echo "- Version: \`$VERSION\`"
+            echo "- Source commit: \`$GITHUB_SHA\`"
+            echo "- Desktop release: $release_url"
+            echo "- Unsigned packages: $RUNTIME_URL"
+          } >> "$GITHUB_STEP_SUMMARY"

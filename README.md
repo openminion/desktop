@@ -74,9 +74,11 @@ and should be treated as a scam.
 
 ## Install
 
-[Download the unsigned 0.0.1 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.3)
+[Download the unsigned 0.0.1 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.4)
 from the official runtime repository. The release includes checksums and a
-manifest identifying its exact source revision. Use the
+manifest identifying its exact source revision. The matching
+[Desktop source release](https://github.com/openminion/desktop/releases/tag/v0.0.1)
+records the immutable source tag and package metadata. Use the
 [package selection and installation guide](SUPPORT.md#choose-a-development-download)
 to choose the correct architecture and verify its checksum. The published macOS
 package is for Apple Silicon; no Intel Mac package is available in this release.
