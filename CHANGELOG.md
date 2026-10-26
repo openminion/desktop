@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -13,6 +13,9 @@ supersede their limitations. Use [Current Capabilities](README.md#current-capabi
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
 ### Recent changes
+
+- Preserve exact agent labels in `/agents` and `/agent` lookups, including
+  repeated spaces, instead of silently changing the requested name.
 
 - Make `/copy` skip empty saved replies like Focus, and keep delayed clipboard
   feedback from reopening dismissed results or replacing another command.

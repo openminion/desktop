@@ -2074,7 +2074,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           ...(sessionId && !["learning", "graph"].includes(kind) ? { sessionId } : {}),
           ...(kind === "graph" && args[0] === "status" ? { graphView: "status" as const } : {}),
           ...(kind === "tools" ? { toolView: (args[0] ?? "status") as "status" | "list" } : {}),
-          ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
+          ...(kind === "agents" && args.length
+            ? { agentFilter: value.slice(name.length).trimStart() }
+            : {}),
           ...(kind === "learning" && args.length ? { proposalId: args.join(" ") } : {}),
         });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;

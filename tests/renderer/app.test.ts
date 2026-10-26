@@ -117,6 +117,39 @@ function namesApi(): NativeApi["chatNames"] {
 }
 
 describe("renderer computer observation", () => {
+  it.each(["/agents", "/agent"])("preserves exact agent labels through %s", async (command) => {
+    const api = approvalRendererApi(vi.fn());
+    const label = "Design  review [日本語]";
+    api.sessions.events = async () => ({
+      ok: true,
+      value: { events: [], nextCursor: "0", hasMore: false },
+    });
+    api.reports = {
+      read: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { kind: "agents", activeAgentId: "reviewer", agents: [{ id: "reviewer", label }] },
+      }),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = `  ${command}   ${label}  `;
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(api.reports.read).toHaveBeenCalledWith({
+          kind: "agents",
+          sessionId: "session-1",
+          agentFilter: label,
+        }),
+      );
+      expect(page.element("command-result").children[0]?.textContent).toBe(`● reviewer — ${label}`);
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("discovers session commands and sends only their canonical rendered prompt", async () => {
     const api = approvalRendererApi(vi.fn());
     api.sessions.events = vi
