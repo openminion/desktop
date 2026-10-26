@@ -808,6 +808,39 @@ async function check() {
     );
     assert.equal(await clipboard.readText(), "Saved reply before empty message");
     await key("Escape");
+    let agentReportInput;
+    ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
+    ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) => {
+      agentReportInput = input;
+      return {
+        ok: true,
+        value: {
+          kind: "agents",
+          activeAgentId: "reviewer",
+          agents: [{ id: "reviewer", label: "Design  review" }],
+        },
+      };
+    });
+    await click("composer");
+    await window.webContents.insertText("/agent Design  review");
+    await key("Tab");
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "/agents Design  review",
+    );
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-result p').textContent === '● reviewer — Design  review'",
+    );
+    assert.deepEqual(agentReportInput, {
+      kind: "agents",
+      sessionId: toolSession.sessionId,
+      agentFilter: "Design  review",
+    });
+    await key("Escape");
+    console.log(
+      "PASS: exact agent label survives alias completion, native Enter and the production preload.",
+    );
     await click("composer");
     await window.webContents.insertText("Run fixture tool");
     await key("Return");
