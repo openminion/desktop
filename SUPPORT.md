@@ -54,9 +54,13 @@ Do not substitute an unrelated system-wide CLI version for Desktop's managed run
 
 ## Choose a development download
 
-The [current development release](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.3)
-contains these packages. Choose by operating system and processor, not just by
-the `0.0.1` application version; the release tag identifies the particular build.
+The [current development release](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.4)
+contains these packages. Its matching
+[Desktop source release](https://github.com/openminion/desktop/releases/tag/v0.0.1)
+records the immutable source tag and package metadata. Include both release
+identifiers in a report. Choose by operating system and processor, not just by
+the `0.0.1` application version; the runtime release tag identifies the
+particular package build.
 
 | Computer | Package | Current acceptance |
 | --- | --- | --- |
