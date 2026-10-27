@@ -74,7 +74,7 @@ and should be treated as a scam.
 
 ## Install
 
-[Download the unsigned 0.0.2 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.2-build.1)
+[Download the unsigned 0.0.2 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.2-build.2)
 from the official runtime repository. The release includes checksums and a
 manifest identifying its exact source revision. The matching
 [Desktop source release](https://github.com/openminion/desktop/releases/tag/v0.0.2)
