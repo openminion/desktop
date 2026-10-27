@@ -12,7 +12,13 @@ Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
-### Recent changes
+## 0.0.2 - 2026-10-26
+
+This development release improves command handling, keyboard workflows, and
+draft preservation. It remains unsigned and is not an automatic-update-eligible
+stable build.
+
+### Included changes
 
 - Keep unsent chat drafts when choosing a command from Help or opening tool-access
   forms from a tool report. Inspecting commands no longer clears the composer.
