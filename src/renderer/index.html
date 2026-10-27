@@ -43,14 +43,14 @@
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
         </button>
       </div>
-      <nav class="settings-nav" aria-label="Settings sections">
-        <button id="settings-profiles-button" type="button" aria-pressed="true" aria-controls="settings-profiles">Models &amp; credentials</button>
-        <button id="settings-identity-button" type="button" aria-pressed="false" aria-controls="settings-identity">Identity</button>
-        <button id="settings-chat-button" type="button" aria-pressed="false" aria-controls="settings-chat">Chat display</button>
-        <button id="settings-runtime-button" type="button" aria-pressed="false" aria-controls="settings-runtime">Runtime</button>
-      </nav>
+      <div class="settings-nav" role="tablist" aria-label="Settings sections">
+        <button id="settings-profiles-button" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="settings-profiles">Models &amp; credentials</button>
+        <button id="settings-identity-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="settings-identity">Identity</button>
+        <button id="settings-chat-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="settings-chat">Chat display</button>
+        <button id="settings-runtime-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="settings-runtime">Runtime</button>
+      </div>
       <div class="settings-body">
-        <section id="settings-profiles" aria-labelledby="settings-profiles-heading">
+        <section id="settings-profiles" role="tabpanel" aria-labelledby="settings-profiles-button">
           <h3 id="settings-profiles-heading">Models &amp; credentials</h3>
           <p id="profile-intro" class="settings-note">Finish running chats before saving. Applying changes restarts OpenMinion.</p>
           <form id="profile-form">
@@ -106,7 +106,7 @@
           <p id="profile-import-note" class="settings-note">Import a JSON file to add profiles, replace matching agent IDs, and merge runtime keys.</p>
           <p class="settings-note">Keys are saved locally. Leave a key blank to keep it. Closing discards unsaved edits.</p>
         </section>
-        <section id="settings-identity" aria-labelledby="settings-identity-heading" hidden>
+        <section id="settings-identity" role="tabpanel" aria-labelledby="settings-identity-button" hidden>
           <h3 id="settings-identity-heading">Identity</h3>
           <p class="settings-note">Set the agent’s purpose, tone, and approach to risk and tools.</p>
           <p id="identity-status" class="settings-note" role="status" aria-live="polite"></p>
@@ -150,7 +150,7 @@
             <textarea id="identity-preview" class="identity-preview" rows="8" readonly aria-label="Rendered identity preview">No identity loaded.</textarea>
           </div>
         </section>
-        <section id="settings-chat" aria-labelledby="settings-chat-heading" hidden>
+        <section id="settings-chat" role="tabpanel" aria-labelledby="settings-chat-button" hidden>
           <h3 id="settings-chat-heading">Chat display</h3>
           <label for="chat-display">Tool activity</label>
           <select id="chat-display" aria-describedby="chat-display-note">
@@ -169,7 +169,7 @@
             <div><dt>Dismiss a menu or dialog</dt><dd>Esc</dd></div>
           </dl>
         </section>
-        <section id="settings-runtime" aria-labelledby="settings-runtime-heading" hidden>
+        <section id="settings-runtime" role="tabpanel" aria-labelledby="settings-runtime-button" hidden>
           <h3 id="settings-runtime-heading">Runtime</h3>
           <div class="daemon-actions">
             <button id="show-daemon-status" class="quiet-button diagnostic-control" type="button">

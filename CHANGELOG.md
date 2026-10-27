@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-18
+Last updated: 2026-10-26
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -12,7 +12,47 @@ Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
-### Recent changes
+## 0.0.2 - 2026-10-26
+
+This development release improves command handling, keyboard workflows, and
+draft preservation. It remains unsigned and is not an automatic-update-eligible
+stable build.
+
+### Included changes
+
+- Keep unsent chat drafts when choosing a command from Help or opening tool-access
+  forms from a tool report. Inspecting commands no longer clears the composer.
+
+- Preserve exact agent labels in `/agents` and `/agent` lookups, including
+  repeated spaces, instead of silently changing the requested name.
+
+- Make `/copy` skip empty saved replies like Focus, and keep delayed clipboard
+  feedback from reopening dismissed results or replacing another command.
+
+- Preserve spaces and line breaks in delegation instructions, show sync/async
+  usage, and reject malformed or unsupported delegation forms before execution.
+
+- Preserve newer chat-name edits made while Save or Reset name is still finishing,
+  so the rename dialog stays open until the newer draft is saved or dismissed.
+
+- Keep conversation search intact when Escape cancels active text composition;
+  Escape outside composition still clears the search.
+
+- Preserve keyboard focus and visible feedback when copying messages or code,
+  including clipboard failures.
+
+- Navigate Settings sections with Left/Right, Home/End and Enter/Space, with
+  correctly labeled tabs and a single Tab stop for the selected section.
+
+## 0.0.1 - 2026-10-26
+
+The first versioned Desktop development release records source
+[`v0.0.1`](https://github.com/openminion/desktop/releases/tag/v0.0.1) and the
+matching unsigned packages in
+[`desktop-dev-v0.0.1-build.4`](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.4).
+It is an unsigned prerelease, not a signed or automatic-update-eligible build.
+
+### Included changes
 
 - Add a labeled Desktop screenshot to the README using non-private sample chat.
 

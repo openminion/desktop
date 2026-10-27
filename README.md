@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://github.com/openminion/desktop/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/openminion/desktop/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Desktop version" src="https://img.shields.io/badge/desktop-0.0.1-6B7280"></a>
+  <a href="CHANGELOG.md"><img alt="Desktop version" src="https://img.shields.io/badge/desktop-0.0.2-6B7280"></a>
   <img alt="Status" src="https://img.shields.io/badge/status-alpha-6B7280">
 </p>
 
@@ -31,8 +31,9 @@ the local daemon without using a terminal. Execution, credentials, policies,
 and saved conversation history remain owned by OpenMinion.
 
 Desktop is an **early development alpha**. The current application version is
-**0.0.1**, separate from the managed runtime version, **0.0.29**. Unsigned
-development packages are available; signed stable releases and full Focus/CLI
+**0.0.2**, versioned separately from OpenMinion. Fresh managed installations
+start with **OpenMinion 0.0.29**; compatible runtime updates are selected through
+the public runtime manifest. Unsigned development packages are available; signed stable releases and full Focus/CLI
 parity are still in progress.
 
 [![OpenMinion Desktop showing a sample conversation, conversation sidebar, Settings, and message composer](docs/images/desktop-preview.png)](docs/images/desktop-preview.png)
@@ -63,8 +64,8 @@ and should be treated as a scam.
 
 | | |
 | --- | --- |
-| Application | OpenMinion Desktop 0.0.1 · development alpha |
-| Managed runtime | Pinned `openminion==0.0.29` from PyPI |
+| Application | OpenMinion Desktop 0.0.2 · development alpha |
+| Managed runtime | First install: `openminion==0.0.29` from PyPI; updates: compatible public runtime manifests |
 | Current runtime acceptance | macOS; Windows and Linux runtime certification remains open |
 | Unsigned package formats | macOS DMG/ZIP, Windows ZIP, Linux DEB/ZIP |
 | Source prerequisites | Node.js 24, npm 11, Python 3.11 |
@@ -73,9 +74,11 @@ and should be treated as a scam.
 
 ## Install
 
-[Download the unsigned 0.0.1 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.3)
+[Download the unsigned 0.0.2 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.2-build.1)
 from the official runtime repository. The release includes checksums and a
-manifest identifying its exact source revision. Use the
+manifest identifying its exact source revision. The matching
+[Desktop source release](https://github.com/openminion/desktop/releases/tag/v0.0.2)
+records the immutable source tag and package metadata. Use the
 [package selection and installation guide](SUPPORT.md#choose-a-development-download)
 to choose the correct architecture and verify its checksum. The published macOS
 package is for Apple Silicon; no Intel Mac package is available in this release.
@@ -118,9 +121,12 @@ unmanaged; Desktop does not upgrade it. See
 
 ## First Launch
 
-Desktop installs the pinned runtime under `~/.openminion/desktop`, initializes
-a private local config, and starts its daemon. Later launches reuse that
-installation. In **Welcome to OpenMinion**:
+On a fresh managed installation, Desktop installs `openminion==0.0.29` from
+PyPI under `~/.openminion/desktop`, initializes a private local config, and starts
+its daemon. First installation does not yet select a version from the runtime
+manifest. Later launches reuse the installed runtime, including an activated
+manifest-verified update. See [runtime installation and updates](docs/getting-started.md#runtime-updates).
+In **Welcome to OpenMinion**:
 
 1. Choose a provider and enter its model and API key, or import an existing profile.
 2. Choose **Set up and start**. **Test connection before continuing** sends one
@@ -230,7 +236,7 @@ owners for changes.
 - [API Compatibility](API_COMPATIBILITY.md): application/runtime contracts
 - [Changelog](CHANGELOG.md): versioned changes
 - [Releasing](RELEASING.md): unsigned builds, versioning, and stable release gates
-- [Public Source Readiness](docs/public-readiness.md): remaining source-publication decisions
+- [Public Source Readiness](docs/public-readiness.md): public launch evidence and remaining acceptance
 
 ## License and Brand-use Boundary
 

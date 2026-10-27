@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-10-17
+Last updated: 2026-10-19
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -16,10 +16,12 @@ in [README.md](README.md), [SUPPORT.md](SUPPORT.md), and `docs/`.
 
 ## Desktop-daemon boundary
 
-The Desktop main process owns installation and lifecycle. It currently installs
-the pinned `openminion==0.0.29` PyPI package into app-managed storage and calls
-the ordinary `config init` and `daemon status/logs` commands. Main starts the
-public `openminiond serve` entrypoint as a foreground child and retains its
+The Desktop main process owns installation and lifecycle. A fresh managed
+installation uses the bootstrap pin `openminion==0.0.29` from PyPI. This initial
+path does not consult the runtime manifest. An existing active managed runtime
+is reused; later versions are prepared through [Runtime Updates](#runtime-updates).
+Desktop calls the ordinary `config init` and `daemon status/logs` commands.
+Main starts the public `openminiond serve` entrypoint as a foreground child and retains its
 process handle. It signals that child only after rechecking the PID and canonical
 config/data paths; external or replaced daemons are never stopped. OpenMinion
 remains the owner of sessions, messages, approvals, policy, artifacts, and agent
@@ -226,4 +228,6 @@ policy and lifetime. No generic renderer path or command execution is exposed.
 
 Delegation requires `--parent-agent-id` and `--session-id` in the actual
 operation's CLI help before execution. Source support is not a new minimum
-published version: managed runtime remains 0.0.29 until qualification.
+published version: the fresh-install bootstrap pin remains 0.0.29. An existing
+installation may use a manifest-verified update or an unmanaged executable;
+capabilities depend on the runtime actually in use.

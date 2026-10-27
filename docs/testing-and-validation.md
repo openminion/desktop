@@ -1,7 +1,7 @@
 # OpenMinion Desktop Testing And Validation
 
 Status: active
-Last updated: 2026-10-18
+Last updated: 2026-10-20
 
 Purpose: define the separate validation tiers for source quality, unsigned
 packaging, native capture, and real OpenMinion daemon integration.
@@ -117,8 +117,10 @@ interval: startup checks once, duplicate scheduling does not duplicate checks,
 a newly offered version appears without installation/restart, and shutdown
 removes the interval. That is deterministic scheduling proof, not a live
 24-hour public-release observation. Standalone CLI update notices use PyPI;
-Desktop's managed runtime checks use the GitHub manifest. Neither installs an
-update automatically.
+Desktop's runtime **update** checks use the GitHub manifest; its fresh-install
+bootstrap still installs the fixed PyPI pin without a manifest lookup. Neither
+update-notification path installs an update automatically. First-install proof
+does not certify manifest-driven discovery, preparation, activation, or reuse.
 
 The private update harness uses main-only test fixtures and isolated roots to
 stage its target beside the current managed installer pin, keep the old daemon usable, activate on
@@ -394,7 +396,9 @@ covering conversation messages or text input at all three window sizes, and
 that the labeled chat actions do not overlap the title. It deliberately uses a missing daemon executable and never requests
 native capture. Hosted macOS CI runs this in addition to the normal package
 gate; importing TypeScript under a mocked Electron module cannot prove that
-Electron can load the distributed preloads.
+Electron can load the distributed preloads. The same command also runs the
+Identity journey and the preview-backed message-action check below, including
+keyboard focus during Copy feedback.
 
 Run the request-bound approval proof against an OpenMinion source checkout:
 
@@ -455,7 +459,8 @@ node_modules/.bin/electron tests/electron/message-actions.mjs
 This runs the real renderer with explicit preview data. It checks code-block
 language headers, keyboard access and Copy feedback, plus the message copy icon,
 local message time, hover and keyboard focus, stable layout at compact and normal
-sizes, and clipboard-error feedback. Preview deliberately denies clipboard
+sizes, and focus retained through clipboard-error feedback and action reset.
+Preview deliberately denies clipboard
 access; successful copy and message-body selection are covered by renderer tests
 and the real-daemon PyPI campaign. It makes no provider calls.
 

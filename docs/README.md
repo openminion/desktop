@@ -39,9 +39,9 @@ release promotion to `main` is a separate process.
 
 ## Maintain And Release
 
-- [Releasing](../RELEASING.md): versioning, unsigned packages, and stable-release gates
+- [Releasing](../RELEASING.md): version tags, GitHub Releases, unsigned packages, and stable-release gates
 - [Certification Readiness Matrix](certification-readiness-matrix.md): proof by surface
-- [Public Source Readiness](public-readiness.md): private-to-public launch decisions
+- [Public Source Readiness](public-readiness.md): public launch evidence and remaining acceptance
 - [Changelog](../CHANGELOG.md): versioned changes
 
 ## Application Boundaries
@@ -62,8 +62,11 @@ packages for macOS, Windows, and Linux. It does not claim a signed stable releas
 certified Windows/Linux runtime behavior, remote daemon service, unrestricted
 native input, or a second agent runtime.
 
-Desktop lifecycle uses the pinned public PyPI package and ordinary OpenMinion
-commands. Text chat and completed session history use the public CLI/API.
+A fresh managed installation uses the pinned public PyPI package; subsequent
+updates use compatible public runtime manifests. Later launches reuse the active
+runtime. See [Runtime Updates](getting-started.md#runtime-updates). Desktop
+lifecycle uses ordinary OpenMinion commands. Text chat and completed session
+history use the public CLI/API.
 Request-bound allow-once and deny approvals use the authenticated local API
 with a compatible OpenMinion runtime. See the
 [readiness matrix](certification-readiness-matrix.md) for managed-runtime proof.
@@ -72,4 +75,4 @@ integration must use existing public interfaces.
 
 Historical planning packets and workspace-local trackers are not public
 product guidance. Current behavior is defined by this repository, its public
-docs, and the pinned OpenMinion public command surface.
+docs, and the public command surface of the runtime actually installed.

@@ -117,6 +117,84 @@ function namesApi(): NativeApi["chatNames"] {
 }
 
 describe("renderer computer observation", () => {
+  it.each([
+    ["/help", "/editor  ", "Desktop composer"],
+    ["/tools", "Activate profile…", "Tool access"],
+    ["/tools", "Deactivate profile…", "Tool access"],
+  ])("preserves an unsent draft when %s opens %s", async (command, action, title) => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.events = async () => ({
+      ok: true,
+      value: { events: [], nextCursor: "0", hasMore: false },
+    });
+    api.reports = {
+      read: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { kind: "tools", tools: [] },
+      }),
+    };
+    api.tools = { control: vi.fn() };
+    api.drafts = {
+      load: async () => ({ ok: true, value: [] }),
+      save: vi.fn().mockResolvedValue({ ok: true, value: "session-1" }),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = command;
+      page.element("composer-form").dispatch("submit");
+      const result = page.element("command-result");
+      await vi.waitFor(() =>
+        expect(result.children.some((item) => item.textContent.startsWith(action))).toBe(true),
+      );
+      const draft = "Keep  this draft\n日本語";
+      page.element("composer").value = draft;
+      page.element("composer").dispatch("input");
+      result.children.find((item) => item.textContent.startsWith(action))!.click();
+      await vi.waitFor(() => expect(page.element("command-title").textContent).toBe(title));
+      expect(page.element("composer").value).toBe(draft);
+      expect(api.drafts.save).toHaveBeenLastCalledWith({ sessionId: "session-1", text: draft });
+      expect(api.turns.submit).not.toHaveBeenCalled();
+      expect(api.tools.control).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(["/agents", "/agent"])("preserves exact agent labels through %s", async (command) => {
+    const api = approvalRendererApi(vi.fn());
+    const label = "Design  review [日本語]";
+    api.sessions.events = async () => ({
+      ok: true,
+      value: { events: [], nextCursor: "0", hasMore: false },
+    });
+    api.reports = {
+      read: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { kind: "agents", activeAgentId: "reviewer", agents: [{ id: "reviewer", label }] },
+      }),
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = `  ${command}   ${label}  `;
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(api.reports.read).toHaveBeenCalledWith({
+          kind: "agents",
+          sessionId: "session-1",
+          agentFilter: label,
+        }),
+      );
+      expect(page.element("command-result").children[0]?.textContent).toBe(`● reviewer — ${label}`);
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("discovers session commands and sends only their canonical rendered prompt", async () => {
     const api = approvalRendererApi(vi.fn());
     api.sessions.events = vi
@@ -944,7 +1022,13 @@ describe("renderer status view", () => {
         ),
       ).toBe(true);
       buttons[0]!.click();
+      buttons[0]!.click();
+      expect(copyText).toHaveBeenCalledTimes(1);
+      expect(buttons[0]!.disabled).toBe(false);
+      expect(buttons[0]!.getAttribute("aria-disabled")).toBe("true");
       await vi.waitFor(() => expect(buttons[0]!.textContent).toBe("Copied"));
+      buttons[0]!.click();
+      expect(copyText).toHaveBeenCalledTimes(1);
       expect(copyText).toHaveBeenLastCalledWith("First line\nSecond line");
       buttons[1]!.click();
       await vi.waitFor(() => expect(buttons[1]!.textContent).toBe("Copied"));
@@ -956,7 +1040,7 @@ describe("renderer status view", () => {
       codeCopy.click();
       await vi.waitFor(() => expect(codeCopy.textContent).toBe("Copied"));
       expect(copyText).toHaveBeenLastCalledWith("print('hello')\n");
-      await vi.waitFor(() => expect(buttons[1]!.disabled).toBe(false), {
+      await vi.waitFor(() => expect(buttons[1]!.getAttribute("aria-disabled")).toBe("false"), {
         timeout: 2500,
       });
       expect(buttons[1]!.textContent).toBe("Copy");
@@ -1723,6 +1807,11 @@ describe("renderer status view", () => {
       page.sessionButtons()[0]!.click();
       await vi.waitFor(() => expect(page.element("current-title").textContent).toBe("Résumé [.*]"));
       expect(search.value).toBe("SESSION-3");
+      const composingEscape = { key: "Escape", isComposing: true, preventDefault: vi.fn() };
+      search.dispatch("keydown", composingEscape);
+      expect(composingEscape.preventDefault).not.toHaveBeenCalled();
+      expect(search.value).toBe("SESSION-3");
+      expect(page.sessionButtons()).toHaveLength(1);
       search.dispatch("keydown", { key: "Escape", preventDefault: vi.fn() });
       expect(search.value).toBe("");
       expect(page.element("session-search-count").hidden).toBe(true);
@@ -1895,6 +1984,49 @@ describe("renderer status view", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it.each(["save", "reset"])(
+    "preserves a newer rename draft after a pending %s",
+    async (action) => {
+      const api = approvalRendererApi(vi.fn());
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        const persist = api.chatNames.save;
+        let finish!: () => void;
+        const pending = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        const save = vi.spyOn(api.chatNames, "save").mockImplementationOnce(async (input) => {
+          await pending;
+          return persist(input);
+        });
+        page.element("rename-session").click();
+        page.element("task-name").value = "First name";
+        if (action === "reset") page.element("rename-reset").click();
+        else page.element("rename-form").dispatch("submit");
+        page.element("task-name").value = "Newer draft";
+        page.element("task-name").dispatch("input");
+        finish();
+        await vi.waitFor(() =>
+          expect(page.element("rename-error").textContent).toBe("Saved. You have unsaved changes."),
+        );
+        expect(page.element("rename-dialog").open).toBe(true);
+        expect(page.element("task-name").value).toBe("Newer draft");
+        expect(page.element("current-title").textContent).toBe(
+          action === "reset" ? "Recovered chat" : "First name",
+        );
+        expect(save).toHaveBeenCalledOnce();
+        page.element("rename-form").dispatch("submit");
+        await vi.waitFor(() => expect(page.element("rename-dialog").open).toBe(false));
+        expect(page.element("current-title").textContent).toBe("Newer draft");
+        expect(save).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it("tracks two running sidebar sessions independently and clears a background completion", async () => {
     const sessions = [
@@ -2703,6 +2835,86 @@ describe("renderer status view", () => {
     expect(JSON.stringify(view)).not.toMatch(/token|host|port|path/i);
   });
 
+  it.each(["", "sync ", "async "])(
+    "preserves delegation instruction formatting with mode %j",
+    async (mode) => {
+      const api = approvalRendererApi(vi.fn());
+      api.sessions.events = vi.fn().mockResolvedValue({
+        ok: true,
+        value: { events: [], nextCursor: null, hasMore: false },
+      });
+      api.delegation = {
+        control: vi.fn().mockResolvedValue({
+          ok: false,
+          error: { code: "unavailable", message: "Test runtime unavailable" },
+        }),
+      };
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        const instruction = 'Keep  two spaces and "quotes".\n\n  Indented\tline';
+        page.element("composer").value = `/delegate ${mode}reviewer  ${instruction}`;
+        page.element("composer-form").dispatch("submit");
+        await vi.waitFor(() => expect(api.delegation.control).toHaveBeenCalledOnce());
+        expect(api.delegation.control).toHaveBeenCalledWith({
+          sessionId: "session-1",
+          action: mode.trim() || "sync",
+          targetAgentId: "reviewer",
+          instruction,
+          timeoutSeconds: 120,
+        });
+        expect(api.turns.submit).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each([
+    ["list 1 extra", "Use /delegate list"],
+    ["list 1e2", "Use /delegate list"],
+    ["list 0x10", "Use /delegate list"],
+    ["list 1.0", "Use /delegate list"],
+    ["list 0", "Use /delegate list"],
+    ["list 201", "Use /delegate list"],
+    ...["status", "result", "cancel", "resume", "inspect"].flatMap((action) => [
+      [action, `Use /delegate ${action}`],
+      [`${action} task-1 extra`, `Use /delegate ${action}`],
+    ]),
+    ...["review", "accept", "reject"].map((action) => [
+      `${action} '{"instruction":"Review changes"}'`,
+      "not connected in Desktop yet",
+    ]),
+    ["--child-permission-mode readonly reviewer Read code", "not connected in Desktop yet"],
+    ["async --child-permission-mode readonly reviewer Read code", "not connected in Desktop yet"],
+    ["sync reviewer", "Use /delegate [sync|async]"],
+  ])("does not execute malformed or unsupported delegation: %s", async (args, message) => {
+    const api = approvalRendererApi(vi.fn());
+    api.delegation = { control: vi.fn() };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = `/delegate ${args}`;
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() =>
+        expect(page.element("command-title").textContent).toBe("Delegation command"),
+      );
+      expect(
+        page
+          .element("command-result")
+          .descendants()
+          .map((item) => item.textContent)
+          .join("\n"),
+      ).toContain(message);
+      expect(api.delegation.control).not.toHaveBeenCalled();
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("renders native delegation inspection with separate tree, session, and timeline navigation", async () => {
     const parent = sessionSummary();
     const child = { ...sessionSummary(), sessionId: "child-session", title: "Child review" };
@@ -3400,6 +3612,92 @@ describe("renderer status view", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it.each(["", " \n\t", "writer: "])("copies past an empty saved reply: %j", async (body) => {
+    const api = approvalRendererApi(vi.fn());
+    api.sessions.load = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        session: sessionSummary(),
+        messages: [
+          message("reply", "Earlier usable reply"),
+          { ...message("empty", body), profileName: "writer" },
+          { ...message("user", "Do not copy the user message"), role: "user" },
+        ],
+        nextMessageCursor: "3",
+        messagesHasMore: false,
+      },
+    });
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/copy";
+      page.element("composer-form").dispatch("submit");
+      await vi.waitFor(() => expect(api.app.copyText).toHaveBeenCalledWith("Earlier usable reply"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(["dismiss", "another command", "switch conversation"])(
+    "does not show a late clipboard result after %s",
+    async (action) => {
+      const sessions = [
+        sessionSummary(),
+        { ...sessionSummary(), sessionId: "session-2", title: "Other conversation" },
+      ];
+      const api = approvalRendererApi(vi.fn(), sessions);
+      api.sessions.load = async ({ sessionId }) => ({
+        ok: true,
+        value: {
+          session: sessions.find((item) => item.sessionId === sessionId)!,
+          messages: [message("reply", "Saved reply")],
+          nextMessageCursor: "1",
+          messagesHasMore: false,
+        },
+      });
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        for (const failed of [false, true]) {
+          let finish!: () => void;
+          api.app.copyText = vi.fn().mockImplementation(
+            () =>
+              new Promise((resolve, reject) => {
+                finish = () =>
+                  failed
+                    ? reject(new Error("Clipboard unavailable"))
+                    : resolve({ ok: true, value: null });
+              }),
+          );
+          page.element("composer").value = "/copy";
+          page.element("composer-form").dispatch("submit");
+          await vi.waitFor(() => expect(api.app.copyText).toHaveBeenCalledOnce());
+          if (action === "dismiss") page.element("close-command").click();
+          else if (action === "another command") {
+            page.element("composer").value = "/help copy";
+            page.element("composer-form").dispatch("submit");
+          } else {
+            page.sessionButtons()[failed ? 0 : 1]!.click();
+            await vi.waitFor(() =>
+              expect(page.element("current-title").textContent).toBe(
+                failed ? "Recovered chat" : "Other conversation",
+              ),
+            );
+          }
+          finish();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          if (action === "another command")
+            expect(page.element("command-title").textContent).toBe("Command help");
+          else expect(page.element("command-panel").hidden).toBe(true);
+        }
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it("copies tool output in stream order, keeps truncation visible, and does not invent reloaded output", async () => {
     const session = sessionSummary();

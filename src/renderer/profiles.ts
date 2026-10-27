@@ -92,15 +92,36 @@ export function mountProfiles(
     selectedSection = selected;
     for (const section of sections) {
       get<HTMLElement>(`settings-${section}`).hidden = section !== selected;
-      get<HTMLButtonElement>(`settings-${section}-button`).setAttribute(
-        "aria-pressed",
-        String(section === selected),
-      );
+      const button = get<HTMLButtonElement>(`settings-${section}-button`);
+      button.setAttribute("aria-selected", String(section === selected));
+      button.tabIndex = section === selected ? 0 : -1;
     }
     root.querySelector(".settings-body")!.scrollTop = 0;
   };
   for (const section of sections) {
-    get<HTMLButtonElement>(`settings-${section}-button`).addEventListener("click", () => {
+    const button = get<HTMLButtonElement>(`settings-${section}-button`);
+    button.addEventListener("keydown", (event) => {
+      let index = sections.indexOf(section);
+      switch (event.key) {
+        case "ArrowRight":
+          index = (index + 1) % sections.length;
+          break;
+        case "ArrowLeft":
+          index = (index + sections.length - 1) % sections.length;
+          break;
+        case "Home":
+          index = 0;
+          break;
+        case "End":
+          index = sections.length - 1;
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+      get<HTMLButtonElement>(`settings-${sections[index]}-button`).focus();
+    });
+    button.addEventListener("click", () => {
       selectSection(section);
       if (section === "identity" && !initialProfilesPending) void loadIdentity();
     });

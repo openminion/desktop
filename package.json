@@ -1,7 +1,7 @@
 {
   "name": "@openminion/desktop",
   "productName": "OpenMinion",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "Secure local desktop client for the OpenMinion daemon.",
   "author": "OpenMinion Contributors",
@@ -38,7 +38,7 @@
     "start": "npm run build && electron .",
     "package": "npm run build && electron-forge package && node scripts/package-contents.mjs",
     "make": "npm run build && electron-forge make && node scripts/package-contents.mjs --artifacts",
-    "electron-check": "npm run build && electron tests/electron/smoke.mjs && electron tests/electron/identity.mjs",
+    "electron-check": "npm run build && electron tests/electron/smoke.mjs && electron tests/electron/identity.mjs && electron tests/electron/message-actions.mjs",
     "electron-check:approval": "npm run build && electron tests/electron/approval.mjs",
     "electron-check:commands": "npm run build && electron tests/electron/commands.mjs",
     "electron-check:delegation": "npm run build && electron tests/electron/delegation.mjs",

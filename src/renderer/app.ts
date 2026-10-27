@@ -92,7 +92,7 @@ export const DESKTOP_COMMANDS = [
   {
     name: "/delegate",
     description: "Delegate work or inspect a delegated task",
-    usage: "/delegate [async] <agent> <instruction> · /delegate inspect <task-id>",
+    usage: "/delegate [sync|async] <agent> <instruction> · /delegate inspect <task-id>",
   },
   {
     name: "/agents",
@@ -2074,7 +2074,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           ...(sessionId && !["learning", "graph"].includes(kind) ? { sessionId } : {}),
           ...(kind === "graph" && args[0] === "status" ? { graphView: "status" as const } : {}),
           ...(kind === "tools" ? { toolView: (args[0] ?? "status") as "status" | "list" } : {}),
-          ...(kind === "agents" && args.length ? { agentFilter: args.join(" ") } : {}),
+          ...(kind === "agents" && args.length
+            ? { agentFilter: value.slice(name.length).trimStart() }
+            : {}),
           ...(kind === "learning" && args.length ? { proposalId: args.join(" ") } : {}),
         });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
@@ -2117,7 +2119,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
               button.className = "secondary-tool";
               button.textContent =
                 action === "activate" ? "Activate profile…" : "Deactivate profile…";
-              button.addEventListener("click", () => void runCommand(`/tools ${action}`));
+              button.addEventListener("click", () => {
+                commandDraft = elements.composer.value;
+                void runCommand(`/tools ${action}`);
+              });
               elements.commandResult.append(button);
             }
           }
@@ -2178,25 +2183,44 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       case "/delegate": {
         const action = args[0]?.toLowerCase();
         if (!action) await runDelegation();
-        else if (action === "list" && args.length <= 2) {
+        else if (action === "list") {
           const limit = args[1] === undefined ? 20 : Number(args[1]);
-          if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200)
+          if (
+            args.length > 2 ||
+            (args[1] !== undefined && !/^\d+$/.test(args[1])) ||
+            limit < 1 ||
+            limit > 200
+          )
             showCommandResult("Delegation command", "Use /delegate list [1-200].");
           else await runDelegation({ action: "list", limit });
-        } else if (
-          ["status", "resume", "result", "inspect", "cancel"].includes(action) &&
-          args.length === 2
-        )
-          await runDelegation({
-            action: action as "status" | "resume" | "result" | "inspect" | "cancel",
-            taskId: args[1],
-          });
-        else {
+        } else if (["status", "resume", "result", "inspect", "cancel"].includes(action)) {
+          if (args.length !== 2)
+            showCommandResult("Delegation command", `Use /delegate ${action} <task-id>.`);
+          else
+            await runDelegation({
+              action: action as "status" | "resume" | "result" | "inspect" | "cancel",
+              taskId: args[1],
+            });
+        } else if (["review", "accept", "reject"].includes(action)) {
+          showCommandResult(
+            "Delegation command",
+            `/delegate ${action} is not connected in Desktop yet. Use Focus/CLI for this operation.`,
+          );
+        } else {
           const explicitMode = action === "sync" || action === "async";
           const mode = explicitMode ? action : "sync";
-          const targetAgentId = explicitMode ? args[1] : args[0];
-          const instruction = (explicitMode ? args.slice(2) : args.slice(1)).join(" ");
-          if (!targetAgentId || !instruction)
+          const targetAgentId = args[explicitMode ? 1 : 0] ?? "";
+          const delegateArgs = value.slice(name.length).trimStart();
+          const startArgs = explicitMode
+            ? delegateArgs.slice(args[0].length).trimStart()
+            : delegateArgs;
+          const instruction = startArgs.slice(targetAgentId.length).trimStart();
+          if (targetAgentId === "--child-permission-mode")
+            showCommandResult(
+              "Delegation command",
+              "Delegation permission options are not connected in Desktop yet. Use Focus/CLI for this operation.",
+            );
+          else if (!targetAgentId || !instruction)
             showCommandResult(
               "Delegation command",
               "Use /delegate [sync|async] <agent> <instruction>, /delegate list, or /delegate status|resume|result|inspect|cancel <task-id>.",
@@ -2301,6 +2325,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           button.className = "command-option";
           button.textContent = `${item.name}  ${item.description}`;
           button.addEventListener("click", () => {
+            commandDraft = elements.composer.value;
             hideCommandResult();
             void runCommand(item.name);
           });
@@ -2425,7 +2450,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       case "/copy": {
         const reply = messages
           .slice(hiddenMessageCount)
-          .findLast((item) => item.role === "assistant");
+          .findLast(
+            (item) =>
+              item.role === "assistant" && assistantBody(item.body, item.profileName).trim(),
+          );
         let text = latestCopyText ?? (reply ? assistantBody(reply.body, reply.profileName) : null);
         if (latestCopyText === null) {
           let latestAt = reply ? Date.parse(reply.createdAt) : -Infinity;
@@ -2440,12 +2468,16 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         }
         if (!text) showCommandResult("Copy", "There is no reply or tool output to copy yet.");
         else {
+          showCommandResult("Copy", "Copying…");
+          const request = commandResultGeneration;
+          let feedback: string;
           try {
             const result = await api.app.copyText(text);
-            showCommandResult("Copy", result.ok ? "Copied to clipboard." : result.error.message);
+            feedback = result.ok ? "Copied to clipboard." : result.error.message;
           } catch {
-            showCommandResult("Copy", "Copy failed");
+            feedback = "Copy failed";
           }
+          if (request === commandResultGeneration) showCommandResult("Copy", feedback);
         }
         break;
       }
@@ -2916,7 +2948,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   elements.sessionSearch.addEventListener("input", renderSessionList);
   elements.clearSessionSearch.addEventListener("click", clearSessionSearch);
   elements.sessionSearch.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && !event.isComposing) {
       event.preventDefault();
       clearSessionSearch();
     }
@@ -3576,6 +3608,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (!renamingSession || savingName || !savedNames.ok) return;
     const session = renamingSession;
     const generation = renameGeneration;
+    const draft = elements.taskName.value;
     savingName = true;
     elements.renameError.textContent = "Saving…";
     const result = await api.chatNames.save({
@@ -3592,6 +3625,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (generation !== renameGeneration) return;
     if (!result.ok) {
       elements.renameError.textContent = result.error.message;
+      return;
+    }
+    if (elements.taskName.value !== draft) {
+      elements.renameError.textContent = "Saved. You have unsaved changes.";
       return;
     }
     elements.renameDialog.close();
@@ -4711,7 +4748,8 @@ function createMessageCopyButton(
   copy.setAttribute("aria-label", label);
   copy.setAttribute("aria-live", "polite");
   copy.addEventListener("click", async () => {
-    copy.disabled = true;
+    if (copy.getAttribute("aria-disabled") === "true") return;
+    copy.setAttribute("aria-disabled", "true");
     try {
       const result = await copyText(text);
       copy.textContent = result.ok ? "Copied" : "Copy failed";
@@ -4726,7 +4764,7 @@ function createMessageCopyButton(
       copy.dataset.copyState = "";
       copy.title = label;
       copy.setAttribute("aria-label", label);
-      copy.disabled = false;
+      copy.setAttribute("aria-disabled", "false");
     }, 1500);
   });
   return copy;

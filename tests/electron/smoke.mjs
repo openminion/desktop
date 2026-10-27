@@ -57,6 +57,9 @@ async function check() {
         keyCode,
         modifiers,
       });
+      if (keyCode === "Return") {
+        window.webContents.sendInputEvent({ type: "char", keyCode: "\r", modifiers });
+      }
       window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
       await settled();
     };
@@ -193,11 +196,19 @@ async function check() {
     assert.equal(await evaluate("document.activeElement.id"), "session-search");
     assert.equal(await evaluate("document.querySelector('#session-search').value"), "");
     await window.webContents.insertText("Again");
+    assert.equal(
+      await evaluate(`document.querySelector('#session-search').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
+      )`),
+      true,
+    );
+    assert.equal(await evaluate("document.querySelector('#session-search').value"), "Again");
+    assert.equal(await evaluate("document.activeElement.id"), "session-search");
     await key("Escape");
     assert.equal(await evaluate("document.querySelector('#session-search').value"), "");
     assert.equal(await evaluate("document.activeElement.id"), "session-search");
     console.log(
-      "PASS: native task search typing, empty catalog, Clear/Escape focus and three window sizes.",
+      "PASS: native task search typing, empty catalog, Clear/Escape focus, synthetic composition Escape and three window sizes.",
     );
     for (const [width, height] of [
       [760, 560],
@@ -494,7 +505,44 @@ async function check() {
     assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
     await key("k", [process.platform === "darwin" ? "meta" : "control"]);
     assert.equal(await evaluate("document.querySelector('#composer').value"), "Keep drafting");
-    await click("settings-chat-button");
+    await evaluate("document.querySelector('#settings-profiles-button').focus()");
+    await key("Left");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-runtime-button");
+    assert.equal(
+      await evaluate("document.querySelector('#settings-profiles').hidden"),
+      false,
+      "Moving between tabs does not activate a section or load its runtime data",
+    );
+    await key("Right");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-profiles-button");
+    await key("End");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-runtime-button");
+    await key("Home");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-profiles-button");
+    await key("Right");
+    await key("Right");
+    assert.equal(await evaluate("document.activeElement.id"), "settings-chat-button");
+    await key("Return");
+    assert.equal(await evaluate("document.querySelector('#settings-chat').hidden"), false);
+    assert.deepEqual(
+      await evaluate(`Array.from(document.querySelectorAll('.settings-nav [role="tab"]'))
+      .map(tab => [tab.getAttribute('aria-selected'), tab.tabIndex])`),
+      [
+        ["false", -1],
+        ["false", -1],
+        ["true", 0],
+        ["false", -1],
+      ],
+    );
+    await key("Tab");
+    assert.equal(await evaluate("document.activeElement.id"), "chat-display");
+    await key("Tab", ["shift"]);
+    assert.equal(await evaluate("document.activeElement.id"), "settings-chat-button");
+    await key("Right");
+    await key("Space");
+    assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
+    await key("Left");
+    await key("Return");
     assert.equal(await evaluate("document.querySelector('#settings-chat').hidden"), false);
     assert.equal(await evaluate("document.querySelector('#settings-profiles').hidden"), true);
     await evaluate(`
@@ -513,7 +561,7 @@ async function check() {
     assert.equal(await evaluate("document.querySelector('#settings-runtime').hidden"), false);
     assert.equal(
       await evaluate(
-        "document.querySelector('#settings-runtime-button').getAttribute('aria-pressed')",
+        "document.querySelector('#settings-runtime-button').getAttribute('aria-selected')",
       ),
       "true",
     );
@@ -713,7 +761,14 @@ async function check() {
           ok: true,
           value: {
             session: toolSession,
-            messages: [],
+            messages: ["Saved reply before empty message", " \n\t"].map((body, index) => ({
+              schemaVersion: 1,
+              id: `copy-fixture-${index}`,
+              sessionId: toolSession.sessionId,
+              role: "assistant",
+              body,
+              createdAt: `2026-10-05T00:00:0${index}Z`,
+            })),
             nextMessageCursor: null,
             messagesHasMore: false,
           },
@@ -743,9 +798,88 @@ async function check() {
     window.reload();
     await new Promise((resolve) => window.webContents.once("did-finish-load", resolve));
     await waitFor(
-      "document.querySelector('#current-title').textContent === 'Tool output fixture' && !document.querySelector('#composer').disabled",
+      "document.querySelector('#current-title').textContent === 'Tool output fixture' && !document.querySelector('#composer').disabled && document.querySelector('#timeline').textContent.includes('Saved reply before empty message')",
     );
     await click("composer");
+    await window.webContents.insertText("/copy");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-result').textContent.includes('Copied to clipboard.')",
+    );
+    assert.equal(await clipboard.readText(), "Saved reply before empty message");
+    await key("Escape");
+    let agentReportInput;
+    ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
+    ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) => {
+      agentReportInput = input;
+      return {
+        ok: true,
+        value: {
+          kind: "agents",
+          activeAgentId: "reviewer",
+          agents: [{ id: "reviewer", label: "Design  review" }],
+        },
+      };
+    });
+    await click("composer");
+    await window.webContents.insertText("/agent Design  review");
+    await key("Tab");
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "/agents Design  review",
+    );
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-result p').textContent === '● reviewer — Design  review'",
+    );
+    assert.deepEqual(agentReportInput, {
+      kind: "agents",
+      sessionId: toolSession.sessionId,
+      agentFilter: "Design  review",
+    });
+    await key("Escape");
+    console.log(
+      "PASS: exact agent label survives alias completion, native Enter and the production preload.",
+    );
+    ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
+    ipcMain.handle(IPC_CHANNELS.reportsRead, () => ({
+      ok: true,
+      value: { kind: "tools", tools: [] },
+    }));
+    for (const [command, action, title] of [
+      ["/help", "/editor  ", "Desktop composer"],
+      ["/tools", "Activate profile…", "Tool access"],
+      ["/tools", "Deactivate profile…", "Tool access"],
+    ]) {
+      await click("composer");
+      await evaluate("document.querySelector('#composer').select()");
+      await window.webContents.insertText(command);
+      await key("Return");
+      await waitFor(
+        `Array.from(document.querySelectorAll('#command-result button')).some(button => button.textContent.startsWith(${JSON.stringify(action)}))`,
+      );
+      const draft = "Keep  this draft\n日本語";
+      await click("composer");
+      await window.webContents.insertText(draft);
+      await evaluate(
+        `Array.from(document.querySelectorAll('#command-result button')).find(button => button.textContent.startsWith(${JSON.stringify(action)})).id = 'draft-action-fixture'`,
+      );
+      await click("draft-action-fixture");
+      await waitFor(
+        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)}`,
+      );
+      assert.equal(await evaluate("document.querySelector('#composer').value"), draft);
+      await waitFor(
+        `(async () => (await window.openminion.drafts.load()).value.some(item => item.sessionId === ${JSON.stringify(toolSession.sessionId)} && item.text === ${JSON.stringify(draft)}))()`,
+      );
+      await key("Escape");
+      assert.equal(await evaluate("document.querySelector('#composer').value"), draft);
+    }
+    console.log(
+      "PASS: Help and tool-access actions preserve the composer and saved draft through native clicks.",
+    );
+    await click("composer");
+    await evaluate("document.querySelector('#composer').select()");
     await window.webContents.insertText("Run fixture tool");
     await key("Return");
     await waitFor("document.querySelector('#chat-status').textContent === 'Working…'");
@@ -880,6 +1014,29 @@ async function check() {
     assert.equal(await evaluate("document.querySelectorAll('.tool-output').length"), 1);
     console.log(
       "PASS: controlled tool events through production preload, native output expansion, literal content, insertion focus/scroll, exact Copy, missing-output honesty and responsive layout.",
+    );
+
+    let finishCopy;
+    ipcMain.removeHandler(IPC_CHANNELS.copyText);
+    ipcMain.handle(
+      IPC_CHANNELS.copyText,
+      () =>
+        new Promise((resolve) => {
+          finishCopy = resolve;
+        }),
+    );
+    await click("composer");
+    await window.webContents.insertText("/copy");
+    await key("Return");
+    await waitFor("document.querySelector('#command-result').textContent.includes('Copying…')");
+    assert.equal(typeof finishCopy, "function");
+    await key("Escape");
+    finishCopy({ ok: true, value: null });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settled();
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    console.log(
+      "PASS: /copy skips empty saved replies and late clipboard feedback respects Escape.",
     );
 
     const worker = new BrowserWindow({

@@ -6,7 +6,8 @@ Current development support is limited to:
 
 1. the local macOS source-development client described in [README.md](README.md),
    [API_COMPATIBILITY.md](API_COMPATIBILITY.md), and `docs/`,
-2. managed lifecycle for the pinned public OpenMinion PyPI package,
+2. managed lifecycle with a pinned PyPI bootstrap and compatible manifest-based
+   updates, as described in [Runtime Updates](docs/getting-started.md#runtime-updates),
 3. Node.js 24, npm 11, and Python 3.11 development environments,
 4. provider-free quality checks on Linux and macOS, and
 5. unsigned macOS, Windows, and Linux package construction, with macOS native
@@ -53,9 +54,13 @@ Do not substitute an unrelated system-wide CLI version for Desktop's managed run
 
 ## Choose a development download
 
-The [current development release](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.3)
-contains these packages. Choose by operating system and processor, not just by
-the `0.0.1` application version; the release tag identifies the particular build.
+The [current development release](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.1-build.4)
+contains these packages. Its matching
+[Desktop source release](https://github.com/openminion/desktop/releases/tag/v0.0.1)
+records the immutable source tag and package metadata. Include both release
+identifiers in a report. Choose by operating system and processor, not just by
+the `0.0.1` application version; the runtime release tag identifies the
+particular package build.
 
 | Computer | Package | Current acceptance |
 | --- | --- | --- |
@@ -112,6 +117,9 @@ managed runtime installation still requires Python 3.11 and network access.
   **Try again**. If an upgrade is required, use the offered **Runtime settings**
   shortcut. See [Identity settings](docs/getting-started.md#edit-an-agents-identity)
   for draft verification and the existing CLI setup boundary.
+- **A fresh install uses 0.0.29:** this is the current bootstrap pin. First
+  installation does not select the latest runtime from the manifest. Use
+  **Settings → Runtime → Check updates** to look for a compatible update.
 - **No runtime update is offered:** only explicitly compatible records qualify.
   An empty feed is not permission to install an arbitrary runtime. See
   [Runtime Updates](docs/getting-started.md#runtime-updates).
