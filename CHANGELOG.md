@@ -15,6 +15,9 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 - Refresh `/model` from the selected conversation’s current daemon facts instead
   of the cached conversation list. Failed reads show the error without stale model details.
 
+- Preserve keyboard focus when command results replace their focused controls, so
+  Escape remains usable while browsing details. Background results leave typing focus alone.
+
 ## 0.0.3 - 2026-10-27
 
 This development release confirms tool-display command changes after the

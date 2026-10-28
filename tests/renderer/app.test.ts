@@ -1537,7 +1537,9 @@ describe("renderer status view", () => {
         ok: true,
         value: { kind: "skills", text: "Skill: Help reference" },
       });
+      page.element("command-result").children[0]!.children[24]!.focus();
       page.element("command-result").children[0]!.children[24]!.click();
+      expect(page.activeElement).toBe(page.element("close-command"));
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe(
           "Skill: Help reference",
@@ -1546,7 +1548,9 @@ describe("renderer status view", () => {
       expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "--help" });
       expect(page.element("composer").value).toBe("Keep my skill draft");
       expect(page.element("command-title").textContent).toBe("Skill details");
+      page.element("command-result").children[2]!.focus();
       page.element("command-result").children[2]!.click();
+      expect(page.activeElement).toBe(page.element("close-command"));
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.children).toHaveLength(25),
       );
@@ -1560,7 +1564,9 @@ describe("renderer status view", () => {
           retryAfterMs: null,
         },
       });
+      page.element("command-result").children[0]!.children[24]!.focus();
       page.element("command-result").children[0]!.children[24]!.click();
+      expect(page.activeElement).toBe(page.element("close-command"));
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe("Skill unavailable"),
       );
@@ -1569,7 +1575,9 @@ describe("renderer status view", () => {
         ok: true,
         value: { kind: "skills", agentId: "fresh-agent", skills: [] },
       });
+      page.element("command-result").children[2]!.focus();
       page.element("command-result").children[2]!.click();
+      expect(page.activeElement).toBe(page.element("close-command"));
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe(
           "No stored skills for this agent.",
@@ -1604,6 +1612,57 @@ describe("renderer status view", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it.each(["result", "composer", "session-search"])(
+    "keeps focus usable when a report resolves with focus in %s",
+    async (target) => {
+      const api = approvalRendererApi(vi.fn());
+      const read = vi.fn<NativeApi["reports"]["read"]>().mockResolvedValue({
+        ok: true,
+        value: { kind: "commands", commands: [] },
+      });
+      api.reports = { read };
+      const page = new FixtureDocument();
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        await mount(api, page.asDocument());
+        let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
+        read.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+        page.element("composer").value = "/skills";
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        const focused =
+          target === "result" ? page.element("command-result").children[1]! : page.element(target);
+        focused.focus();
+        page.element("composer").value = "Unsent draft";
+        finish({
+          ok: false,
+          error: {
+            code: "report_unavailable",
+            message: "Skills unavailable",
+            retryable: false,
+            retryAfterMs: null,
+          },
+        });
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toBe(
+            "Skills unavailable",
+          ),
+        );
+        expect(page.activeElement).toBe(
+          target === "result" ? page.element("close-command") : focused,
+        );
+        expect(page.element("composer").value).toBe("Unsent draft");
+        expect(api.turns.submit).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it.each(["/status", "/model"])(
     "%s reads fresh facts without replacing chat and settles across same-session turn completion",

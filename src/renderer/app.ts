@@ -1594,6 +1594,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   });
   const showCommandResult = (title: string, text: string) => {
+    const restoreFocus = elements.commandResult.contains(root.activeElement);
     commandResultGeneration += 1;
     elements.commandTitle.textContent = title;
     const paragraph = root.createElement("p");
@@ -1614,6 +1615,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     });
     elements.commandResult.replaceChildren(paragraph, copy);
     elements.commandPanel.hidden = false;
+    if (restoreFocus) elements.closeCommand.focus();
     renderJumpToLatest();
     elements.commandPanel.scrollIntoView({ block: "start" });
   };
