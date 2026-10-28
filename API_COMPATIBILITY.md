@@ -1,7 +1,7 @@
 # OpenMinion Desktop API Compatibility
 
 Status: active
-Last updated: 2026-10-19
+Last updated: 2026-10-28
 
 Purpose: record the supported application and daemon compatibility posture for
 OpenMinion Desktop.
@@ -159,6 +159,13 @@ arbitrary flags, or command text. Only task presentation, run, scheduler, and
 pending-decision facts cross back to the renderer. OpenMinion remains responsible
 for scope, confirmation policy, valid actions, scheduling, and persistence.
 Desktop does not write task records or implement lifecycle rules.
+
+Fresh-install qualification on 2026-10-28 found that the pinned `0.0.29` runtime
+can report schedule creation success while its task inventory remains empty.
+This was reproduced through both the GUI and independent CLI commands. Scheduled
+work remains unqualified for this installation until
+[the runtime qualification issue](https://github.com/openminion/desktop/issues/121)
+is resolved; successful text chat does not establish scheduling readiness.
 
 ## Profile Configuration
 

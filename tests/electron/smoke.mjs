@@ -861,6 +861,40 @@ async function check() {
     console.log(
       "PASS: /model reads fresh session facts through preload and reports errors without stale model details.",
     );
+    let exportInput;
+    ipcMain.removeHandler(IPC_CHANNELS.sessionsExport);
+    ipcMain.handle(IPC_CHANNELS.sessionsExport, (_event, input) => {
+      exportInput = input;
+      return { ok: true, value: { cancelled: true } };
+    });
+    const menuDraft = "Menu draft\nRésumé 日本語";
+    await window.webContents.insertText(menuDraft);
+    for (const [id, title, text] of [
+      ["inspect-session", "Conversation status", "Model status unavailable"],
+      ["export-session", "Export conversation", "Export cancelled."],
+    ]) {
+      await evaluate("document.querySelector('[popovertarget=task-actions]').click()");
+      await click(id);
+      await waitFor(
+        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)} && document.querySelector('#command-result p').textContent === ${JSON.stringify(text)}`,
+      );
+      assert.equal(
+        await evaluate("document.querySelector('#task-actions').matches(':popover-open')"),
+        false,
+      );
+      assert.equal(await evaluate("document.querySelector('#composer').value"), menuDraft);
+      assert.equal(await evaluate("document.activeElement.id"), "composer");
+      await key("Escape");
+    }
+    assert.deepEqual(exportInput, { sessionId: toolSession.sessionId });
+    await waitFor(
+      `(async () => (await window.openminion.drafts.load()).value.some(item => item.sessionId === ${JSON.stringify(toolSession.sessionId)} && item.text === ${JSON.stringify(menuDraft)}))()`,
+    );
+    await evaluate("document.querySelector('#composer').select()");
+    await key("Backspace");
+    console.log(
+      "PASS: conversation details and export are available through the native menu, preserving focus and saved drafts.",
+    );
     let finishSkill;
     ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
     ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) =>

@@ -1,7 +1,7 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-10-19
+Last updated: 2026-10-28
 
 Purpose: guide packaged-app users and source contributors through setup,
 settings, and everyday Desktop workflows.
@@ -165,6 +165,18 @@ name or session ID. Matching ignores case and treats punctuation literally.
 Clear the field or press Escape to restore the list. Filtering keeps the current
 conversation and draft open, even when that conversation is hidden. It does not search
 message contents, and the query is not saved when Desktop closes.
+
+## Conversation Details And Export
+
+Open the **⋯** menu at the top of a saved conversation. **Conversation details**
+reads its current status, agent, and reported model. **Export conversation…**
+opens a file chooser to save the conversation as Markdown. Both actions keep
+any unsent message in the composer. Cancelling the file chooser saves nothing.
+These actions are also available as `/status` and `/export`.
+
+The export contains saved conversation history from OpenMinion; it does not
+include an unsent draft or guarantee inclusion of an unfinished reply. Missing
+model details remain “Not reported.”
 
 ## Desktop Data
 

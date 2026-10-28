@@ -2529,6 +2529,16 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     return true;
   };
 
+  for (const [button, command] of [
+    [elements.inspectSession, "/status"],
+    [elements.exportSession, "/export"],
+  ] as const) {
+    button.addEventListener("click", () => {
+      commandDraft ??= elements.composer.value;
+      void runCommand(command);
+    });
+  }
+
   elements.timeline.addEventListener("click", (event) => {
     const link = (event.target as Element).closest("a[href]");
     if (!link) return;
@@ -2738,6 +2748,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       !richContextReady || !writable || chat.active || attachmentPending || attachments.length >= 4;
     elements.attachFile.disabled = elements.attachImage.disabled;
     elements.renameSession.disabled = !selected;
+    elements.inspectSession.disabled = !selected;
+    elements.exportSession.disabled = !selected;
     elements.currentTitle.textContent = selected ? taskName(selected) : "New conversation";
     elements.currentTitle.disabled = !selected;
     elements.currentTitle.title = selected ? `Rename conversation: ${taskName(selected)}` : "";
@@ -4254,6 +4266,8 @@ function rendererElements(root: Document) {
     sessionContextMenu: required(root, "session-context-menu"),
     sessionContextRename: required(root, "session-context-rename") as HTMLButtonElement,
     renameSession: required(root, "rename-session") as HTMLButtonElement,
+    inspectSession: required(root, "inspect-session") as HTMLButtonElement,
+    exportSession: required(root, "export-session") as HTMLButtonElement,
     renameDialog: required(root, "rename-dialog") as HTMLDialogElement,
     renameForm: required(root, "rename-form") as HTMLFormElement,
     taskName: required(root, "task-name") as HTMLInputElement,

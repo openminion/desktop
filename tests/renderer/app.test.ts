@@ -1871,6 +1871,45 @@ describe("renderer status view", () => {
     },
   );
 
+  it("opens conversation details and export from the menu without losing drafts", async () => {
+    const api = approvalRendererApi(vi.fn());
+    const read = vi.fn<NativeApi["reports"]["read"]>().mockResolvedValue({
+      ok: true,
+      value: { kind: "status", session: sessionSummary() },
+    });
+    api.reports = { read };
+    api.sessions.export = vi.fn().mockResolvedValue({ ok: true, value: { cancelled: false } });
+    const page = new FixtureDocument();
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      await mount(api, page.asDocument());
+      const draft = "Keep my unsent draft\nRésumé 日本語";
+      page.element("composer").value = draft;
+      page.element("composer").dispatch("input");
+      expect(page.element("inspect-session").disabled).toBe(false);
+      expect(page.element("export-session").disabled).toBe(false);
+      page.element("inspect-session").click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toContain(
+          "Session: session-1",
+        ),
+      );
+      expect(read).toHaveBeenLastCalledWith({ kind: "status", sessionId: "session-1" });
+      expect(page.element("composer").value).toBe(draft);
+      page.element("show-commands").click();
+      page.element("export-session").click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Conversation saved."),
+      );
+      expect(api.sessions.export).toHaveBeenCalledExactlyOnceWith({ sessionId: "session-1" });
+      expect(page.element("composer").value).toBe(draft);
+      expect(page.activeElement).toBe(page.element("composer"));
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not request model or status facts without a selected conversation", async () => {
     const api = approvalRendererApi(vi.fn(), []);
     const read = vi.fn<NativeApi["reports"]["read"]>();
@@ -1879,6 +1918,8 @@ describe("renderer status view", () => {
     vi.stubGlobal("window", { addEventListener: vi.fn() });
     try {
       await mount(api, page.asDocument());
+      expect(page.element("inspect-session").disabled).toBe(true);
+      expect(page.element("export-session").disabled).toBe(true);
       for (const command of ["/model", "/status"]) {
         page.element("composer").value = command;
         page.element("composer").dispatch("keydown", { key: "Enter" });
@@ -6986,6 +7027,8 @@ class FixtureDocument {
     "session-context-menu",
     "session-context-rename",
     "rename-session",
+    "inspect-session",
+    "export-session",
     "rename-dialog",
     "rename-form",
     "task-name",

@@ -537,7 +537,20 @@ async function check() {
         canceled: false,
         filePath: exportPath,
       });
-      assert.equal(await reportCommand("/export", "Export conversation"), "Conversation saved.");
+      const menuDraft = "Keep drafting while exporting\nRésumé 日本語";
+      await fill(menuDraft);
+      await evaluate("document.querySelector('[popovertarget=task-actions]').click()");
+      await click("inspect-session");
+      await waitFor(
+        `document.querySelector('#command-title').textContent === 'Conversation status' && document.querySelector('#command-result p').textContent.includes(${JSON.stringify(`Session: ${sessionId}`)})`,
+      );
+      assert.equal(await evaluate("document.querySelector('#composer').value"), menuDraft);
+      await evaluate("document.querySelector('[popovertarget=task-actions]').click()");
+      await click("export-session");
+      await waitFor(
+        "document.querySelector('#command-result p').textContent === 'Conversation saved.'",
+      );
+      assert.equal(await evaluate("document.querySelector('#composer').value"), menuDraft);
       const exported = await runCommand(
         executable,
         [...args, "export", "transcript", "--session-id", sessionId, "--format", "md"],

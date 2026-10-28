@@ -18,6 +18,9 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 - Preserve keyboard focus when command results replace their focused controls, so
   Escape remains usable while browsing details. Background results leave typing focus alone.
 
+- Add Conversation details and Export conversation to the conversation menu,
+  making those workflows accessible without slash commands while preserving drafts.
+
 ## 0.0.3 - 2026-10-27
 
 This development release confirms tool-display command changes after the
