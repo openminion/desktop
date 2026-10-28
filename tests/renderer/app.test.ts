@@ -409,6 +409,10 @@ describe("renderer computer observation", () => {
         await vi.waitFor(() => expect(save).toHaveBeenCalledWith({ toolDisplay: expected }));
         await vi.waitFor(() => expect(page.element("chat-display").disabled).toBe(false));
         expect(page.element("chat-display").value).toBe(expected);
+        expect(page.element("command-title").textContent).toBe("Tool display");
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          `Tool display set to ${expected}.`,
+        );
       }
       save.mockClear();
       for (const command of ["/details never", "/details on off", "/verbose extra"]) {
@@ -444,6 +448,65 @@ describe("renderer computer observation", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it.each(["stay", "dismiss", "help", "busy"])(
+    "keeps pending display feedback scoped after %s",
+    async (action) => {
+      let finish!: (result: Awaited<ReturnType<NativeApi["presentation"]["save"]>>) => void;
+      const api = approvalRendererApi(vi.fn());
+      api.presentation = {
+        load: async () => ({ ok: true, value: { toolDisplay: "normal" } }),
+        save: vi.fn<NativeApi["presentation"]["save"]>(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        ),
+      };
+      const page = new FixtureDocument();
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        await mount(api, page.asDocument());
+        page.element("composer").value = "/quiet";
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        await vi.waitFor(() => expect(api.presentation.save).toHaveBeenCalledOnce());
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "Saving display preference…",
+        );
+        if (action === "dismiss") page.element("composer").dispatch("keydown", { key: "Escape" });
+        else if (action === "help" || action === "busy") {
+          page.element("composer").value = action === "help" ? "/help" : "/verbose";
+          page.element("composer").dispatch("keydown", { key: "Enter" });
+        }
+        const title = page.element("command-title").textContent;
+        const text = page.element("command-result").children[0]?.textContent;
+        finish({
+          ok: false,
+          error: {
+            code: "storage_error",
+            message: "Could not save preference",
+            retryable: false,
+            retryAfterMs: null,
+          },
+        });
+        await vi.waitFor(() => expect(page.element("chat-display").disabled).toBe(false));
+        expect(page.element("chat-display").value).toBe("normal");
+        expect(api.presentation.save).toHaveBeenCalledOnce();
+        expect(api.turns.submit).not.toHaveBeenCalled();
+        if (action === "stay")
+          expect(page.element("command-result").children[0]?.textContent).toBe(
+            "Could not save preference",
+          );
+        else {
+          expect(page.element("command-panel").hidden).toBe(action === "dismiss");
+          expect(page.element("command-title").textContent).toBe(title);
+          expect(page.element("command-result").children[0]?.textContent).toBe(text);
+        }
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it("projects paused/pinned preparation and dispatches narrow runtime controls", async () => {
     const page = new FixtureDocument();

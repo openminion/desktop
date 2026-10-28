@@ -924,6 +924,11 @@ async function check() {
         (await evaluate("window.openminion.presentation.load()")).value.toolDisplay,
         mode,
       );
+      await waitFor(
+        `document.querySelector('#command-result p').textContent === 'Tool display set to ${mode}.'`,
+      );
+      await key("Escape");
+      assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
     };
     await displayCommand("/verbose", "verbose");
     assert.equal(await evaluate("document.querySelector('.tool-output').open"), true);
@@ -1037,6 +1042,42 @@ async function check() {
     assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
     console.log(
       "PASS: /copy skips empty saved replies and late clipboard feedback respects Escape.",
+    );
+
+    let finishDisplay;
+    ipcMain.removeHandler(IPC_CHANNELS.presentationSave);
+    ipcMain.handle(
+      IPC_CHANNELS.presentationSave,
+      () =>
+        new Promise((resolve) => {
+          finishDisplay = resolve;
+        }),
+    );
+    await click("composer");
+    await window.webContents.insertText("/normal");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-result p').textContent === 'Saving display preference…'",
+    );
+    assert.equal(typeof finishDisplay, "function");
+    await key("Escape");
+    finishDisplay({
+      ok: false,
+      error: {
+        code: "storage_error",
+        message: "Could not save preference",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    });
+    await waitFor("!document.querySelector('#chat-display').disabled");
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    assert.equal(
+      await evaluate("document.querySelector('#chat-display-status').textContent"),
+      "Could not save preference",
+    );
+    console.log(
+      "PASS: display commands confirm saved modes and delayed save failures respect native Escape.",
     );
 
     const worker = new BrowserWindow({
