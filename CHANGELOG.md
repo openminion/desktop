@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-27
+Last updated: 2026-10-28
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -11,6 +11,9 @@ These entries describe source development, not a newly published binary.
 Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+- Refresh `/model` from the selected conversation’s current daemon facts instead
+  of the cached conversation list. Failed reads show the error without stale model details.
 
 ## 0.0.3 - 2026-10-27
 

@@ -2400,53 +2400,44 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         }
         break;
       }
-      case "/status": {
+      case "/status":
+      case "/model": {
+        const title = command === "/model" ? "Configured model" : "Conversation status";
         const sessionId = selected?.sessionId;
         if (!sessionId) {
-          showCommandResult("Conversation status", "No conversation selected.");
+          showCommandResult(title, "No conversation selected.");
           break;
         }
-        showCommandResult("Conversation status", "Reading conversation status…");
+        showCommandResult(title, "Reading conversation status…");
         const request = commandResultGeneration;
         const result = await api.reports.read({ kind: "status", sessionId });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
-        if (!result.ok) showCommandResult("Conversation status", result.error.message);
+        if (!result.ok) showCommandResult(title, result.error.message);
         else if (result.value.kind === "status") {
           const session = result.value.session;
           showCommandResult(
-            "Conversation status",
+            title,
             [
               elements.connectionLabel.textContent,
               `Conversation: ${taskName(session)}`,
               `Session: ${session.sessionId}`,
-              `State: ${session.status}`,
               `Agent: ${session.activeAgentId ?? "Not reported"}`,
-              `Channel: ${session.channel ?? "Not reported"}`,
-              `Messages: ${session.messageCount ?? "Not reported"}`,
-              `Updated: ${session.updatedAt || "Not reported"}`,
               `Provider: ${session.model.provider ?? "Not reported"}`,
               `Model: ${session.model.modelId ?? "Not reported"}`,
+              ...(command === "/status"
+                ? [
+                    `State: ${session.status}`,
+                    `Channel: ${session.channel ?? "Not reported"}`,
+                    `Messages: ${session.messageCount ?? "Not reported"}`,
+                    `Updated: ${session.updatedAt || "Not reported"}`,
+                  ]
+                : ["Model selection through Focus is not connected in Desktop yet."]),
               chat.label,
             ].join("\n"),
           );
         }
         break;
       }
-      case "/model":
-        showCommandResult(
-          "Configured model",
-          [
-            elements.connectionLabel.textContent,
-            `Conversation: ${selected ? taskName(selected) : "No conversation selected"}`,
-            `Session: ${selected?.sessionId ?? "None"}`,
-            `Agent: ${selected?.activeAgentId ?? "Not reported"}`,
-            `Provider: ${selected?.model.provider ?? "Not reported"}`,
-            `Model: ${selected?.model.modelId ?? "Not reported"}`,
-            chat.label,
-            "Model selection through Focus is not connected in Desktop yet.",
-          ].join("\n"),
-        );
-        break;
       case "/copy": {
         const reply = messages
           .slice(hiddenMessageCount)

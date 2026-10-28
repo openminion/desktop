@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-10-25
+Last updated: 2026-10-28
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -58,7 +58,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/tokens`               | Request the selected session's canonical durable token report. Pinned PyPI may report daemon-created sessions unavailable; no usage is fabricated.                                                                        |
 | `/export`               | Save the selected conversation as Markdown through a native file chooser and the CLI transcript exporter.                                                                                                                 |
 | `/status`               | Show connection, selected task, active agent, reported model, and turn status.                                                                                                                                            |
-| `/model`                | Show the model facts reported by the daemon; changing models is not supported here yet.                                                                                                                                   |
+| `/model`                | Read the selected conversation’s current agent, provider, and model from the daemon; changing models is not supported here yet.                                                                                                                                   |
 | `/copy`                 | Copy the newest available assistant reply or runtime-supplied completed tool output. Never fall back to user input or cleared replies. Unavailable raw output is not reconstructed; clipboard writes are capped at 1 MB. |
 | `/clear`, `/cls`        | Clear the visible chat while idle. Saved history remains in OpenMinion; selecting the task restores it.                                                                                                                   |
 | `/quiet`                | Hide tool activity cards while keeping approvals visible; saved as a Desktop display preference.                                                                                                                          |
@@ -73,9 +73,11 @@ shows its friendly name and full session ID, along with the reported agent,
 channel, message count and update age. Selecting an entry opens it and adds it
 to the sidebar if needed. Missing metadata is shown as not reported. `/status`
 reads the selected saved conversation's current state, channel, message count
-and update time from OpenMinion without reloading the chat. Unsent drafts use
-local details. Provider and model remain not reported when unavailable; this
-report does not include Focus's complete live runtime status.
+and update time from OpenMinion without reloading the chat. Both commands require
+a selected saved conversation. `/model` uses the same fresh read for its
+agent, provider, and model; failed reads show the error instead of cached facts.
+Provider and model remain not reported when unavailable; these reports do not
+include Focus's complete live runtime status.
 
 Tool display is saved for this Desktop installation and applies across conversations. Manual disclosure changes survive unrelated chat updates; changing the display mode resets disclosures to that mode. Quiet always keeps approvals visible.
 
