@@ -861,6 +861,53 @@ async function check() {
     console.log(
       "PASS: /model reads fresh session facts through preload and reports errors without stale model details.",
     );
+    let finishSkill;
+    ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
+    ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) =>
+      input.skillId
+        ? new Promise((resolve) => {
+            finishSkill = resolve;
+          })
+        : {
+            ok: true,
+            value: { kind: "skills", agentId: "current-agent", skills: ["example-skill"] },
+          },
+    );
+    await click("composer");
+    await window.webContents.insertText("/skills");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('.skill-catalog button')?.textContent === 'example-skill'",
+    );
+    await evaluate("document.querySelector('.skill-catalog button').focus()");
+    await key("Return");
+    assert.equal(await evaluate("document.activeElement.id"), "close-command");
+    finishSkill({ ok: true, value: { kind: "skills", text: "Example skill details" } });
+    await waitFor(
+      "document.querySelector('#command-result p').textContent === 'Example skill details'",
+    );
+    assert.equal(await evaluate("document.activeElement.id"), "close-command");
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    assert.equal(await evaluate("document.activeElement.id"), "composer");
+    await window.webContents.insertText("/skills example-skill");
+    await key("Return");
+    await window.webContents.insertText("Keep this unsent draft");
+    finishSkill({ ok: true, value: { kind: "skills", text: "Updated skill details" } });
+    await waitFor(
+      "document.querySelector('#command-result p').textContent === 'Updated skill details'",
+    );
+    assert.equal(await evaluate("document.activeElement.id"), "composer");
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Keep this unsent draft",
+    );
+    await key("Escape");
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("");
+    console.log(
+      "PASS: skill detail replacement retains keyboard focus; Escape and background completion preserve the composer.",
+    );
     let agentReportInput;
     ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
     ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) => {
