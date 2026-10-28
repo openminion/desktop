@@ -862,10 +862,13 @@ describe("PyPI CLI client", () => {
                   message: "Provider unavailable",
                 },
                 delivery: {
-                  state: "not_requested",
-                  mode: "none",
+                  state: "failed",
+                  mode: "announce",
                   targets: [],
-                  error: null,
+                  error: {
+                    code: "DELIVERY_FAILED",
+                    message: "Webhook unavailable",
+                  },
                 },
                 delivery_targets: [],
               },
@@ -884,10 +887,7 @@ describe("PyPI CLI client", () => {
                   state: "failed",
                   mode: "announce",
                   targets: ["announce:last"],
-                  error: {
-                    code: "DELIVERY_FAILED",
-                    message: "Destination unavailable",
-                  },
+                  error: "Destination unavailable",
                 },
                 delivery_targets: [],
                 credential: "never-return-this",
@@ -942,7 +942,13 @@ describe("PyPI CLI client", () => {
                   code: "PROVIDER_UNAVAILABLE",
                   message: "Provider unavailable",
                 },
-                delivery: { state: "not_requested" },
+                delivery: {
+                  state: "failed",
+                  error: {
+                    code: "DELIVERY_FAILED",
+                    message: "Webhook unavailable",
+                  },
+                },
               },
               {
                 runId: "run-1",
@@ -952,7 +958,7 @@ describe("PyPI CLI client", () => {
                 delivery: {
                   state: "failed",
                   error: {
-                    code: "DELIVERY_FAILED",
+                    code: null,
                     message: "Destination unavailable",
                   },
                 },
@@ -1035,6 +1041,49 @@ describe("PyPI CLI client", () => {
       { sessionId, action: "list", args: ["--config", "/other"] },
     ])
       expect(await client.controlTasks(input)).toMatchObject({ ok: false });
+    expect(run).toHaveBeenCalledTimes(calls);
+  });
+
+  it("requests the bounded expanded run history only for one shown task", async () => {
+    const run = vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stderr: "",
+      stdout: '{"ok":true,"task":{"id":"task-1","recent_runs":[]}}',
+    });
+    const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+    const created = await client.create({ agentId: "writer" });
+    if (!created.ok) throw new Error("Draft not created");
+    const sessionId = created.value.sessionId;
+
+    expect(
+      await client.controlTasks({ sessionId, action: "show", taskId: "task-1", runsLimit: 20 }),
+    ).toMatchObject({ ok: true, value: { recentRunsLimit: 20, tasks: [{ id: "task-1" }] } });
+    expect(run).toHaveBeenLastCalledWith(
+      "openminion",
+      [
+        "tasks",
+        "show",
+        "task-1",
+        "--limit",
+        "20",
+        "--session",
+        sessionId,
+        "--json",
+        "--agent-id",
+        "writer",
+      ],
+      30_000,
+    );
+
+    const calls = run.mock.calls.length;
+    for (const input of [
+      { sessionId, action: "show", taskId: "task-1", runsLimit: 5 },
+      { sessionId, action: "list", runsLimit: 20 },
+    ])
+      expect(await client.controlTasks(input)).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request" },
+      });
     expect(run).toHaveBeenCalledTimes(calls);
   });
 
@@ -1132,6 +1181,97 @@ describe("PyPI CLI client", () => {
       });
       expect(run.mock.calls.map((call) => call[1].slice(0, 2))).toEqual([
         ["tasks", "run-now"],
+        ["tasks", "list"],
+      ]);
+    },
+  );
+
+  it.each([
+    {
+      action: "update" as const,
+      input: {
+        taskId: "task-1",
+        update: {
+          instruction: "Review open pull requests",
+          kind: "every" as const,
+          value: "30",
+          timezone: "UTC",
+        },
+        expectedUpdatedAt: "revision-1",
+      },
+      accepted: '{"ok":true,"task_id":"task-1","task":{"job_id":"task-1"}}',
+      actionResult: { action: "update", taskId: "task-1" },
+      warning: "The task was updated, but OpenMinion could not refresh the task list.",
+      command: ["tasks", "update"],
+    },
+    {
+      action: "delete-history" as const,
+      input: { taskId: "task-1", confirm: true },
+      accepted: '{"ok":true,"task_id":"task-1","deleted_count":2}',
+      actionResult: { action: "delete-history", taskId: "task-1", deletedCount: 2 },
+      warning: "The run history was deleted, but OpenMinion could not refresh the task list.",
+      command: ["tasks", "delete-history"],
+    },
+    {
+      action: "scheduler-pause" as const,
+      input: {
+        reason: "Provider maintenance",
+        expectedUpdatedAt: "scheduler-1",
+        confirm: true,
+      },
+      accepted:
+        '{"ok":true,"scheduler_control":{"paused":true,"updated_at":"scheduler-2","actor":"operator","reason":"Provider maintenance"}}',
+      actionResult: {
+        action: "scheduler-pause",
+        paused: true,
+        updatedAt: "scheduler-2",
+        updatedBy: "operator",
+        reason: "Provider maintenance",
+      },
+      warning: "The scheduler was paused, but OpenMinion could not refresh the task list.",
+      command: ["tasks", "scheduler"],
+    },
+    {
+      action: "scheduler-resume" as const,
+      input: { expectedUpdatedAt: "scheduler-2", confirm: true },
+      accepted:
+        '{"ok":true,"scheduler_control":{"paused":false,"updated_at":"scheduler-3","actor":"operator","reason":null}}',
+      actionResult: {
+        action: "scheduler-resume",
+        paused: false,
+        updatedAt: "scheduler-3",
+        updatedBy: "operator",
+        reason: null,
+      },
+      warning: "The scheduler was resumed, but OpenMinion could not refresh the task list.",
+      command: ["tasks", "scheduler"],
+    },
+  ])(
+    "preserves an accepted $action receipt without replay when refresh fails",
+    async (testCase) => {
+      const run = vi.fn();
+      const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+      const created = await client.create({ agentId: "writer" });
+      if (!created.ok) throw new Error("Draft not created");
+      run.mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: testCase.accepted });
+      run.mockRejectedValueOnce(new Error("Daemon unavailable"));
+
+      const result = await client.controlTasks({
+        sessionId: created.value.sessionId,
+        action: testCase.action,
+        ...testCase.input,
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          tasks: [],
+          actionResult: testCase.actionResult,
+          refreshWarning: testCase.warning,
+        },
+      });
+      expect(run.mock.calls.map((call) => call[1].slice(0, 2))).toEqual([
+        testCase.command,
         ["tasks", "list"],
       ]);
     },
@@ -2607,6 +2747,29 @@ describe("PyPI CLI client", () => {
     expect(
       await client.submit({ sessionId: "saved", message: "duplicate" }, vi.fn()),
     ).toMatchObject({ ok: false, error: { code: "session_turn_active" } });
+    expect(
+      await client.controlTasks({ sessionId: "saved", action: "pause", taskId: "task-1" }),
+    ).toMatchObject({ ok: false, error: { code: "session_turn_active" } });
+    for (const input of [
+      {
+        sessionId: "saved",
+        action: "scheduler-pause",
+        reason: "Provider maintenance",
+        expectedUpdatedAt: "scheduler-1",
+        confirm: true,
+      },
+      {
+        sessionId: "saved",
+        action: "scheduler-resume",
+        expectedUpdatedAt: "scheduler-2",
+        confirm: true,
+      },
+    ] as const) {
+      const schedulerResult = await client.controlTasks(input);
+      expect(schedulerResult.ok ? null : schedulerResult.error.code).not.toBe(
+        "session_turn_active",
+      );
+    }
     expect(await client.reconnect({ ...identity, traceId: "other" })).toMatchObject({
       ok: false,
       error: { code: "trace_not_found" },

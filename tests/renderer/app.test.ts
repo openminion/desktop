@@ -1871,13 +1871,18 @@ describe("renderer status view", () => {
     },
   );
 
-  it("opens conversation details and export from the menu without losing drafts", async () => {
+  it("opens conversation details, scheduled work, and export from the menu without losing drafts", async () => {
     const api = approvalRendererApi(vi.fn());
     const read = vi.fn<NativeApi["reports"]["read"]>().mockResolvedValue({
       ok: true,
       value: { kind: "status", session: sessionSummary() },
     });
     api.reports = { read };
+    const control = vi.fn<NativeApi["tasks"]["control"]>().mockResolvedValue({
+      ok: true,
+      value: { tasks: [], pendingActions: [], scheduler: null },
+    });
+    api.tasks = { control };
     api.sessions.export = vi.fn().mockResolvedValue({ ok: true, value: { cancelled: false } });
     const page = new FixtureDocument();
     vi.stubGlobal("window", { addEventListener: vi.fn() });
@@ -1887,6 +1892,7 @@ describe("renderer status view", () => {
       page.element("composer").value = draft;
       page.element("composer").dispatch("input");
       expect(page.element("inspect-session").disabled).toBe(false);
+      expect(page.element("scheduled-work").disabled).toBe(false);
       expect(page.element("export-session").disabled).toBe(false);
       page.element("inspect-session").click();
       await vi.waitFor(() =>
@@ -1895,6 +1901,16 @@ describe("renderer status view", () => {
         ),
       );
       expect(read).toHaveBeenLastCalledWith({ kind: "status", sessionId: "session-1" });
+      expect(page.element("composer").value).toBe(draft);
+      page.element("show-commands").click();
+      page.element("scheduled-work").click();
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenCalledExactlyOnceWith({
+          sessionId: "session-1",
+          action: "list",
+        }),
+      );
+      expect(page.element("command-result").children[0]?.textContent).toBe("No tasks found.");
       expect(page.element("composer").value).toBe(draft);
       page.element("show-commands").click();
       page.element("export-session").click();
@@ -1919,6 +1935,7 @@ describe("renderer status view", () => {
     try {
       await mount(api, page.asDocument());
       expect(page.element("inspect-session").disabled).toBe(true);
+      expect(page.element("scheduled-work").disabled).toBe(true);
       expect(page.element("export-session").disabled).toBe(true);
       for (const command of ["/model", "/status"]) {
         page.element("composer").value = command;
@@ -6503,7 +6520,7 @@ describe("scheduled task parity", () => {
       expect(text).toEqual(
         expect.arrayContaining([
           "Details",
-          "Resolve this approval in Focus.",
+          "Inspect this blocker in Focus. Approval continuation remains with the active turn.",
           expect.stringContaining("Result session: result-session-1"),
           expect.stringContaining("Available: 2026-09-30T11:00:00Z"),
           expect.stringContaining("Execution error: PROVIDER_UNAVAILABLE: Provider unavailable"),
@@ -6570,6 +6587,119 @@ describe("scheduled task parity", () => {
     }
   });
 
+  it("allows only global scheduler controls during an active turn and keeps their receipt", async () => {
+    const control = vi.fn<NativeApi["tasks"]["control"]>(async (input) =>
+      input.action === "list"
+        ? {
+            ok: true,
+            value: {
+              scheduler: {
+                state: "ready",
+                hostedBy: "daemon",
+                reason: null,
+                lastHeartbeatAt: "2026-10-28T12:00:00Z",
+                checkCommand: null,
+                paused: false,
+                updatedAt: "scheduler-1",
+                updatedBy: "operator",
+              },
+              tasks: [
+                {
+                  id: "task-1",
+                  title: "Review pull requests",
+                  status: "active",
+                  kind: "scheduled_recurring",
+                  schedule: "every:1800000ms",
+                  dueAt: null,
+                  operatorState: "running",
+                  resumeAction: null,
+                  sessionTarget: "isolated",
+                  instruction: "Review open pull requests",
+                  scheduleRevision: "task-1-revision",
+                  scheduleInput: { kind: "every", value: "30", timezone: "UTC" },
+                  validActions: ["pause"],
+                  recentRuns: [],
+                },
+              ],
+              pendingActions: [],
+              actionResult: null,
+              refreshWarning: null,
+            },
+          }
+        : {
+            ok: true,
+            value: {
+              scheduler: null,
+              tasks: [],
+              pendingActions: [],
+              actionResult: {
+                action: "scheduler-pause",
+                paused: true,
+                updatedAt: "scheduler-2",
+                updatedBy: "operator",
+                reason: "Provider maintenance",
+              },
+              refreshWarning:
+                "The scheduler was paused, but OpenMinion could not refresh the task list.",
+            },
+          },
+    );
+    const api = approvalRendererApi(vi.fn());
+    api.tasks = { control };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/tasks";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenCalledWith({
+          sessionId: "session-1",
+          action: "list",
+        }),
+      );
+
+      const result = page.element("command-result");
+      const taskPause = result.descendants().find((item) => item.textContent === "Pause")!;
+      const schedulerPause = result
+        .descendants()
+        .find((item) => item.textContent === "Pause scheduling for all agents")!;
+      const reason = result
+        .descendants()
+        .find((item) => item.placeholder === "Reason for pausing all scheduled task dispatch")!;
+      expect(taskPause.disabled).toBe(true);
+      expect(schedulerPause.disabled).toBe(false);
+      expect(reason.disabled).toBe(false);
+      reason.value = "Provider maintenance";
+      schedulerPause.click();
+      schedulerPause.click();
+
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenLastCalledWith({
+          sessionId: "session-1",
+          action: "scheduler-pause",
+          reason: "Provider maintenance",
+          expectedUpdatedAt: "scheduler-1",
+          confirm: true,
+        }),
+      );
+      await vi.waitFor(() => {
+        const text = page
+          .element("command-result")
+          .descendants()
+          .map((item) => item.textContent)
+          .join("\n");
+        expect(text).toContain("Scheduled task dispatch was paused.");
+        expect(text).toContain(
+          "The scheduler was paused, but OpenMinion could not refresh the task list.",
+        );
+      });
+      expect(control).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not invent degraded scheduler state for a general task inventory", () => {
     const page = new FixtureDocument();
     const container = page.createElement("div");
@@ -6603,6 +6733,88 @@ describe("scheduled task parity", () => {
         updatedBy: "operator",
       }),
     ).toBe("Scheduled work is paused. Saved schedules will not dispatch until resumed.");
+  });
+
+  it("loads up to 20 runs into the existing task card without pagination state", () => {
+    const page = new FixtureDocument();
+    const onAction = vi.fn();
+    const task = {
+      id: "task-1",
+      title: "Review pull requests",
+      status: "active",
+      kind: "scheduled_recurring",
+      schedule: "every:1800000ms",
+      dueAt: null,
+      operatorState: "running",
+      resumeAction: null,
+      sessionTarget: "isolated",
+      instruction: "Review open pull requests",
+      scheduleRevision: "revision-1",
+      scheduleInput: { kind: "every" as const, value: "30", timezone: "UTC" },
+      validActions: [],
+      recentRuns: Array.from({ length: 5 }, (_, index) => ({
+        runId: `run-${index + 1}`,
+        state: "finished",
+        summary: null,
+        attempts: 1,
+        dueAt: null,
+        availableAt: null,
+        startedAt: null,
+        finishedAt: null,
+        isolatedSessionId: null,
+        error: null,
+        delivery: null,
+        deliveryTargets: [],
+      })),
+      supportsExpandedRuns: true,
+    };
+    const initial = page.createElement("div");
+    renderTasks(
+      page.asDocument(),
+      initial as unknown as HTMLElement,
+      { tasks: [task], pendingActions: [], scheduler: null, recentRunsLimit: 5 },
+      false,
+      onAction,
+      async () => undefined,
+    );
+    initial
+      .descendants()
+      .find((item) => item.textContent === "Load more runs")!
+      .click();
+    expect(onAction).toHaveBeenCalledExactlyOnceWith({
+      action: "show",
+      taskId: "task-1",
+      runsLimit: 20,
+    });
+
+    const legacy = page.createElement("div");
+    renderTasks(
+      page.asDocument(),
+      legacy as unknown as HTMLElement,
+      {
+        tasks: [{ ...task, supportsExpandedRuns: false }],
+        pendingActions: [],
+        scheduler: null,
+        recentRunsLimit: 5,
+      },
+      false,
+      onAction,
+      async () => undefined,
+    );
+    expect(legacy.descendants().some((item) => item.textContent === "Load more runs")).toBe(false);
+
+    const expanded = page.createElement("div");
+    renderTasks(
+      page.asDocument(),
+      expanded as unknown as HTMLElement,
+      { tasks: [task], pendingActions: [], scheduler: null, recentRunsLimit: 20 },
+      false,
+      onAction,
+      async () => undefined,
+    );
+    expect(expanded.descendants().some((item) => item.textContent === "Load more runs")).toBe(
+      false,
+    );
   });
 
   it("renders exact operational controls, confirms history deletion, and opens run results", async () => {
@@ -7028,6 +7240,7 @@ class FixtureDocument {
     "session-context-rename",
     "rename-session",
     "inspect-session",
+    "scheduled-work",
     "export-session",
     "rename-dialog",
     "rename-form",

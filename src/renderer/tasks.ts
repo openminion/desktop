@@ -382,7 +382,6 @@ export function renderTasks(
         resume.type = "button";
         resume.className = "secondary-tool";
         resume.textContent = "Resume scheduling for all agents";
-        resume.disabled = busy;
         resume.addEventListener("click", () => {
           if (resume.dataset.confirmed !== "true") {
             resume.dataset.confirmed = "true";
@@ -402,14 +401,12 @@ export function renderTasks(
         const reason = root.createElement("input");
         reason.placeholder = "Reason for pausing all scheduled task dispatch";
         reason.maxLength = 500;
-        reason.disabled = busy;
         const reasonError = root.createElement("p");
         reasonError.setAttribute("role", "alert");
         const pause = root.createElement("button");
         pause.type = "button";
         pause.className = "secondary-tool";
         pause.textContent = "Pause scheduling for all agents";
-        pause.disabled = busy;
         pause.addEventListener("click", () => {
           if (!reason.value.trim()) {
             reasonError.textContent = "Enter a reason before pausing the scheduler.";
@@ -453,7 +450,8 @@ export function renderTasks(
         .join("\n");
       decisions.append(details);
       const guidance = root.createElement("p");
-      guidance.textContent = "Resolve this approval in Focus.";
+      guidance.textContent =
+        "Inspect this blocker in Focus. Approval continuation remains with the active turn.";
       decisions.append(guidance);
     }
     container.append(decisions);
@@ -533,6 +531,20 @@ export function renderTasks(
         button.addEventListener("click", () => onAction({ action, taskId: task.id }));
       }
       card.append(button);
+    }
+    if (
+      task.supportsExpandedRuns === true &&
+      task.recentRuns.length >= (value.recentRunsLimit ?? 5) &&
+      value.recentRunsLimit !== 20
+    ) {
+      const loadMore = root.createElement("button");
+      loadMore.type = "button";
+      loadMore.className = "secondary-tool";
+      loadMore.textContent = "Load more runs";
+      loadMore.addEventListener("click", () =>
+        onAction({ action: "show", taskId: task.id, runsLimit: 20 }),
+      );
+      card.append(loadMore);
     }
     container.append(card);
   }

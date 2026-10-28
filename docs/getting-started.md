@@ -415,8 +415,9 @@ stop request alone is not proof that the response stopped. Attachments cannot
 be queued, and slash commands keep their own command handling.
 
 The recorded native bridge queue journey used published OpenMinion **0.1.7**;
-this is a tested version, not a declared minimum. The fresh-install bootstrap
-pin remains **0.0.29**; check the installed version before comparing behavior.
+this is historical test evidence, not the current managed baseline. The
+fresh-install bootstrap pin is **0.0.29**; check the installed version before
+comparing behavior.
 Queue controls need the runtime's public turn-input operations; an
 older or incompatible runtime can reject an operation. Desktop does not replace
 that failure with a local queue. See [runtime selection](#use-a-source-runtime)

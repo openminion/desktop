@@ -1746,7 +1746,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       showCommandResult("Tasks", "Choose a saved conversation first.");
       return;
     }
-    if (chat.active && !["list", "show", "scheduler-status"].includes(action)) {
+    if (
+      chat.active &&
+      !["list", "show", "scheduler-status", "scheduler-pause", "scheduler-resume"].includes(action)
+    ) {
       if (schedule) return "Finish or stop this turn before scheduling work.";
       showCommandResult("Turn in progress", "Finish or stop this turn before changing work.");
       return;
@@ -1781,6 +1784,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       showCommandResult("Tasks", result.error.message);
       return;
     }
+    let actionReceipt = "";
+    switch (result.value.actionResult?.action) {
+      case "run-now":
+        actionReceipt = `Run ${result.value.actionResult.runId} queued for task ${result.value.actionResult.taskId}.`;
+        break;
+      case "update":
+        actionReceipt = `Task ${result.value.actionResult.taskId} was updated.`;
+        break;
+      case "delete-history":
+        actionReceipt = `Deleted ${result.value.actionResult.deletedCount} history ${result.value.actionResult.deletedCount === 1 ? "entry" : "entries"} for task ${result.value.actionResult.taskId}.`;
+        break;
+      case "scheduler-pause":
+        actionReceipt = "Scheduled task dispatch was paused.";
+        break;
+      case "scheduler-resume":
+        actionReceipt = "Scheduled task dispatch was resumed.";
+        break;
+    }
     showCommandResult(
       "Tasks",
       [
@@ -1789,8 +1810,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           : result.value.tasks.length
             ? "Tasks reported by OpenMinion for the current agent."
             : "No tasks found.",
-        result.value.actionResult &&
-          `Run ${result.value.actionResult.runId} queued for task ${result.value.actionResult.taskId}.`,
+        actionReceipt,
         result.value.refreshWarning,
         result.value.scheduler
           ? `Global scheduler: ${result.value.scheduler.state}. ${schedulerReadinessText(
@@ -1798,7 +1818,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             )}`
           : "",
         result.value.pendingActions.length
-          ? `${result.value.pendingActions.length} pending approvals. Resolve them in Focus.`
+          ? `${result.value.pendingActions.length} pending blockers. Inspect them in Focus.`
           : "",
       ]
         .filter(Boolean)
@@ -2533,6 +2553,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
 
   for (const [button, command] of [
     [elements.inspectSession, "/status"],
+    [elements.scheduledWork, "/tasks"],
     [elements.exportSession, "/export"],
   ] as const) {
     button.addEventListener("click", () => {
@@ -2751,6 +2772,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.attachFile.disabled = elements.attachImage.disabled;
     elements.renameSession.disabled = !selected;
     elements.inspectSession.disabled = !selected;
+    elements.scheduledWork.disabled = !selected;
     elements.exportSession.disabled = !selected;
     elements.currentTitle.textContent = selected ? taskName(selected) : "New conversation";
     elements.currentTitle.disabled = !selected;
@@ -4269,6 +4291,7 @@ function rendererElements(root: Document) {
     sessionContextRename: required(root, "session-context-rename") as HTMLButtonElement,
     renameSession: required(root, "rename-session") as HTMLButtonElement,
     inspectSession: required(root, "inspect-session") as HTMLButtonElement,
+    scheduledWork: required(root, "scheduled-work") as HTMLButtonElement,
     exportSession: required(root, "export-session") as HTMLButtonElement,
     renameDialog: required(root, "rename-dialog") as HTMLDialogElement,
     renameForm: required(root, "rename-form") as HTMLFormElement,
