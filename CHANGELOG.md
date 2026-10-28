@@ -21,6 +21,10 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 - Add Conversation details and Export conversation to the conversation menu,
   making those workflows accessible without slash commands while preserving drafts.
 
+- Show an explicit warning when an accepted schedule cannot be confirmed in the
+  runtime's work list, with a read-only refresh instead of silently showing an
+  empty list. Keep schedule creation in the CLI and avoid duplicate submissions.
+
 ## 0.0.3 - 2026-10-27
 
 This development release confirms tool-display command changes after the

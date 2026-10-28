@@ -162,8 +162,12 @@ Desktop does not write task records or implement lifecycle rules.
 
 Fresh-install qualification on 2026-10-28 found that the pinned `0.0.29` runtime
 can report schedule creation success while its task inventory remains empty.
-This was reproduced through both the GUI and independent CLI commands. Scheduled
-work remains unqualified for this installation until
+This was reproduced through both the GUI and independent CLI commands. Desktop
+now checks that the returned task ID appears in the canonical inventory. If it
+is absent, or readback fails, Desktop shows **Schedule awaiting confirmation**
+with a read-only refresh action instead of an empty success result. It does not
+retry creation or keep a separate schedule store. Scheduled work remains
+unqualified for this installation until
 [the runtime qualification issue](https://github.com/openminion/desktop/issues/121)
 is resolved; successful text chat does not establish scheduling readiness.
 

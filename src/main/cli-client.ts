@@ -1173,6 +1173,7 @@ export class CliClient {
       // Reserve before loading scope so a turn or Settings cannot race a task change.
       if (mutating) this.#taskControls.add(sessionId);
       let scheduled = false;
+      let scheduledId = "";
       try {
         const loaded = await this.load({ sessionId, messageLimit: 1 });
         if (!loaded.ok) throw protocolError(loaded.error.code, loaded.error.message);
@@ -1186,6 +1187,7 @@ export class CliClient {
           if (result.ok !== true)
             throw protocolError("schedule_failed", "OpenMinion did not create this schedule.");
           scheduled = true;
+          scheduledId = requireString(requireRecord(result.data).task_id);
         }
         const schedulerAction = action.startsWith("scheduler-");
         let args: string[];
@@ -1270,16 +1272,19 @@ export class CliClient {
           }
         }
         const list = action === "list" || action === "schedule" || schedulerAction;
-        return taskControlValue(
+        const taskResult = taskControlValue(
           payload,
           list ? requireArray(payload.tasks) : [payload.task],
           actionResult,
         );
+        if (scheduled && !taskResult.tasks.some((task) => task.id === scheduledId))
+          throw protocolError("schedule_refresh_failed", "The accepted schedule is missing.");
+        return taskResult;
       } catch (error) {
         if (scheduled)
           throw protocolError(
             "schedule_refresh_failed",
-            "Your schedule was created. Refresh the work list to see its details.",
+            "OpenMinion accepted the schedule, but could not confirm it in the work list. Refresh the list before creating it again.",
           );
         throw error;
       } finally {
