@@ -12,6 +12,12 @@ Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
+## 0.0.3 - 2026-10-27
+
+This development release confirms tool-display command changes after the
+preference is saved. It remains unsigned and is not an
+automatic-update-eligible stable build.
+
 - Confirm tool-display slash commands in chat after the preference is saved, and
   keep delayed save feedback from replacing a newer command or reopening dismissed output.
 

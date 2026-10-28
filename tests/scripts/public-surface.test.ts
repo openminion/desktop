@@ -37,7 +37,7 @@ describe("public documentation paths", () => {
     [String.raw`C:\\Users\\Example\\desktop`, false],
     ["/Users/Example/desktop", false],
     ["/absolute/path/to/desktop", true],
-    [String.raw`.\OpenMinion-win32-x64-0.0.2.zip`, true],
+    [String.raw`.\OpenMinion-win32-x64-0.0.3.zip`, true],
   ])("checks %s", (path, allowed) => {
     writeFileSync(join(directory, "README.md"), `${readme}\nExample: ${path}\n`);
     const result = spawnSync(process.execPath, [join(directory, "scripts/public-surface.mjs")], {
