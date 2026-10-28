@@ -2514,8 +2514,21 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             break;
           }
         }
+        if (display.disabled) {
+          showCommandResult(
+            "Tool display",
+            "A display preference is already being saved. Try again when it finishes.",
+          );
+          break;
+        }
+        showCommandResult("Tool display", "Saving display preference…");
+        const request = commandResultGeneration;
         const result = await saveDisplay(next);
-        if (result && !result.ok) showCommandResult("Display preference", result.error.message);
+        if (result && request === commandResultGeneration)
+          showCommandResult(
+            "Tool display",
+            result.ok ? `Tool display set to ${next}.` : result.error.message,
+          );
         break;
       }
     }

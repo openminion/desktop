@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-26
+Last updated: 2026-10-27
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -11,6 +11,9 @@ These entries describe source development, not a newly published binary.
 Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+- Confirm tool-display slash commands in chat after the preference is saved, and
+  keep delayed save feedback from replacing a newer command or reopening dismissed output.
 
 ## 0.0.2 - 2026-10-26
 
