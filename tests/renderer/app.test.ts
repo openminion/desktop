@@ -1605,75 +1605,181 @@ describe("renderer status view", () => {
     }
   });
 
-  it("reads fresh status without replacing chat and settles across same-session turn completion", async () => {
-    const session = sessionSummary();
-    const other = { ...session, sessionId: "other", title: "Other" };
-    const fresh = {
-      ...session,
-      status: "paused" as const,
-      channel: "cli",
-      messageCount: 8,
-      updatedAt: "2026-10-13T12:00:00Z",
-    };
-    const read = vi
-      .fn<NativeApi["reports"]["read"]>()
-      .mockResolvedValue({ ok: true, value: { kind: "status", session: fresh } });
-    let receive!: (event: TurnEventV1) => void;
-    const load = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
-      ok: true,
-      value: {
-        session: sessionId === session.sessionId ? session : other,
-        messages: [message("reply", "Saved reply")],
-        nextMessageCursor: null,
-        messagesHasMore: false,
-      },
-    }));
-    const api = {
-      app: { info: async () => ({ shellVersion: "test" }) },
-      daemon: {
-        status: async () =>
-          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
-      },
-      sessions: {
-        list: async () => ({
-          ok: true,
-          value: { sessions: [session, other], nextCursor: null, hasMore: false },
-        }),
-        load,
-        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
-      },
-      reports: { read },
-      turns: {
-        subscribe: (listener: typeof receive) => {
-          receive = listener;
-          return () => {};
-        },
-        submit: async () => ({
-          ok: true,
-          value: { sessionId: session.sessionId, traceId: "trace", requestId: "request" },
-        }),
-      },
-    } as unknown as NativeApi;
-    vi.stubGlobal("window", { addEventListener: vi.fn() });
-    try {
-      const page = new FixtureDocument();
-      await mount(api, page.asDocument());
-      const command = (text = "/status") => {
-        page.element("composer").value = text;
-        page.element("composer").dispatch("keydown", { key: "Enter" });
+  it.each(["/status", "/model"])(
+    "%s reads fresh facts without replacing chat and settles across same-session turn completion",
+    async (reportCommand) => {
+      const session = sessionSummary();
+      const other = { ...session, sessionId: "other", title: "Other" };
+      const fresh = {
+        ...session,
+        status: "paused" as const,
+        activeAgentId: "current-agent",
+        model: { provider: "current-provider", modelId: "current-model" },
+        channel: "cli",
+        messageCount: 8,
+        updatedAt: "2026-10-13T12:00:00Z",
       };
-      command();
-      await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.textContent).toContain("State: paused"),
-      );
-      expect(read).toHaveBeenLastCalledWith({ kind: "status", sessionId: session.sessionId });
-      expect(page.element("command-result").children[0]?.textContent).toContain(
-        "Messages: 8\nUpdated: 2026-10-13T12:00:00Z",
-      );
-      expect(load).toHaveBeenCalledTimes(1);
-      expect(page.sessionButtons()).toHaveLength(2);
-      expect(page.findText()).toContain("Saved reply");
-      for (const supersede of ["dismiss", "command", "repeat", "selection"]) {
+      const read = vi
+        .fn<NativeApi["reports"]["read"]>()
+        .mockResolvedValue({ ok: true, value: { kind: "status", session: fresh } });
+      let receive!: (event: TurnEventV1) => void;
+      const load = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+        ok: true,
+        value: {
+          session: sessionId === session.sessionId ? session : other,
+          messages: [message("reply", "Saved reply")],
+          nextMessageCursor: null,
+          messagesHasMore: false,
+        },
+      }));
+      const api = {
+        app: { info: async () => ({ shellVersion: "test" }) },
+        daemon: {
+          status: async () =>
+            status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+        },
+        sessions: {
+          list: async () => ({
+            ok: true,
+            value: { sessions: [session, other], nextCursor: null, hasMore: false },
+          }),
+          load,
+          events: async () => ({
+            ok: true,
+            value: { events: [], nextCursor: null, hasMore: false },
+          }),
+        },
+        reports: { read },
+        turns: {
+          subscribe: (listener: typeof receive) => {
+            receive = listener;
+            return () => {};
+          },
+          submit: async () => ({
+            ok: true,
+            value: { sessionId: session.sessionId, traceId: "trace", requestId: "request" },
+          }),
+        },
+      } as unknown as NativeApi;
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        const command = (text = reportCommand) => {
+          page.element("composer").value = text;
+          page.element("composer").dispatch("keydown", { key: "Enter" });
+        };
+        command();
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toContain(
+            "Model: current-model",
+          ),
+        );
+        expect(read).toHaveBeenLastCalledWith({ kind: "status", sessionId: session.sessionId });
+        const facts = page.element("command-result").children[0]?.textContent;
+        expect(facts).toContain("Agent: current-agent");
+        expect(facts).toContain("Provider: current-provider");
+        if (reportCommand === "/status") {
+          expect(facts).toContain("State: paused");
+          expect(facts).toContain("Messages: 8\nUpdated: 2026-10-13T12:00:00Z");
+        } else {
+          expect(facts).toContain("Model selection through Focus is not connected in Desktop yet.");
+        }
+        read.mockResolvedValueOnce({
+          ok: true,
+          value: {
+            kind: "status",
+            session: { ...fresh, model: { provider: null, modelId: null } },
+          },
+        });
+        command();
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toContain(
+            "Provider: Not reported\nModel: Not reported",
+          ),
+        );
+        expect(load).toHaveBeenCalledTimes(1);
+        expect(page.sessionButtons()).toHaveLength(2);
+        expect(page.findText()).toContain("Saved reply");
+        for (const supersede of ["dismiss", "command", "repeat", "selection"]) {
+          let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
+          read.mockImplementationOnce(
+            () =>
+              new Promise((resolve) => {
+                finish = resolve;
+              }),
+          );
+          command();
+          if (supersede === "dismiss") page.element("close-command").click();
+          else if (supersede === "command") command("/help");
+          else if (supersede === "repeat") command();
+          else page.sessionButtons()[1]!.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          const hidden = page.element("command-panel").hidden;
+          const title = page.element("command-title").textContent;
+          finish({
+            ok: false,
+            error: {
+              code: "connection_lost",
+              message: "Old failure",
+              retryable: true,
+              retryAfterMs: null,
+            },
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(page.element("command-panel").hidden).toBe(hidden);
+          expect(page.element("command-title").textContent).toBe(title);
+          expect(page.element("command-result").children[0]?.textContent).not.toBe("Old failure");
+        }
+        page.sessionButtons()[0]!.click();
+        await vi.waitFor(() =>
+          expect(page.element("current-title").textContent).toBe(session.title),
+        );
+        read.mockResolvedValueOnce({
+          ok: false,
+          error: {
+            code: "connection_lost",
+            message: "Status unavailable",
+            retryable: true,
+            retryAfterMs: null,
+          },
+        });
+        command();
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toBe(
+            "Status unavailable",
+          ),
+        );
+        expect(page.findText()).toContain("Saved reply");
+        page.element("composer").value = "Request";
+        page.element("composer").dispatch("input");
+        page.element("composer-form").dispatch("submit");
+        await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
+        read.mockResolvedValueOnce({
+          ok: true,
+          value: { kind: "graph", text: "Graph readiness during turn" },
+        });
+        command("/graph status");
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toBe(
+            "Graph readiness during turn",
+          ),
+        );
+        expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
+        expect(page.element("chat-status").textContent).toBe("Working…");
+        read.mockResolvedValueOnce({
+          ok: true,
+          value: { kind: "skills", agentId: "openminion", skills: ["read-only"] },
+        });
+        command("/skills");
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.children[0]?.textContent).toBe(
+            "read-only",
+          ),
+        );
+        expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
+        expect(page.element("chat-status").textContent).toBe("Working…");
+
         let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
         read.mockImplementationOnce(
           () =>
@@ -1682,96 +1788,47 @@ describe("renderer status view", () => {
             }),
         );
         command();
-        if (supersede === "dismiss") page.element("close-command").click();
-        else if (supersede === "command") command("/model");
-        else if (supersede === "repeat") command();
-        else page.sessionButtons()[1]!.click();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        const hidden = page.element("command-panel").hidden;
-        const title = page.element("command-title").textContent;
-        finish({
-          ok: false,
-          error: {
-            code: "connection_lost",
-            message: "Old failure",
-            retryable: true,
-            retryAfterMs: null,
-          },
+        page.element("composer").value = "Keep drafting";
+        page.element("composer").dispatch("input");
+        const loads = load.mock.calls.length;
+        receive({
+          schemaVersion: 1,
+          kind: "done",
+          sessionId: session.sessionId,
+          traceId: "trace",
+          outcome: "complete",
         });
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        expect(page.element("command-panel").hidden).toBe(hidden);
-        expect(page.element("command-title").textContent).toBe(title);
-        expect(page.element("command-result").children[0]?.textContent).not.toBe("Old failure");
+        await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(loads + 1));
+        finish({ ok: true, value: { kind: "status", session: fresh } });
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toContain(
+            "Model: current-model",
+          ),
+        );
+        expect(page.element("composer").value).toBe("Keep drafting");
+      } finally {
+        vi.unstubAllGlobals();
       }
-      page.sessionButtons()[0]!.click();
-      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe(session.title));
-      read.mockResolvedValueOnce({
-        ok: false,
-        error: {
-          code: "connection_lost",
-          message: "Status unavailable",
-          retryable: true,
-          retryAfterMs: null,
-        },
-      });
-      command();
-      await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.textContent).toBe("Status unavailable"),
-      );
-      expect(page.findText()).toContain("Saved reply");
-      page.element("composer").value = "Request";
-      page.element("composer").dispatch("input");
-      page.element("composer-form").dispatch("submit");
-      await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
-      read.mockResolvedValueOnce({
-        ok: true,
-        value: { kind: "graph", text: "Graph readiness during turn" },
-      });
-      command("/graph status");
-      await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.textContent).toBe(
-          "Graph readiness during turn",
-        ),
-      );
-      expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
-      expect(page.element("chat-status").textContent).toBe("Working…");
-      read.mockResolvedValueOnce({
-        ok: true,
-        value: { kind: "skills", agentId: "openminion", skills: ["read-only"] },
-      });
-      command("/skills");
-      await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.children[0]?.textContent).toBe(
-          "read-only",
-        ),
-      );
-      expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
-      expect(page.element("chat-status").textContent).toBe("Working…");
+    },
+  );
 
-      let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
-      read.mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            finish = resolve;
-          }),
-      );
-      command();
-      page.element("composer").value = "Keep drafting";
-      page.element("composer").dispatch("input");
-      const loads = load.mock.calls.length;
-      receive({
-        schemaVersion: 1,
-        kind: "done",
-        sessionId: session.sessionId,
-        traceId: "trace",
-        outcome: "complete",
-      });
-      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(loads + 1));
-      finish({ ok: true, value: { kind: "status", session: fresh } });
-      await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.textContent).toContain("State: paused"),
-      );
-      expect(page.element("composer").value).toBe("Keep drafting");
+  it("does not request model or status facts without a selected conversation", async () => {
+    const api = approvalRendererApi(vi.fn(), []);
+    const read = vi.fn<NativeApi["reports"]["read"]>();
+    api.reports = { read };
+    const page = new FixtureDocument();
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      await mount(api, page.asDocument());
+      for (const command of ["/model", "/status"]) {
+        page.element("composer").value = command;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "No conversation selected.",
+        );
+      }
+      expect(read).not.toHaveBeenCalled();
+      expect(api.turns.submit).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }

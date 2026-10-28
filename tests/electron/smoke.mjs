@@ -808,6 +808,59 @@ async function check() {
     );
     assert.equal(await clipboard.readText(), "Saved reply before empty message");
     await key("Escape");
+    let modelReportInput;
+    let modelResult = {
+      ok: true,
+      value: {
+        kind: "status",
+        session: {
+          ...toolSession,
+          activeAgentId: "current-agent",
+          model: { provider: "current-provider", modelId: "current-model" },
+        },
+      },
+    };
+    ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
+    ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) => {
+      modelReportInput = input;
+      return modelResult;
+    });
+    await click("composer");
+    await window.webContents.insertText("/model");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-result p').textContent.includes('Model: current-model')",
+    );
+    assert.deepEqual(modelReportInput, { kind: "status", sessionId: toolSession.sessionId });
+    assert.ok(
+      (await evaluate("document.querySelector('#command-result p').textContent")).includes(
+        "Agent: current-agent\nProvider: current-provider",
+      ),
+    );
+    await key("Escape");
+    modelResult = {
+      ok: false,
+      error: {
+        code: "connection_lost",
+        message: "Model status unavailable",
+        retryable: true,
+        retryAfterMs: null,
+      },
+    };
+    await window.webContents.insertText("/model");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-result p').textContent === 'Model status unavailable'",
+    );
+    assert.ok(
+      (await evaluate("document.querySelector('#timeline').textContent")).includes(
+        "Saved reply before empty message",
+      ),
+    );
+    await key("Escape");
+    console.log(
+      "PASS: /model reads fresh session facts through preload and reports errors without stale model details.",
+    );
     let agentReportInput;
     ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
     ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) => {
