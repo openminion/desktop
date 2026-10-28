@@ -90,6 +90,7 @@ async function check() {
         `document.querySelector('#composer').value = ${JSON.stringify(text)}; document.querySelector('#composer').dispatchEvent(new Event('input')); document.querySelector('#composer').focus()`,
       );
     const key = async (keyCode, modifiers = []) => {
+      window.show();
       app.focus({ steal: true });
       window.focus();
       window.webContents.focus();
@@ -596,9 +597,20 @@ tool_posture:
     );
     assert.equal(identityUpsert.exitCode, 0, identityUpsert.stderr);
     assert.match(await reportCommand("/identity", "Identity"), /Prove Desktop identity parity/);
-    assert.match(
-      await reportCommand("/identity verify", "Identity verification"),
-      /Verification: needs attention/,
+    const identityInspect = await runCommand(
+      executable,
+      [...args, "identity", "inspect", "--json"],
+      30_000,
+    );
+    assert.equal(identityInspect.exitCode, 0, identityInspect.stderr);
+    const identityProfile = JSON.parse(identityInspect.stdout).profiles.find(
+      (profile) => profile.agent_id === "openminion",
+    );
+    assert.ok(identityProfile);
+    assert.ok(
+      (await reportCommand("/identity verify", "Identity verification")).includes(
+        `Verification: ${identityProfile.verification.ok ? "verified" : "needs attention"}`,
+      ),
     );
     assert.match(
       await reportCommand("/identity reload", "Identity reloaded"),
@@ -633,35 +645,53 @@ tool_posture:
     );
     assert.ok(guiScheduled, "GUI-created schedule must exist in canonical CLI inventory");
     assert.match(guiScheduled.due_at, /^2099-02-/);
-    await evaluate(
-      `[...document.querySelectorAll('.runtime-task')].find(node => node.querySelector('h3').textContent === 'GUI scheduled work').querySelectorAll('button')[1].click()`,
-    );
-    await waitFor("document.querySelector('.runtime-task')?.textContent.includes('paused')");
-    const guiPaused = await runCommand(
-      executable,
-      [...args, "tasks", "show", guiScheduled.id, "--session", sessionId, "--json"],
-      30_000,
-    );
-    assert.equal(JSON.parse(guiPaused.stdout).task.lifecycle_state, "paused");
+    for (const [label, state] of [
+      ["Pause", "paused"],
+      ["Resume", "active"],
+      ["Cancel", "cancelled"],
+    ]) {
+      await evaluate(
+        `document.querySelector('[aria-label="${label} GUI scheduled work"]').click()`,
+      );
+      if (label === "Cancel")
+        await evaluate(
+          `document.querySelector('[aria-label="Confirm cancel task GUI scheduled work"]').click()`,
+        );
+      await waitFor(
+        `[...document.querySelectorAll('.runtime-task')].find(node => node.querySelector('h3').textContent === 'GUI scheduled work')?.textContent.includes(${JSON.stringify(state)})`,
+      );
+      const canonical = await runCommand(
+        executable,
+        [...args, "tasks", "show", guiScheduled.id, "--session", sessionId, "--json"],
+        30_000,
+      );
+      assert.equal(canonical.exitCode, 0, canonical.stderr);
+      assert.equal(JSON.parse(canonical.stdout).task.lifecycle_state, state);
+    }
     await evaluate("document.querySelector('#close-command').click()");
     console.log(
-      "PASS: DGUI-16 GUI schedule creation and pause match canonical CLI state without executing future work.",
+      "PASS: GUI schedule creation, pause, resume and cancel match canonical CLI state without executing future work.",
     );
-    const work = await evaluate(
-      `window.openminion.tasks.control({
-        sessionId:${JSON.stringify(sessionId)},
-        action:'schedule',
-        schedule:{
-          name:'Desktop work controls',
-          instruction:'Isolated Desktop task-control acceptance fixture.',
-          kind:'at',
-          value:'2099-01-01T00:00:00Z',
-          timezone:''
-        }
-      })`,
+    const work = await runCommand(
+      executable,
+      [
+        ...args,
+        "schedule",
+        "create",
+        "--name=Desktop work controls",
+        "--instruction=Isolated Desktop task-control acceptance fixture.",
+        "--at=2099-01-01T00:00:00Z",
+        "--session",
+        sessionId,
+        "--json",
+      ],
+      30_000,
     );
-    assert.equal(work.ok, true, JSON.stringify(work));
-    const taskId = work.value.tasks.find((task) => task.title === "Desktop work controls").id;
+    assert.equal(work.exitCode, 0, work.stderr);
+    const scheduledWork = JSON.parse(work.stdout);
+    assert.equal(scheduledWork.ok, true);
+    const taskId = scheduledWork.data.task_id;
+    assert.equal(typeof taskId, "string");
     const workCommand = async (text, state) => {
       await fill(text);
       await evaluate("document.querySelector('#send').click()");
@@ -1321,8 +1351,12 @@ tool_posture:
     assert.ok(
       cancellationHistory.value.events.some((event) => event.eventType === "run.cancel_requested"),
     );
-    const terminalState = cancellationHistory.value.events.at(-1).state;
-    assert.ok(["completed", "cancelled"].includes(terminalState));
+    const terminalEvent = cancellationHistory.value.events.findLast((event) =>
+      ["run.completed", "run.cancelled", "run.failed"].includes(event.eventType),
+    );
+    assert.ok(terminalEvent, JSON.stringify(cancellationHistory.value.events));
+    const terminalState = terminalEvent.state;
+    assert.ok(["completed", "cancelled"].includes(terminalState), JSON.stringify(terminalEvent));
     const terminalLabel = await evaluate("document.querySelector('#chat-status').textContent");
     if (terminalState === "completed") assert.equal(terminalLabel, "");
     else assert.ok(["Stopped.", "Turn cancelled."].includes(terminalLabel));

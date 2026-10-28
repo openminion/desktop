@@ -23,7 +23,7 @@ application.
 | Text chat and saved sessions | real PyPI 0.0.29 CLI and production Electron GUI; first send, task switching, drafts, resizing, outage/restart recovery, canonical close | development-ready |
 | Provider errors and recovery | real PyPI daemon with a local controlled HTTP provider | locally verified; paid-provider acceptance pending |
 | Shared prompt queue | published 0.1.7 and native two-process Desktop check on macOS: queue/draft restoration, exact removal, stop-and-run-next, approved file write and one canonical completion | bounded restart/effect acceptance passed on 2026-10-19 using a controlled local provider; automatic advancement and arbitrary running-turn discovery remain open; fresh-install bootstrap pin remains 0.0.29 |
-| Cancellation | authenticated request and saved-event evidence; PyPI 0.0.29 can complete an in-flight provider request after acknowledgement | runtime interruption gap remains |
+| Cancellation | PyPI 0.0.29 can complete an in-flight request after acknowledgement; 2026-10-28 native probes of 0.1.11 and 0.1.14 instead recorded `run.failed` after Stop, with `CancelledError` confirmed in 0.1.14 transcript export | runtime cancellation qualification blocker remains |
 | Request-bound tool approvals | pinned PyPI daemon + built Electron allow-once proof; deny/retry/replay/unit coverage | managed-runtime verified |
 | Identity settings and commands | pinned PyPI 0.0.29 inspect/validate/apply; native view, draft, verify, save, conflict, and reload proof | development-ready |
 | Media, artifacts, full Focus commands | preview UI only; public-interface adaptation pending | not connected |
@@ -42,6 +42,37 @@ The fresh-install bootstrap pin remains PyPI `0.0.29`; this does not describe
 every installation. An existing active runtime is reused, and an eligible
 manifest-verified update can replace it through explicit preparation and startup
 activation. Manifest-driven first installation is not implemented.
+
+The 2026-10-28 macOS qualification checked isolated published `0.1.11` and
+`0.1.14` installations against production Desktop main/preload/renderer:
+
+- Both candidates passed GUI creation, pause, resume and cancellation of future
+  schedules with independent CLI readback, plus CLI creation followed by Desktop
+  control. No scheduled model work was executed.
+- Both passed the 92-test CLI/lifecycle selection, including durable conversation
+  history and same-session continuation after daemon restart. The separate
+  native onboarding harness passed on `0.1.11`; it was not rerun on `0.1.14`.
+- Both full GUI runs reached Stop and failed the canonical terminal-state check.
+  The `0.1.14` raw transcript recorded `run.cancel_requested`, followed by
+  `run.failed` with `error_code: CancelledError` and step `turn.failed`. Its
+  published gateway turn handler records caught cancellation as failure. Desktop
+  did not rewrite that state, and the acceptance test was not relaxed.
+- Native checks before that failure covered diagnostics, identity, schedules,
+  sending, task switching, drafts, resizing, outage/reconnect and profile editing.
+  Later provider-error/recovery and final Markdown/close checks in that run did
+  **not** execute. These partial passes are not full GUI qualification.
+- The candidate catalog contains 56 Focus built-ins; Desktop lists 24, with 33
+  absent from its menu and one Desktop-only entry. This counts names, not full
+  argument or effect parity. Candidate CLI token reporting also failed to find a
+  daemon-created session; Desktop reported that limitation.
+
+The bootstrap pin therefore remains `0.0.29`. Its separate schedule/inventory
+mismatch is still open in [issue 121](https://github.com/openminion/desktop/issues/121).
+Desktop now reports an accepted schedule missing from readback explicitly and
+lets the user refresh without replaying creation. A focused native GUI check on
+`0.0.29` verified the warning and refresh. That is clearer failure feedback, not
+a scheduling fix. No candidate update, published-feed upgrade,
+paid-provider, signing or cross-platform acceptance is claimed here.
 
 The 2026-10-18 macOS probes of published `0.1.7` did not complete acceptance: the durable-conversation restart
 check failed (a repeated run exceeded its 30-second startup limit), and the

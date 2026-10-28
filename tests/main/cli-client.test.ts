@@ -1051,7 +1051,7 @@ describe("PyPI CLI client", () => {
     ] as const) {
       run.mockResolvedValueOnce({
         exitCode: 0,
-        stdout: '{"ok":true}',
+        stdout: '{"ok":true,"data":{"task_id":"scheduled-1"}}',
         stderr: "",
       });
       run.mockResolvedValueOnce({
@@ -1768,7 +1768,7 @@ describe("PyPI CLI client", () => {
     expect(run).not.toHaveBeenCalled();
     run.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: '{"ok":true}',
+      stdout: '{"ok":true,"data":{"task_id":"scheduled-1"}}',
       stderr: "",
     });
     run.mockResolvedValueOnce({
@@ -1780,12 +1780,51 @@ describe("PyPI CLI client", () => {
       ok: false,
       error: {
         code: "schedule_refresh_failed",
-        message: "Your schedule was created. Refresh the work list to see its details.",
+        message:
+          "OpenMinion accepted the schedule, but could not confirm it in the work list. Refresh the list before creating it again.",
       },
     });
     expect(run).toHaveBeenCalledTimes(2);
     expect(client.beginConfiguration()).toBe(true);
   });
+
+  it.each([{ tasks: [] }, { tasks: [{ id: "another-schedule" }] }])(
+    "reports an accepted schedule absent from canonical inventory without resubmitting (%j)",
+    async ({ tasks }) => {
+      const run = vi
+        .fn()
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '{"ok":true,"data":{"task_id":"scheduled-1"}}',
+          stderr: "",
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: JSON.stringify({ ok: true, tasks }),
+          stderr: "",
+        });
+      const client = new CliClient(() => ({ executable: "openminion", args: [] }), run);
+      const created = await client.create({});
+      if (!created.ok) throw new Error("Draft not created");
+      const result = await client.controlTasks({
+        sessionId: created.value.sessionId,
+        action: "schedule",
+        schedule: {
+          name: "Future work",
+          instruction: "Check later",
+          kind: "at",
+          value: "2099-01-01T00:00:00Z",
+          timezone: "UTC",
+        },
+      });
+      expect(result).toMatchObject({ ok: false, error: { code: "schedule_refresh_failed" } });
+      expect(run.mock.calls.map((call) => call[1].slice(0, 2))).toEqual([
+        ["schedule", "create"],
+        ["tasks", "list"],
+      ]);
+      expect(client.beginConfiguration()).toBe(true);
+    },
+  );
 
   it("fences a pending task change from Settings and sending, then releases after failure", async () => {
     let finish!: (value: { exitCode: number; stdout: string; stderr: string }) => void;

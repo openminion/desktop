@@ -1768,9 +1768,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (elements.commandPanel.hidden) return;
     if (!result.ok) {
       if (schedule && result.error.code === "schedule_refresh_failed") {
-        showCommandResult("Schedule created", result.error.message);
+        showCommandResult("Schedule awaiting confirmation", result.error.message);
         const refresh = root.createElement("button");
         refresh.type = "button";
+        refresh.className = "quiet-button diagnostic-control";
         refresh.textContent = "Refresh work list";
         refresh.addEventListener("click", () => void runTasks({ action: "list" }));
         elements.commandResult.append(refresh);
@@ -1806,6 +1807,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (result.value.refreshWarning) {
       const refresh = root.createElement("button");
       refresh.type = "button";
+      refresh.className = "quiet-button diagnostic-control";
       refresh.textContent = "Refresh work list";
       refresh.addEventListener("click", () => void runTasks({ action: "list" }));
       elements.commandResult.append(refresh);
