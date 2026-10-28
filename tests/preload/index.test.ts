@@ -215,6 +215,18 @@ describe("preload surface", () => {
       sessionId: "session-1",
       action: "list",
     });
+    await api.tasks.control({
+      sessionId: "session-1",
+      action: "show",
+      taskId: "task-1",
+      runsLimit: 20,
+    });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.tasksControl, {
+      sessionId: "session-1",
+      action: "show",
+      taskId: "task-1",
+      runsLimit: 20,
+    });
     invoke.mockClear();
     expect(Object.keys(api.delegation)).toEqual(["control"]);
     await api.delegation.control({

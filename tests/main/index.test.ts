@@ -1767,6 +1767,7 @@ class CaptureFixtureDocument {
     "session-context-rename",
     "rename-session",
     "inspect-session",
+    "scheduled-work",
     "export-session",
     "rename-dialog",
     "rename-form",

@@ -241,6 +241,7 @@ function runtimeTask(value: unknown): RuntimeTask {
         action === "delete-history",
     ),
     recentRuns: requireArray(row.recent_runs ?? []).map(runtimeTaskRun),
+    supportsExpandedRuns: row.recent_runs_limit !== undefined,
   };
 }
 
@@ -274,6 +275,7 @@ function taskScheduleInput(value: unknown): RuntimeTask["scheduleInput"] {
 
 function taskError(value: unknown): TaskError | null {
   if (value === null || value === undefined) return null;
+  if (typeof value === "string") return { code: null, message: value };
   const row = requireRecord(value);
   return {
     code: optionalString(row.code ?? null),
@@ -342,11 +344,13 @@ function taskControlValue(
   tasks: unknown[],
   actionResult: TaskControlValue["actionResult"] = null,
   refreshWarning: string | null = null,
+  recentRunsLimit: 5 | 20 = 5,
 ): TaskControlValue {
   return {
     tasks: tasks.map(runtimeTask),
     pendingActions: requireArray(payload.pending_actions ?? []).map(pendingTaskAction),
     scheduler: schedulerReadiness(payload.scheduler),
+    recentRunsLimit,
     actionResult,
     refreshWarning,
   };
@@ -1088,6 +1092,7 @@ export class CliClient {
               "update",
               "reason",
               "expectedUpdatedAt",
+              "runsLimit",
               "confirm",
             ].includes(key),
         )
@@ -1131,6 +1136,10 @@ export class CliClient {
           "invalid_request",
           "A reason is only valid when pausing the scheduler.",
         );
+      if (action !== "show" && value.runsLimit !== undefined)
+        throw protocolError("invalid_request", "A run limit is only valid when showing one task.");
+      if (value.runsLimit !== undefined && value.runsLimit !== 20)
+        throw protocolError("invalid_request", "Load at most 20 recent runs.");
       if (!["update", "scheduler-pause", "scheduler-resume"].includes(action)) {
         if (value.expectedUpdatedAt !== undefined)
           throw protocolError("invalid_request", "This operation does not take a revision.");
@@ -1163,9 +1172,10 @@ export class CliClient {
       if (confirmationActions.includes(action) && value.confirm !== true)
         throw protocolError("invalid_request", "Confirm this high-impact operation first.");
       const mutating = !["list", "show", "scheduler-status"].includes(action);
+      const schedulerControl = ["scheduler-pause", "scheduler-resume"].includes(action);
       if (this.#configuring || this.#taskControls.has(sessionId))
         throw protocolError("task_control_busy", "Wait for the current operation to finish.");
-      if (mutating && this.#active.has(sessionId))
+      if (mutating && !schedulerControl && this.#active.has(sessionId))
         throw protocolError(
           "session_turn_active",
           "Finish or stop this turn before changing work.",
@@ -1219,9 +1229,15 @@ export class CliClient {
           args.push(...scope);
         } else {
           const list = action === "list" || action === "schedule";
-          args = ["tasks", list ? "list" : action, ...(taskId ? [taskId] : []), ...scope];
+          args = [
+            "tasks",
+            list ? "list" : action,
+            ...(taskId ? [taskId] : []),
+            ...(action === "show" && value.runsLimit === 20 ? ["--limit", "20"] : []),
+            ...scope,
+          ];
         }
-        let payload = requireRecord(await this.#json(args));
+        const payload = requireRecord(await this.#json(args));
         if (payload.ok !== true) {
           const detail =
             payload.error && typeof payload.error === "object"
@@ -1234,24 +1250,49 @@ export class CliClient {
               "OpenMinion did not complete this task operation.",
           );
         }
-        const actionResult =
-          action === "run-now"
-            ? {
-                action: "run-now" as const,
-                taskId: requireString(payload.task_id),
-                runId: requireString(payload.run_id),
-                state: optionalString(payload.state ?? null),
-              }
-            : null;
-        if (schedulerAction) {
-          payload = requireRecord(await this.#json(["tasks", "list", ...scope]));
-          if (payload.ok !== true)
+        let actionResult: TaskControlValue["actionResult"] = null;
+        if (action === "run-now")
+          actionResult = {
+            action,
+            taskId: requireString(payload.task_id),
+            runId: requireString(payload.run_id),
+            state: optionalString(payload.state ?? null),
+          };
+        else if (action === "update")
+          actionResult = { action, taskId: requireString(payload.task_id) };
+        else if (action === "delete-history") {
+          const deletedCount = payload.deleted_count;
+          if (
+            typeof deletedCount !== "number" ||
+            !Number.isInteger(deletedCount) ||
+            deletedCount < 0
+          )
             throw protocolError(
-              "task_refresh_failed",
-              "The scheduler changed, but OpenMinion could not refresh the task list.",
+              "invalid_daemon_response",
+              "OpenMinion returned invalid task data.",
             );
+          actionResult = {
+            action,
+            taskId: requireString(payload.task_id),
+            deletedCount,
+          };
+        } else if (action === "scheduler-pause" || action === "scheduler-resume") {
+          const control = requireRecord(payload.scheduler_control);
+          if (typeof control.paused !== "boolean")
+            throw protocolError(
+              "invalid_daemon_response",
+              "OpenMinion returned invalid task data.",
+            );
+          actionResult = {
+            action,
+            paused: control.paused,
+            updatedAt: requireString(control.updated_at),
+            updatedBy: optionalString(control.updated_by ?? control.actor ?? null),
+            reason: optionalString(control.reason ?? null),
+          };
         }
-        const refreshTaskList = ["run-now", "update", "delete-history"].includes(action);
+        const refreshTaskList =
+          schedulerAction || ["run-now", "update", "delete-history"].includes(action);
         if (refreshTaskList) {
           try {
             const refreshed = requireRecord(await this.#json(["tasks", "list", ...scope]));
@@ -1263,11 +1304,33 @@ export class CliClient {
             return taskControlValue(refreshed, requireArray(refreshed.tasks), actionResult);
           } catch (error) {
             if (!actionResult) throw error;
+            let refreshWarning: string;
+            switch (action) {
+              case "run-now":
+                refreshWarning =
+                  "The run was queued, but OpenMinion could not refresh the task list.";
+                break;
+              case "update":
+                refreshWarning =
+                  "The task was updated, but OpenMinion could not refresh the task list.";
+                break;
+              case "delete-history":
+                refreshWarning =
+                  "The run history was deleted, but OpenMinion could not refresh the task list.";
+                break;
+              case "scheduler-pause":
+                refreshWarning =
+                  "The scheduler was paused, but OpenMinion could not refresh the task list.";
+                break;
+              default:
+                refreshWarning =
+                  "The scheduler was resumed, but OpenMinion could not refresh the task list.";
+            }
             return taskControlValue(
               { pending_actions: [], scheduler: null },
               [],
               actionResult,
-              "The run was queued, but OpenMinion could not refresh the task list.",
+              refreshWarning,
             );
           }
         }
@@ -1276,6 +1339,8 @@ export class CliClient {
           payload,
           list ? requireArray(payload.tasks) : [payload.task],
           actionResult,
+          null,
+          action === "show" && value.runsLimit === 20 ? 20 : 5,
         );
         if (scheduled && !taskResult.tasks.some((task) => task.id === scheduledId))
           throw protocolError("schedule_refresh_failed", "The accepted schedule is missing.");

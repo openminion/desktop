@@ -47,7 +47,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/new`, `/new session`  | Create a local task draft; its first message creates the saved session. Requires connection and no active turn in the selected task.                                                                                      |
 | `/close`                | Close the selected conversation through the public CLI; new messages require an open conversation.                                                                                                                        |
 | `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration.                                                                                                                                           |
-| `/tasks`, `/task`       | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID, use the returned Pause, Resume, and Cancel controls, or create scheduled work in the inline form.                                 |
+| `/tasks`, `/task`       | Open **Conversation actions → Scheduled work** or use this command to list work for the selected conversation and agent. Inspect a task by ID, use its lifecycle controls, or create scheduled work in the inline form.      |
 | `/delegate`             | Start sync or background delegated work, list recent delegations, and inspect or control one task through the selected conversation's agent/session scope. Inspection renders a structural tree and separate A2A protocol timeline. |
 | `/agents`, `/agent`     | Read the daemon's agent list and mark the conversation's current agent. An exact ID or display name filters the list; this does not switch agents.                                                                                           |
 | `/tools`, `/tool`       | Show exposure status for the selected session, matching Focus. `list` shows the tool inventory. `activate [profile]` and `deactivate [profile]` open scoped forms backed by Core tool exposure operations.                                                                                                                           |
@@ -66,7 +66,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/verbose` | Expand all available tool output. Missing or truncated runtime content is not reconstructed. |
 | `/details [on\|off\|quiet\|toggle]` | Toggle verbose/normal or select a mode. Uses Focus aliases: verbose/full/details → on; normal/concise → off. |
 | `/graph`                | Show installed CLI help. `/graph status` or **Check readiness** reads actual graph readiness using this installation's configuration. Querying, refreshing and launching a viewer remain unconnected.                                                                                    |
-| `/editor`               | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.29 runtime.                                                                               |
+| `/editor`               | Show the native Desktop composer shortcuts. Focus external-editor draft composition is not connected in Desktop.                                                                                                         |
 
 You can also use **Conversation actions (⋯) → Conversation details** for `/status`
 and **Export conversation…** for `/export`, without typing a command. Both keep
@@ -120,9 +120,8 @@ reconstructed transcript.
 Every delegation action requires its installed CLI command to advertise both
 `--parent-agent-id` and `--session-id`. An unavailable scoped contract produces
 an update explanation before an operation is sent. Scope is never silently
-dropped. Delegation inspection additionally requires `agent delegate-inspect`. That command is not in the pinned PyPI `0.0.29` runtime. The native
-delegation inspection journey belongs to its corresponding Core source worktree;
-published-runtime inspection remains pending the core change and release.
+dropped. Delegation inspection additionally requires `agent delegate-inspect`;
+Desktop checks the installed CLI contract before invoking it.
 
 The `/tasks` panel includes **Schedule work**. Enter a name and instruction, then
 choose a local date/time, an interval in minutes, or an advanced cron expression

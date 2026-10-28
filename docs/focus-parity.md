@@ -31,8 +31,8 @@ The canonical OpenMinion owners are:
 
 Inspect the actual handlers as well as the catalog: a help entry alone does not
 prove an operation works in Focus. Current Focus `/editor` opens an external
-editor and loads the returned text as an unsent draft; the pinned 0.0.29 Desktop
-runtime and Desktop's shortcut guidance do not provide that behavior yet.
+editor and loads the returned text as an unsent draft; Desktop's shortcut
+guidance does not provide that behavior yet.
 Preserve explicit renderer availability where Focus and the rich CLI renderer
 differ.
 
@@ -133,9 +133,11 @@ both interfaces at the same installation.
 `/tasks` and `/task` use fixed CLI JSON calls. The baseline pinned PyPI 0.0.29
 supports list/show/pause/resume/cancel. A compatible source runtime additionally
 exposes run-now, complete instruction/schedule update with `schedule_revision`,
-terminal-history deletion, and scheduler status/pause/resume. Desktop discovers
-those controls from returned data and does not present scheduler mutations to an
-older runtime that lacks the scheduler revision field. Main derives agent scope
+terminal-history deletion, scheduler status/pause/resume, and bounded run-history
+expansion. Desktop discovers those controls from returned data and does not
+present scheduler mutations or history expansion when the runtime omits their
+capability fields. **Conversation actions → Scheduled work** opens this same
+panel; it does not create another task route or state owner. Main derives agent scope
 from the selected canonical session and passes its session ID. Focus's task report
 and these CLI commands share OpenMinion's task surface; Desktop does not copy
 lifecycle transitions, task ownership, scheduler logic, or task persistence. The
@@ -146,8 +148,9 @@ The renderer receives task presentation fields and scoped pending-approval facts
 When paired with a compatible source runtime, tool approval cards resolve the
 exact active request through the authenticated approval-resume route, not
 through task lifecycle commands.
-Task changes are fenced against active Desktop turns and Settings updates. Reads
-and scheduler-status refresh remain available during a turn. Destructive history
+Task changes are fenced against active Desktop turns and Settings updates. Reads,
+scheduler-status refresh, and emergency global scheduler pause/resume remain
+available during a turn. Task-specific writes stay fenced. Destructive history
 deletion and scheduler pause/resume require a visible two-step confirmation.
 Completed run rows can open the exact isolated result conversation returned by
 Core. The inline form creates scheduled work using fixed `schedule create` arguments:
