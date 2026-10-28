@@ -68,6 +68,10 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/graph`                | Show installed CLI help. `/graph status` or **Check readiness** reads actual graph readiness using this installation's configuration. Querying, refreshing and launching a viewer remain unconnected.                                                                                    |
 | `/editor`               | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.29 runtime.                                                                               |
 
+You can also use **Conversation actions (⋯) → Conversation details** for `/status`
+and **Export conversation…** for `/export`, without typing a command. Both keep
+your unsent draft.
+
 `/sessions` refreshes the saved conversation list from OpenMinion. Each entry
 shows its friendly name and full session ID, along with the reported agent,
 channel, message count and update age. Selecting an entry opens it and adds it
