@@ -12,6 +12,12 @@ Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
 
+## 0.0.4 - 2026-10-28
+
+This unsigned development release improves current-status reporting,
+conversation workflows, keyboard continuity, and scheduled-work controls. It
+is not signed, notarized, stable, or eligible for automatic application updates.
+
 - Refresh `/model` from the selected conversation’s current daemon facts instead
   of the cached conversation list. Failed reads show the error without stale model details.
 
@@ -24,6 +30,11 @@ and [Desktop Commands](docs/commands.md) for today's supported boundary.
 - Show an explicit warning when an accepted schedule cannot be confirmed in the
   runtime's work list, with a read-only refresh instead of silently showing an
   empty list. Keep schedule creation in the CLI and avoid duplicate submissions.
+
+- Preserve accepted task and scheduler mutations when their follow-up refresh
+  fails, add visible Scheduled work access with bounded history, and keep
+  task-specific writes fenced during active chat while allowing emergency
+  scheduler pause and resume.
 
 ## 0.0.3 - 2026-10-27
 
