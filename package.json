@@ -1,7 +1,7 @@
 {
   "name": "@openminion/desktop",
   "productName": "OpenMinion",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "description": "Secure local desktop client for the OpenMinion daemon.",
   "author": "OpenMinion Contributors",
