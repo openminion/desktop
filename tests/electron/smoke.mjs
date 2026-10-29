@@ -1155,6 +1155,61 @@ async function check() {
       "PASS: controlled tool events through production preload, native output expansion, literal content, insertion focus/scroll, exact Copy, missing-output honesty and responsive layout.",
     );
 
+    const delegationInputs = [];
+    ipcMain.removeHandler(IPC_CHANNELS.delegationControl);
+    ipcMain.handle(IPC_CHANNELS.delegationControl, (_event, input) => {
+      delegationInputs.push(input);
+      return {
+        ok: true,
+        value: {
+          action: input.action,
+          status: "running",
+          agentId: null,
+          taskId: input.taskId ?? null,
+          a2aTraceId: null,
+          content: null,
+          tasks: [],
+          inspection: null,
+        },
+      };
+    });
+    await click("composer");
+    await window.webContents.insertText("/delegate list");
+    await key("Return");
+    await waitFor("!!document.querySelector('#delegate-task-action')");
+    assert.equal(await evaluate("document.querySelector('#cancel').hidden"), false);
+    assert.equal(
+      await evaluate(
+        "document.querySelector('#delegate-task-action option[value=cancel]').disabled",
+      ),
+      true,
+    );
+    for (const operation of ["inspect", "status", "result"]) {
+      await evaluate(`(() => {
+        const action = document.querySelector('#delegate-task-action');
+        action.value = ${JSON.stringify(operation)};
+        action.dispatchEvent(new Event('change'));
+        document.querySelector('#delegate-task-id').value = 'delegated-task-1';
+        action.form.querySelector('button[type=submit]').id = 'delegation-apply-fixture';
+      })()`);
+      assert.equal(
+        await evaluate("document.querySelector('#delegate-task-action').disabled"),
+        false,
+      );
+      await click("delegation-apply-fixture");
+      await waitFor("!!document.querySelector('#delegate-task-action')");
+      assert.deepEqual(delegationInputs.at(-1), {
+        sessionId: toolSession.sessionId,
+        action: operation,
+        taskId: "delegated-task-1",
+      });
+    }
+    assert.equal(delegationInputs.length, 4);
+    await key("Escape");
+    console.log(
+      "PASS: delegated task inspection remains usable during an active reply; cancel is unavailable.",
+    );
+
     let finishCopy;
     ipcMain.removeHandler(IPC_CHANNELS.copyText);
     ipcMain.handle(
