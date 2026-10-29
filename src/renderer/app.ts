@@ -1594,6 +1594,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
   });
   const showCommandResult = (title: string, text: string) => {
+    const restoreFocus = elements.commandResult.contains(root.activeElement);
     commandResultGeneration += 1;
     elements.commandTitle.textContent = title;
     const paragraph = root.createElement("p");
@@ -1614,6 +1615,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     });
     elements.commandResult.replaceChildren(paragraph, copy);
     elements.commandPanel.hidden = false;
+    if (restoreFocus) elements.closeCommand.focus();
     renderJumpToLatest();
     elements.commandPanel.scrollIntoView({ block: "start" });
   };
@@ -1744,7 +1746,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       showCommandResult("Tasks", "Choose a saved conversation first.");
       return;
     }
-    if (chat.active && !["list", "show", "scheduler-status"].includes(action)) {
+    if (
+      chat.active &&
+      !["list", "show", "scheduler-status", "scheduler-pause", "scheduler-resume"].includes(action)
+    ) {
       if (schedule) return "Finish or stop this turn before scheduling work.";
       showCommandResult("Turn in progress", "Finish or stop this turn before changing work.");
       return;
@@ -1766,9 +1771,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (elements.commandPanel.hidden) return;
     if (!result.ok) {
       if (schedule && result.error.code === "schedule_refresh_failed") {
-        showCommandResult("Schedule created", result.error.message);
+        showCommandResult("Schedule awaiting confirmation", result.error.message);
         const refresh = root.createElement("button");
         refresh.type = "button";
+        refresh.className = "quiet-button diagnostic-control";
         refresh.textContent = "Refresh work list";
         refresh.addEventListener("click", () => void runTasks({ action: "list" }));
         elements.commandResult.append(refresh);
@@ -1778,6 +1784,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       showCommandResult("Tasks", result.error.message);
       return;
     }
+    let actionReceipt = "";
+    switch (result.value.actionResult?.action) {
+      case "run-now":
+        actionReceipt = `Run ${result.value.actionResult.runId} queued for task ${result.value.actionResult.taskId}.`;
+        break;
+      case "update":
+        actionReceipt = `Task ${result.value.actionResult.taskId} was updated.`;
+        break;
+      case "delete-history":
+        actionReceipt = `Deleted ${result.value.actionResult.deletedCount} history ${result.value.actionResult.deletedCount === 1 ? "entry" : "entries"} for task ${result.value.actionResult.taskId}.`;
+        break;
+      case "scheduler-pause":
+        actionReceipt = "Scheduled task dispatch was paused.";
+        break;
+      case "scheduler-resume":
+        actionReceipt = "Scheduled task dispatch was resumed.";
+        break;
+    }
     showCommandResult(
       "Tasks",
       [
@@ -1786,8 +1810,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           : result.value.tasks.length
             ? "Tasks reported by OpenMinion for the current agent."
             : "No tasks found.",
-        result.value.actionResult &&
-          `Run ${result.value.actionResult.runId} queued for task ${result.value.actionResult.taskId}.`,
+        actionReceipt,
         result.value.refreshWarning,
         result.value.scheduler
           ? `Global scheduler: ${result.value.scheduler.state}. ${schedulerReadinessText(
@@ -1795,7 +1818,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
             )}`
           : "",
         result.value.pendingActions.length
-          ? `${result.value.pendingActions.length} pending approvals. Resolve them in Focus.`
+          ? `${result.value.pendingActions.length} pending blockers. Inspect them in Focus.`
           : "",
       ]
         .filter(Boolean)
@@ -1804,6 +1827,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     if (result.value.refreshWarning) {
       const refresh = root.createElement("button");
       refresh.type = "button";
+      refresh.className = "quiet-button diagnostic-control";
       refresh.textContent = "Refresh work list";
       refresh.addEventListener("click", () => void runTasks({ action: "list" }));
       elements.commandResult.append(refresh);
@@ -2400,53 +2424,44 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
         }
         break;
       }
-      case "/status": {
+      case "/status":
+      case "/model": {
+        const title = command === "/model" ? "Configured model" : "Conversation status";
         const sessionId = selected?.sessionId;
         if (!sessionId) {
-          showCommandResult("Conversation status", "No conversation selected.");
+          showCommandResult(title, "No conversation selected.");
           break;
         }
-        showCommandResult("Conversation status", "Reading conversation status…");
+        showCommandResult(title, "Reading conversation status…");
         const request = commandResultGeneration;
         const result = await api.reports.read({ kind: "status", sessionId });
         if (request !== commandResultGeneration || sessionId !== selected?.sessionId) break;
-        if (!result.ok) showCommandResult("Conversation status", result.error.message);
+        if (!result.ok) showCommandResult(title, result.error.message);
         else if (result.value.kind === "status") {
           const session = result.value.session;
           showCommandResult(
-            "Conversation status",
+            title,
             [
               elements.connectionLabel.textContent,
               `Conversation: ${taskName(session)}`,
               `Session: ${session.sessionId}`,
-              `State: ${session.status}`,
               `Agent: ${session.activeAgentId ?? "Not reported"}`,
-              `Channel: ${session.channel ?? "Not reported"}`,
-              `Messages: ${session.messageCount ?? "Not reported"}`,
-              `Updated: ${session.updatedAt || "Not reported"}`,
               `Provider: ${session.model.provider ?? "Not reported"}`,
               `Model: ${session.model.modelId ?? "Not reported"}`,
+              ...(command === "/status"
+                ? [
+                    `State: ${session.status}`,
+                    `Channel: ${session.channel ?? "Not reported"}`,
+                    `Messages: ${session.messageCount ?? "Not reported"}`,
+                    `Updated: ${session.updatedAt || "Not reported"}`,
+                  ]
+                : ["Model selection through Focus is not connected in Desktop yet."]),
               chat.label,
             ].join("\n"),
           );
         }
         break;
       }
-      case "/model":
-        showCommandResult(
-          "Configured model",
-          [
-            elements.connectionLabel.textContent,
-            `Conversation: ${selected ? taskName(selected) : "No conversation selected"}`,
-            `Session: ${selected?.sessionId ?? "None"}`,
-            `Agent: ${selected?.activeAgentId ?? "Not reported"}`,
-            `Provider: ${selected?.model.provider ?? "Not reported"}`,
-            `Model: ${selected?.model.modelId ?? "Not reported"}`,
-            chat.label,
-            "Model selection through Focus is not connected in Desktop yet.",
-          ].join("\n"),
-        );
-        break;
       case "/copy": {
         const reply = messages
           .slice(hiddenMessageCount)
@@ -2535,6 +2550,17 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     renderChat();
     return true;
   };
+
+  for (const [button, command] of [
+    [elements.inspectSession, "/status"],
+    [elements.scheduledWork, "/tasks"],
+    [elements.exportSession, "/export"],
+  ] as const) {
+    button.addEventListener("click", () => {
+      commandDraft ??= elements.composer.value;
+      void runCommand(command);
+    });
+  }
 
   elements.timeline.addEventListener("click", (event) => {
     const link = (event.target as Element).closest("a[href]");
@@ -2745,6 +2771,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       !richContextReady || !writable || chat.active || attachmentPending || attachments.length >= 4;
     elements.attachFile.disabled = elements.attachImage.disabled;
     elements.renameSession.disabled = !selected;
+    elements.inspectSession.disabled = !selected;
+    elements.scheduledWork.disabled = !selected;
+    elements.exportSession.disabled = !selected;
     elements.currentTitle.textContent = selected ? taskName(selected) : "New conversation";
     elements.currentTitle.disabled = !selected;
     elements.currentTitle.title = selected ? `Rename conversation: ${taskName(selected)}` : "";
@@ -4261,6 +4290,9 @@ function rendererElements(root: Document) {
     sessionContextMenu: required(root, "session-context-menu"),
     sessionContextRename: required(root, "session-context-rename") as HTMLButtonElement,
     renameSession: required(root, "rename-session") as HTMLButtonElement,
+    inspectSession: required(root, "inspect-session") as HTMLButtonElement,
+    scheduledWork: required(root, "scheduled-work") as HTMLButtonElement,
+    exportSession: required(root, "export-session") as HTMLButtonElement,
     renameDialog: required(root, "rename-dialog") as HTMLDialogElement,
     renameForm: required(root, "rename-form") as HTMLFormElement,
     taskName: required(root, "task-name") as HTMLInputElement,

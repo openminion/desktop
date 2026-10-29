@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-10-25
+Last updated: 2026-10-28
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -47,7 +47,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/new`, `/new session`  | Create a local task draft; its first message creates the saved session. Requires connection and no active turn in the selected task.                                                                                      |
 | `/close`                | Close the selected conversation through the public CLI; new messages require an open conversation.                                                                                                                        |
 | `/sessions`, `/session` | Open a picker for saved tasks. Focus directory scoping still needs integration.                                                                                                                                           |
-| `/tasks`, `/task`       | List OpenMinion work for the selected conversation and its agent. Inspect a task by ID, use the returned Pause, Resume, and Cancel controls, or create scheduled work in the inline form.                                 |
+| `/tasks`, `/task`       | Open **Conversation actions → Scheduled work** or use this command to list work for the selected conversation and agent. Inspect a task by ID, use its lifecycle controls, or create scheduled work in the inline form.      |
 | `/delegate`             | Start sync or background delegated work, list recent delegations, and inspect or control one task through the selected conversation's agent/session scope. Inspection renders a structural tree and separate A2A protocol timeline. |
 | `/agents`, `/agent`     | Read the daemon's agent list and mark the conversation's current agent. An exact ID or display name filters the list; this does not switch agents.                                                                                           |
 | `/tools`, `/tool`       | Show exposure status for the selected session, matching Focus. `list` shows the tool inventory. `activate [profile]` and `deactivate [profile]` open scoped forms backed by Core tool exposure operations.                                                                                                                           |
@@ -58,7 +58,7 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/tokens`               | Request the selected session's canonical durable token report. Pinned PyPI may report daemon-created sessions unavailable; no usage is fabricated.                                                                        |
 | `/export`               | Save the selected conversation as Markdown through a native file chooser and the CLI transcript exporter.                                                                                                                 |
 | `/status`               | Show connection, selected task, active agent, reported model, and turn status.                                                                                                                                            |
-| `/model`                | Show the model facts reported by the daemon; changing models is not supported here yet.                                                                                                                                   |
+| `/model`                | Read the selected conversation’s current agent, provider, and model from the daemon; changing models is not supported here yet.                                                                                                                                   |
 | `/copy`                 | Copy the newest available assistant reply or runtime-supplied completed tool output. Never fall back to user input or cleared replies. Unavailable raw output is not reconstructed; clipboard writes are capped at 1 MB. |
 | `/clear`, `/cls`        | Clear the visible chat while idle. Saved history remains in OpenMinion; selecting the task restores it.                                                                                                                   |
 | `/quiet`                | Hide tool activity cards while keeping approvals visible; saved as a Desktop display preference.                                                                                                                          |
@@ -66,16 +66,22 @@ to send a literal leading slash: `//path/to/file` sends `/path/to/file`.
 | `/verbose` | Expand all available tool output. Missing or truncated runtime content is not reconstructed. |
 | `/details [on\|off\|quiet\|toggle]` | Toggle verbose/normal or select a mode. Uses Focus aliases: verbose/full/details → on; normal/concise → off. |
 | `/graph`                | Show installed CLI help. `/graph status` or **Check readiness** reads actual graph readiness using this installation's configuration. Querying, refreshing and launching a viewer remain unconnected.                                                                                    |
-| `/editor`               | Show the native Desktop composer shortcuts. Current-source external-editor draft composition is not connected in the pinned 0.0.29 runtime.                                                                               |
+| `/editor`               | Show the native Desktop composer shortcuts. Focus external-editor draft composition is not connected in Desktop.                                                                                                         |
+
+You can also use **Conversation actions (⋯) → Conversation details** for `/status`
+and **Export conversation…** for `/export`, without typing a command. Both keep
+your unsent draft.
 
 `/sessions` refreshes the saved conversation list from OpenMinion. Each entry
 shows its friendly name and full session ID, along with the reported agent,
 channel, message count and update age. Selecting an entry opens it and adds it
 to the sidebar if needed. Missing metadata is shown as not reported. `/status`
 reads the selected saved conversation's current state, channel, message count
-and update time from OpenMinion without reloading the chat. Unsent drafts use
-local details. Provider and model remain not reported when unavailable; this
-report does not include Focus's complete live runtime status.
+and update time from OpenMinion without reloading the chat. Both commands require
+a selected saved conversation. `/model` uses the same fresh read for its
+agent, provider, and model; failed reads show the error instead of cached facts.
+Provider and model remain not reported when unavailable; these reports do not
+include Focus's complete live runtime status.
 
 Tool display is saved for this Desktop installation and applies across conversations. Manual disclosure changes survive unrelated chat updates; changing the display mode resets disclosures to that mode. Quiet always keeps approvals visible.
 
@@ -114,9 +120,8 @@ reconstructed transcript.
 Every delegation action requires its installed CLI command to advertise both
 `--parent-agent-id` and `--session-id`. An unavailable scoped contract produces
 an update explanation before an operation is sent. Scope is never silently
-dropped. Delegation inspection additionally requires `agent delegate-inspect`. That command is not in the pinned PyPI `0.0.29` runtime. The native
-delegation inspection journey belongs to its corresponding Core source worktree;
-published-runtime inspection remains pending the core change and release.
+dropped. Delegation inspection additionally requires `agent delegate-inspect`;
+Desktop checks the installed CLI contract before invoking it.
 
 The `/tasks` panel includes **Schedule work**. Enter a name and instruction, then
 choose a local date/time, an interval in minutes, or an advanced cron expression

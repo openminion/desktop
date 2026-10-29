@@ -1537,7 +1537,9 @@ describe("renderer status view", () => {
         ok: true,
         value: { kind: "skills", text: "Skill: Help reference" },
       });
+      page.element("command-result").children[0]!.children[24]!.focus();
       page.element("command-result").children[0]!.children[24]!.click();
+      expect(page.activeElement).toBe(page.element("close-command"));
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe(
           "Skill: Help reference",
@@ -1546,7 +1548,9 @@ describe("renderer status view", () => {
       expect(read).toHaveBeenLastCalledWith({ kind: "skills", skillId: "--help" });
       expect(page.element("composer").value).toBe("Keep my skill draft");
       expect(page.element("command-title").textContent).toBe("Skill details");
+      page.element("command-result").children[2]!.focus();
       page.element("command-result").children[2]!.click();
+      expect(page.activeElement).toBe(page.element("close-command"));
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.children).toHaveLength(25),
       );
@@ -1560,7 +1564,9 @@ describe("renderer status view", () => {
           retryAfterMs: null,
         },
       });
+      page.element("command-result").children[0]!.children[24]!.focus();
       page.element("command-result").children[0]!.children[24]!.click();
+      expect(page.activeElement).toBe(page.element("close-command"));
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe("Skill unavailable"),
       );
@@ -1569,7 +1575,9 @@ describe("renderer status view", () => {
         ok: true,
         value: { kind: "skills", agentId: "fresh-agent", skills: [] },
       });
+      page.element("command-result").children[2]!.focus();
       page.element("command-result").children[2]!.click();
+      expect(page.activeElement).toBe(page.element("close-command"));
       await vi.waitFor(() =>
         expect(page.element("command-result").children[0]?.textContent).toBe(
           "No stored skills for this agent.",
@@ -1605,75 +1613,232 @@ describe("renderer status view", () => {
     }
   });
 
-  it("reads fresh status without replacing chat and settles across same-session turn completion", async () => {
-    const session = sessionSummary();
-    const other = { ...session, sessionId: "other", title: "Other" };
-    const fresh = {
-      ...session,
-      status: "paused" as const,
-      channel: "cli",
-      messageCount: 8,
-      updatedAt: "2026-10-13T12:00:00Z",
-    };
-    const read = vi
-      .fn<NativeApi["reports"]["read"]>()
-      .mockResolvedValue({ ok: true, value: { kind: "status", session: fresh } });
-    let receive!: (event: TurnEventV1) => void;
-    const load = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
-      ok: true,
-      value: {
-        session: sessionId === session.sessionId ? session : other,
-        messages: [message("reply", "Saved reply")],
-        nextMessageCursor: null,
-        messagesHasMore: false,
-      },
-    }));
-    const api = {
-      app: { info: async () => ({ shellVersion: "test" }) },
-      daemon: {
-        status: async () =>
-          status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
-      },
-      sessions: {
-        list: async () => ({
-          ok: true,
-          value: { sessions: [session, other], nextCursor: null, hasMore: false },
-        }),
-        load,
-        events: async () => ({ ok: true, value: { events: [], nextCursor: null, hasMore: false } }),
-      },
-      reports: { read },
-      turns: {
-        subscribe: (listener: typeof receive) => {
-          receive = listener;
-          return () => {};
-        },
-        submit: async () => ({
-          ok: true,
-          value: { sessionId: session.sessionId, traceId: "trace", requestId: "request" },
-        }),
-      },
-    } as unknown as NativeApi;
-    vi.stubGlobal("window", { addEventListener: vi.fn() });
-    try {
+  it.each(["result", "composer", "session-search"])(
+    "keeps focus usable when a report resolves with focus in %s",
+    async (target) => {
+      const api = approvalRendererApi(vi.fn());
+      const read = vi.fn<NativeApi["reports"]["read"]>().mockResolvedValue({
+        ok: true,
+        value: { kind: "commands", commands: [] },
+      });
+      api.reports = { read };
       const page = new FixtureDocument();
-      await mount(api, page.asDocument());
-      const command = (text = "/status") => {
-        page.element("composer").value = text;
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        await mount(api, page.asDocument());
+        let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
+        read.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+        page.element("composer").value = "/skills";
         page.element("composer").dispatch("keydown", { key: "Enter" });
+        const focused =
+          target === "result" ? page.element("command-result").children[1]! : page.element(target);
+        focused.focus();
+        page.element("composer").value = "Unsent draft";
+        finish({
+          ok: false,
+          error: {
+            code: "report_unavailable",
+            message: "Skills unavailable",
+            retryable: false,
+            retryAfterMs: null,
+          },
+        });
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toBe(
+            "Skills unavailable",
+          ),
+        );
+        expect(page.activeElement).toBe(
+          target === "result" ? page.element("close-command") : focused,
+        );
+        expect(page.element("composer").value).toBe("Unsent draft");
+        expect(api.turns.submit).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each(["/status", "/model"])(
+    "%s reads fresh facts without replacing chat and settles across same-session turn completion",
+    async (reportCommand) => {
+      const session = sessionSummary();
+      const other = { ...session, sessionId: "other", title: "Other" };
+      const fresh = {
+        ...session,
+        status: "paused" as const,
+        activeAgentId: "current-agent",
+        model: { provider: "current-provider", modelId: "current-model" },
+        channel: "cli",
+        messageCount: 8,
+        updatedAt: "2026-10-13T12:00:00Z",
       };
-      command();
-      await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.textContent).toContain("State: paused"),
-      );
-      expect(read).toHaveBeenLastCalledWith({ kind: "status", sessionId: session.sessionId });
-      expect(page.element("command-result").children[0]?.textContent).toContain(
-        "Messages: 8\nUpdated: 2026-10-13T12:00:00Z",
-      );
-      expect(load).toHaveBeenCalledTimes(1);
-      expect(page.sessionButtons()).toHaveLength(2);
-      expect(page.findText()).toContain("Saved reply");
-      for (const supersede of ["dismiss", "command", "repeat", "selection"]) {
+      const read = vi
+        .fn<NativeApi["reports"]["read"]>()
+        .mockResolvedValue({ ok: true, value: { kind: "status", session: fresh } });
+      let receive!: (event: TurnEventV1) => void;
+      const load = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+        ok: true,
+        value: {
+          session: sessionId === session.sessionId ? session : other,
+          messages: [message("reply", "Saved reply")],
+          nextMessageCursor: null,
+          messagesHasMore: false,
+        },
+      }));
+      const api = {
+        app: { info: async () => ({ shellVersion: "test" }) },
+        daemon: {
+          status: async () =>
+            status({ state: "running", reachable: true, capabilities: ["turns.text"] }),
+        },
+        sessions: {
+          list: async () => ({
+            ok: true,
+            value: { sessions: [session, other], nextCursor: null, hasMore: false },
+          }),
+          load,
+          events: async () => ({
+            ok: true,
+            value: { events: [], nextCursor: null, hasMore: false },
+          }),
+        },
+        reports: { read },
+        turns: {
+          subscribe: (listener: typeof receive) => {
+            receive = listener;
+            return () => {};
+          },
+          submit: async () => ({
+            ok: true,
+            value: { sessionId: session.sessionId, traceId: "trace", requestId: "request" },
+          }),
+        },
+      } as unknown as NativeApi;
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      try {
+        const page = new FixtureDocument();
+        await mount(api, page.asDocument());
+        const command = (text = reportCommand) => {
+          page.element("composer").value = text;
+          page.element("composer").dispatch("keydown", { key: "Enter" });
+        };
+        command();
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toContain(
+            "Model: current-model",
+          ),
+        );
+        expect(read).toHaveBeenLastCalledWith({ kind: "status", sessionId: session.sessionId });
+        const facts = page.element("command-result").children[0]?.textContent;
+        expect(facts).toContain("Agent: current-agent");
+        expect(facts).toContain("Provider: current-provider");
+        if (reportCommand === "/status") {
+          expect(facts).toContain("State: paused");
+          expect(facts).toContain("Messages: 8\nUpdated: 2026-10-13T12:00:00Z");
+        } else {
+          expect(facts).toContain("Model selection through Focus is not connected in Desktop yet.");
+        }
+        read.mockResolvedValueOnce({
+          ok: true,
+          value: {
+            kind: "status",
+            session: { ...fresh, model: { provider: null, modelId: null } },
+          },
+        });
+        command();
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toContain(
+            "Provider: Not reported\nModel: Not reported",
+          ),
+        );
+        expect(load).toHaveBeenCalledTimes(1);
+        expect(page.sessionButtons()).toHaveLength(2);
+        expect(page.findText()).toContain("Saved reply");
+        for (const supersede of ["dismiss", "command", "repeat", "selection"]) {
+          let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
+          read.mockImplementationOnce(
+            () =>
+              new Promise((resolve) => {
+                finish = resolve;
+              }),
+          );
+          command();
+          if (supersede === "dismiss") page.element("close-command").click();
+          else if (supersede === "command") command("/help");
+          else if (supersede === "repeat") command();
+          else page.sessionButtons()[1]!.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          const hidden = page.element("command-panel").hidden;
+          const title = page.element("command-title").textContent;
+          finish({
+            ok: false,
+            error: {
+              code: "connection_lost",
+              message: "Old failure",
+              retryable: true,
+              retryAfterMs: null,
+            },
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(page.element("command-panel").hidden).toBe(hidden);
+          expect(page.element("command-title").textContent).toBe(title);
+          expect(page.element("command-result").children[0]?.textContent).not.toBe("Old failure");
+        }
+        page.sessionButtons()[0]!.click();
+        await vi.waitFor(() =>
+          expect(page.element("current-title").textContent).toBe(session.title),
+        );
+        read.mockResolvedValueOnce({
+          ok: false,
+          error: {
+            code: "connection_lost",
+            message: "Status unavailable",
+            retryable: true,
+            retryAfterMs: null,
+          },
+        });
+        command();
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toBe(
+            "Status unavailable",
+          ),
+        );
+        expect(page.findText()).toContain("Saved reply");
+        page.element("composer").value = "Request";
+        page.element("composer").dispatch("input");
+        page.element("composer-form").dispatch("submit");
+        await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
+        read.mockResolvedValueOnce({
+          ok: true,
+          value: { kind: "graph", text: "Graph readiness during turn" },
+        });
+        command("/graph status");
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toBe(
+            "Graph readiness during turn",
+          ),
+        );
+        expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
+        expect(page.element("chat-status").textContent).toBe("Working…");
+        read.mockResolvedValueOnce({
+          ok: true,
+          value: { kind: "skills", agentId: "openminion", skills: ["read-only"] },
+        });
+        command("/skills");
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.children[0]?.textContent).toBe(
+            "read-only",
+          ),
+        );
+        expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
+        expect(page.element("chat-status").textContent).toBe("Working…");
+
         let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
         read.mockImplementationOnce(
           () =>
@@ -1682,96 +1847,105 @@ describe("renderer status view", () => {
             }),
         );
         command();
-        if (supersede === "dismiss") page.element("close-command").click();
-        else if (supersede === "command") command("/model");
-        else if (supersede === "repeat") command();
-        else page.sessionButtons()[1]!.click();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        const hidden = page.element("command-panel").hidden;
-        const title = page.element("command-title").textContent;
-        finish({
-          ok: false,
-          error: {
-            code: "connection_lost",
-            message: "Old failure",
-            retryable: true,
-            retryAfterMs: null,
-          },
+        page.element("composer").value = "Keep drafting";
+        page.element("composer").dispatch("input");
+        const loads = load.mock.calls.length;
+        receive({
+          schemaVersion: 1,
+          kind: "done",
+          sessionId: session.sessionId,
+          traceId: "trace",
+          outcome: "complete",
         });
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        expect(page.element("command-panel").hidden).toBe(hidden);
-        expect(page.element("command-title").textContent).toBe(title);
-        expect(page.element("command-result").children[0]?.textContent).not.toBe("Old failure");
+        await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(loads + 1));
+        finish({ ok: true, value: { kind: "status", session: fresh } });
+        await vi.waitFor(() =>
+          expect(page.element("command-result").children[0]?.textContent).toContain(
+            "Model: current-model",
+          ),
+        );
+        expect(page.element("composer").value).toBe("Keep drafting");
+      } finally {
+        vi.unstubAllGlobals();
       }
-      page.sessionButtons()[0]!.click();
-      await vi.waitFor(() => expect(page.element("current-title").textContent).toBe(session.title));
-      read.mockResolvedValueOnce({
-        ok: false,
-        error: {
-          code: "connection_lost",
-          message: "Status unavailable",
-          retryable: true,
-          retryAfterMs: null,
-        },
-      });
-      command();
-      await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.textContent).toBe("Status unavailable"),
-      );
-      expect(page.findText()).toContain("Saved reply");
-      page.element("composer").value = "Request";
-      page.element("composer").dispatch("input");
-      page.element("composer-form").dispatch("submit");
-      await vi.waitFor(() => expect(page.element("chat-status").textContent).toBe("Working…"));
-      read.mockResolvedValueOnce({
-        ok: true,
-        value: { kind: "graph", text: "Graph readiness during turn" },
-      });
-      command("/graph status");
-      await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.textContent).toBe(
-          "Graph readiness during turn",
-        ),
-      );
-      expect(read).toHaveBeenLastCalledWith({ kind: "graph", graphView: "status" });
-      expect(page.element("chat-status").textContent).toBe("Working…");
-      read.mockResolvedValueOnce({
-        ok: true,
-        value: { kind: "skills", agentId: "openminion", skills: ["read-only"] },
-      });
-      command("/skills");
-      await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.children[0]?.textContent).toBe(
-          "read-only",
-        ),
-      );
-      expect(read).toHaveBeenLastCalledWith({ kind: "skills", sessionId: session.sessionId });
-      expect(page.element("chat-status").textContent).toBe("Working…");
+    },
+  );
 
-      let finish!: (value: Awaited<ReturnType<NativeApi["reports"]["read"]>>) => void;
-      read.mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            finish = resolve;
-          }),
-      );
-      command();
-      page.element("composer").value = "Keep drafting";
+  it("opens conversation details, scheduled work, and export from the menu without losing drafts", async () => {
+    const api = approvalRendererApi(vi.fn());
+    const read = vi.fn<NativeApi["reports"]["read"]>().mockResolvedValue({
+      ok: true,
+      value: { kind: "status", session: sessionSummary() },
+    });
+    api.reports = { read };
+    const control = vi.fn<NativeApi["tasks"]["control"]>().mockResolvedValue({
+      ok: true,
+      value: { tasks: [], pendingActions: [], scheduler: null },
+    });
+    api.tasks = { control };
+    api.sessions.export = vi.fn().mockResolvedValue({ ok: true, value: { cancelled: false } });
+    const page = new FixtureDocument();
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      await mount(api, page.asDocument());
+      const draft = "Keep my unsent draft\nRésumé 日本語";
+      page.element("composer").value = draft;
       page.element("composer").dispatch("input");
-      const loads = load.mock.calls.length;
-      receive({
-        schemaVersion: 1,
-        kind: "done",
-        sessionId: session.sessionId,
-        traceId: "trace",
-        outcome: "complete",
-      });
-      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(loads + 1));
-      finish({ ok: true, value: { kind: "status", session: fresh } });
+      expect(page.element("inspect-session").disabled).toBe(false);
+      expect(page.element("scheduled-work").disabled).toBe(false);
+      expect(page.element("export-session").disabled).toBe(false);
+      page.element("inspect-session").click();
       await vi.waitFor(() =>
-        expect(page.element("command-result").children[0]?.textContent).toContain("State: paused"),
+        expect(page.element("command-result").children[0]?.textContent).toContain(
+          "Session: session-1",
+        ),
       );
-      expect(page.element("composer").value).toBe("Keep drafting");
+      expect(read).toHaveBeenLastCalledWith({ kind: "status", sessionId: "session-1" });
+      expect(page.element("composer").value).toBe(draft);
+      page.element("show-commands").click();
+      page.element("scheduled-work").click();
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenCalledExactlyOnceWith({
+          sessionId: "session-1",
+          action: "list",
+        }),
+      );
+      expect(page.element("command-result").children[0]?.textContent).toBe("No tasks found.");
+      expect(page.element("composer").value).toBe(draft);
+      page.element("show-commands").click();
+      page.element("export-session").click();
+      await vi.waitFor(() =>
+        expect(page.element("command-result").children[0]?.textContent).toBe("Conversation saved."),
+      );
+      expect(api.sessions.export).toHaveBeenCalledExactlyOnceWith({ sessionId: "session-1" });
+      expect(page.element("composer").value).toBe(draft);
+      expect(page.activeElement).toBe(page.element("composer"));
+      expect(api.turns.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not request model or status facts without a selected conversation", async () => {
+    const api = approvalRendererApi(vi.fn(), []);
+    const read = vi.fn<NativeApi["reports"]["read"]>();
+    api.reports = { read };
+    const page = new FixtureDocument();
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      await mount(api, page.asDocument());
+      expect(page.element("inspect-session").disabled).toBe(true);
+      expect(page.element("scheduled-work").disabled).toBe(true);
+      expect(page.element("export-session").disabled).toBe(true);
+      for (const command of ["/model", "/status"]) {
+        page.element("composer").value = command;
+        page.element("composer").dispatch("keydown", { key: "Enter" });
+        expect(page.element("command-result").children[0]?.textContent).toBe(
+          "No conversation selected.",
+        );
+      }
+      expect(read).not.toHaveBeenCalled();
+      expect(api.turns.submit).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
@@ -6346,7 +6520,7 @@ describe("scheduled task parity", () => {
       expect(text).toEqual(
         expect.arrayContaining([
           "Details",
-          "Resolve this approval in Focus.",
+          "Inspect this blocker in Focus. Approval continuation remains with the active turn.",
           expect.stringContaining("Result session: result-session-1"),
           expect.stringContaining("Available: 2026-09-30T11:00:00Z"),
           expect.stringContaining("Execution error: PROVIDER_UNAVAILABLE: Provider unavailable"),
@@ -6413,6 +6587,119 @@ describe("scheduled task parity", () => {
     }
   });
 
+  it("allows only global scheduler controls during an active turn and keeps their receipt", async () => {
+    const control = vi.fn<NativeApi["tasks"]["control"]>(async (input) =>
+      input.action === "list"
+        ? {
+            ok: true,
+            value: {
+              scheduler: {
+                state: "ready",
+                hostedBy: "daemon",
+                reason: null,
+                lastHeartbeatAt: "2026-10-28T12:00:00Z",
+                checkCommand: null,
+                paused: false,
+                updatedAt: "scheduler-1",
+                updatedBy: "operator",
+              },
+              tasks: [
+                {
+                  id: "task-1",
+                  title: "Review pull requests",
+                  status: "active",
+                  kind: "scheduled_recurring",
+                  schedule: "every:1800000ms",
+                  dueAt: null,
+                  operatorState: "running",
+                  resumeAction: null,
+                  sessionTarget: "isolated",
+                  instruction: "Review open pull requests",
+                  scheduleRevision: "task-1-revision",
+                  scheduleInput: { kind: "every", value: "30", timezone: "UTC" },
+                  validActions: ["pause"],
+                  recentRuns: [],
+                },
+              ],
+              pendingActions: [],
+              actionResult: null,
+              refreshWarning: null,
+            },
+          }
+        : {
+            ok: true,
+            value: {
+              scheduler: null,
+              tasks: [],
+              pendingActions: [],
+              actionResult: {
+                action: "scheduler-pause",
+                paused: true,
+                updatedAt: "scheduler-2",
+                updatedBy: "operator",
+                reason: "Provider maintenance",
+              },
+              refreshWarning:
+                "The scheduler was paused, but OpenMinion could not refresh the task list.",
+            },
+          },
+    );
+    const api = approvalRendererApi(vi.fn());
+    api.tasks = { control };
+    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    try {
+      const page = new FixtureDocument();
+      await mount(api, page.asDocument());
+      page.element("composer").value = "/tasks";
+      page.element("composer").dispatch("keydown", { key: "Enter" });
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenCalledWith({
+          sessionId: "session-1",
+          action: "list",
+        }),
+      );
+
+      const result = page.element("command-result");
+      const taskPause = result.descendants().find((item) => item.textContent === "Pause")!;
+      const schedulerPause = result
+        .descendants()
+        .find((item) => item.textContent === "Pause scheduling for all agents")!;
+      const reason = result
+        .descendants()
+        .find((item) => item.placeholder === "Reason for pausing all scheduled task dispatch")!;
+      expect(taskPause.disabled).toBe(true);
+      expect(schedulerPause.disabled).toBe(false);
+      expect(reason.disabled).toBe(false);
+      reason.value = "Provider maintenance";
+      schedulerPause.click();
+      schedulerPause.click();
+
+      await vi.waitFor(() =>
+        expect(control).toHaveBeenLastCalledWith({
+          sessionId: "session-1",
+          action: "scheduler-pause",
+          reason: "Provider maintenance",
+          expectedUpdatedAt: "scheduler-1",
+          confirm: true,
+        }),
+      );
+      await vi.waitFor(() => {
+        const text = page
+          .element("command-result")
+          .descendants()
+          .map((item) => item.textContent)
+          .join("\n");
+        expect(text).toContain("Scheduled task dispatch was paused.");
+        expect(text).toContain(
+          "The scheduler was paused, but OpenMinion could not refresh the task list.",
+        );
+      });
+      expect(control).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not invent degraded scheduler state for a general task inventory", () => {
     const page = new FixtureDocument();
     const container = page.createElement("div");
@@ -6446,6 +6733,88 @@ describe("scheduled task parity", () => {
         updatedBy: "operator",
       }),
     ).toBe("Scheduled work is paused. Saved schedules will not dispatch until resumed.");
+  });
+
+  it("loads up to 20 runs into the existing task card without pagination state", () => {
+    const page = new FixtureDocument();
+    const onAction = vi.fn();
+    const task = {
+      id: "task-1",
+      title: "Review pull requests",
+      status: "active",
+      kind: "scheduled_recurring",
+      schedule: "every:1800000ms",
+      dueAt: null,
+      operatorState: "running",
+      resumeAction: null,
+      sessionTarget: "isolated",
+      instruction: "Review open pull requests",
+      scheduleRevision: "revision-1",
+      scheduleInput: { kind: "every" as const, value: "30", timezone: "UTC" },
+      validActions: [],
+      recentRuns: Array.from({ length: 5 }, (_, index) => ({
+        runId: `run-${index + 1}`,
+        state: "finished",
+        summary: null,
+        attempts: 1,
+        dueAt: null,
+        availableAt: null,
+        startedAt: null,
+        finishedAt: null,
+        isolatedSessionId: null,
+        error: null,
+        delivery: null,
+        deliveryTargets: [],
+      })),
+      supportsExpandedRuns: true,
+    };
+    const initial = page.createElement("div");
+    renderTasks(
+      page.asDocument(),
+      initial as unknown as HTMLElement,
+      { tasks: [task], pendingActions: [], scheduler: null, recentRunsLimit: 5 },
+      false,
+      onAction,
+      async () => undefined,
+    );
+    initial
+      .descendants()
+      .find((item) => item.textContent === "Load more runs")!
+      .click();
+    expect(onAction).toHaveBeenCalledExactlyOnceWith({
+      action: "show",
+      taskId: "task-1",
+      runsLimit: 20,
+    });
+
+    const legacy = page.createElement("div");
+    renderTasks(
+      page.asDocument(),
+      legacy as unknown as HTMLElement,
+      {
+        tasks: [{ ...task, supportsExpandedRuns: false }],
+        pendingActions: [],
+        scheduler: null,
+        recentRunsLimit: 5,
+      },
+      false,
+      onAction,
+      async () => undefined,
+    );
+    expect(legacy.descendants().some((item) => item.textContent === "Load more runs")).toBe(false);
+
+    const expanded = page.createElement("div");
+    renderTasks(
+      page.asDocument(),
+      expanded as unknown as HTMLElement,
+      { tasks: [task], pendingActions: [], scheduler: null, recentRunsLimit: 20 },
+      false,
+      onAction,
+      async () => undefined,
+    );
+    expect(expanded.descendants().some((item) => item.textContent === "Load more runs")).toBe(
+      false,
+    );
   });
 
   it("renders exact operational controls, confirms history deletion, and opens run results", async () => {
@@ -6870,6 +7239,9 @@ class FixtureDocument {
     "session-context-menu",
     "session-context-rename",
     "rename-session",
+    "inspect-session",
+    "scheduled-work",
+    "export-session",
     "rename-dialog",
     "rename-form",
     "task-name",

@@ -20,6 +20,7 @@ export type TaskControlInput = {
   update?: TaskUpdateInput;
   reason?: string;
   expectedUpdatedAt?: string;
+  runsLimit?: 20;
   confirm?: boolean;
 };
 
@@ -83,18 +84,31 @@ export type RuntimeTask = {
   scheduleInput: TaskScheduleInput | null;
   validActions: Array<"pause" | "resume" | "cancel" | "run-now" | "update" | "delete-history">;
   recentRuns: TaskRun[];
+  supportsExpandedRuns?: boolean;
 };
 
 export type TaskControlValue = {
   tasks: RuntimeTask[];
   pendingActions: PendingTaskAction[];
   scheduler: SchedulerReadiness | null;
-  actionResult?: {
-    action: "run-now";
-    taskId: string;
-    runId: string;
-    state: string | null;
-  } | null;
+  recentRunsLimit?: 5 | 20;
+  actionResult?:
+    | {
+        action: "run-now";
+        taskId: string;
+        runId: string;
+        state: string | null;
+      }
+    | { action: "update"; taskId: string }
+    | { action: "delete-history"; taskId: string; deletedCount: number }
+    | {
+        action: "scheduler-pause" | "scheduler-resume";
+        paused: boolean;
+        updatedAt: string;
+        updatedBy: string | null;
+        reason: string | null;
+      }
+    | null;
   refreshWarning?: string | null;
 };
 

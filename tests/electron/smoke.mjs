@@ -808,6 +808,140 @@ async function check() {
     );
     assert.equal(await clipboard.readText(), "Saved reply before empty message");
     await key("Escape");
+    let modelReportInput;
+    let modelResult = {
+      ok: true,
+      value: {
+        kind: "status",
+        session: {
+          ...toolSession,
+          activeAgentId: "current-agent",
+          model: { provider: "current-provider", modelId: "current-model" },
+        },
+      },
+    };
+    ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
+    ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) => {
+      modelReportInput = input;
+      return modelResult;
+    });
+    await click("composer");
+    await window.webContents.insertText("/model");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-result p').textContent.includes('Model: current-model')",
+    );
+    assert.deepEqual(modelReportInput, { kind: "status", sessionId: toolSession.sessionId });
+    assert.ok(
+      (await evaluate("document.querySelector('#command-result p').textContent")).includes(
+        "Agent: current-agent\nProvider: current-provider",
+      ),
+    );
+    await key("Escape");
+    modelResult = {
+      ok: false,
+      error: {
+        code: "connection_lost",
+        message: "Model status unavailable",
+        retryable: true,
+        retryAfterMs: null,
+      },
+    };
+    await window.webContents.insertText("/model");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('#command-result p').textContent === 'Model status unavailable'",
+    );
+    assert.ok(
+      (await evaluate("document.querySelector('#timeline').textContent")).includes(
+        "Saved reply before empty message",
+      ),
+    );
+    await key("Escape");
+    console.log(
+      "PASS: /model reads fresh session facts through preload and reports errors without stale model details.",
+    );
+    let exportInput;
+    ipcMain.removeHandler(IPC_CHANNELS.sessionsExport);
+    ipcMain.handle(IPC_CHANNELS.sessionsExport, (_event, input) => {
+      exportInput = input;
+      return { ok: true, value: { cancelled: true } };
+    });
+    const menuDraft = "Menu draft\nRésumé 日本語";
+    await window.webContents.insertText(menuDraft);
+    for (const [id, title, text] of [
+      ["inspect-session", "Conversation status", "Model status unavailable"],
+      ["export-session", "Export conversation", "Export cancelled."],
+    ]) {
+      await evaluate("document.querySelector('[popovertarget=task-actions]').click()");
+      await click(id);
+      await waitFor(
+        `document.querySelector('#command-title').textContent === ${JSON.stringify(title)} && document.querySelector('#command-result p').textContent === ${JSON.stringify(text)}`,
+      );
+      assert.equal(
+        await evaluate("document.querySelector('#task-actions').matches(':popover-open')"),
+        false,
+      );
+      assert.equal(await evaluate("document.querySelector('#composer').value"), menuDraft);
+      assert.equal(await evaluate("document.activeElement.id"), "composer");
+      await key("Escape");
+    }
+    assert.deepEqual(exportInput, { sessionId: toolSession.sessionId });
+    await waitFor(
+      `(async () => (await window.openminion.drafts.load()).value.some(item => item.sessionId === ${JSON.stringify(toolSession.sessionId)} && item.text === ${JSON.stringify(menuDraft)}))()`,
+    );
+    await evaluate("document.querySelector('#composer').select()");
+    await key("Backspace");
+    console.log(
+      "PASS: conversation details and export are available through the native menu, preserving focus and saved drafts.",
+    );
+    let finishSkill;
+    ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
+    ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) =>
+      input.skillId
+        ? new Promise((resolve) => {
+            finishSkill = resolve;
+          })
+        : {
+            ok: true,
+            value: { kind: "skills", agentId: "current-agent", skills: ["example-skill"] },
+          },
+    );
+    await click("composer");
+    await window.webContents.insertText("/skills");
+    await key("Return");
+    await waitFor(
+      "document.querySelector('.skill-catalog button')?.textContent === 'example-skill'",
+    );
+    await evaluate("document.querySelector('.skill-catalog button').focus()");
+    await key("Return");
+    assert.equal(await evaluate("document.activeElement.id"), "close-command");
+    finishSkill({ ok: true, value: { kind: "skills", text: "Example skill details" } });
+    await waitFor(
+      "document.querySelector('#command-result p').textContent === 'Example skill details'",
+    );
+    assert.equal(await evaluate("document.activeElement.id"), "close-command");
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#command-panel').hidden"), true);
+    assert.equal(await evaluate("document.activeElement.id"), "composer");
+    await window.webContents.insertText("/skills example-skill");
+    await key("Return");
+    await window.webContents.insertText("Keep this unsent draft");
+    finishSkill({ ok: true, value: { kind: "skills", text: "Updated skill details" } });
+    await waitFor(
+      "document.querySelector('#command-result p').textContent === 'Updated skill details'",
+    );
+    assert.equal(await evaluate("document.activeElement.id"), "composer");
+    assert.equal(
+      await evaluate("document.querySelector('#composer').value"),
+      "Keep this unsent draft",
+    );
+    await key("Escape");
+    await evaluate("document.querySelector('#composer').select()");
+    await window.webContents.insertText("");
+    console.log(
+      "PASS: skill detail replacement retains keyboard focus; Escape and background completion preserve the composer.",
+    );
     let agentReportInput;
     ipcMain.removeHandler(IPC_CHANNELS.reportsRead);
     ipcMain.handle(IPC_CHANNELS.reportsRead, (_event, input) => {

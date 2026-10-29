@@ -1,7 +1,7 @@
 # OpenMinion Desktop Getting Started
 
 Status: active
-Last updated: 2026-10-19
+Last updated: 2026-10-28
 
 Purpose: guide packaged-app users and source contributors through setup,
 settings, and everyday Desktop workflows.
@@ -165,6 +165,18 @@ name or session ID. Matching ignores case and treats punctuation literally.
 Clear the field or press Escape to restore the list. Filtering keeps the current
 conversation and draft open, even when that conversation is hidden. It does not search
 message contents, and the query is not saved when Desktop closes.
+
+## Conversation Details And Export
+
+Open the **⋯** menu at the top of a saved conversation. **Conversation details**
+reads its current status, agent, and reported model. **Export conversation…**
+opens a file chooser to save the conversation as Markdown. Both actions keep
+any unsent message in the composer. Cancelling the file chooser saves nothing.
+These actions are also available as `/status` and `/export`.
+
+The export contains saved conversation history from OpenMinion; it does not
+include an unsent draft or guarantee inclusion of an unfinished reply. Missing
+model details remain “Not reported.”
 
 ## Desktop Data
 
@@ -403,8 +415,9 @@ stop request alone is not proof that the response stopped. Attachments cannot
 be queued, and slash commands keep their own command handling.
 
 The recorded native bridge queue journey used published OpenMinion **0.1.7**;
-this is a tested version, not a declared minimum. The fresh-install bootstrap
-pin remains **0.0.29**; check the installed version before comparing behavior.
+this is historical test evidence, not the current managed baseline. The
+fresh-install bootstrap pin is **0.0.29**; check the installed version before
+comparing behavior.
 Queue controls need the runtime's public turn-input operations; an
 older or incompatible runtime can reject an operation. Desktop does not replace
 that failure with a local queue. See [runtime selection](#use-a-source-runtime)
