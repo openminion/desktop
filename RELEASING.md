@@ -1,19 +1,19 @@
 # OpenMinion Desktop Releasing
 
 Status: unsigned development distribution enabled; stable distribution not enabled
-Last updated: 2026-10-26
+Last updated: 2026-10-30
 
 Purpose: define the unsigned development-package process and the additional
 proof required before OpenMinion Desktop can enable stable distribution.
 
 OpenMinion Desktop produces unsigned macOS, Windows, and Linux packages. These
-packages may be published as an explicitly unsigned development prerelease in
+packages are published as explicitly unsigned normal GitHub Releases in
 `openminion/runtime`. There is no signing identity, notarization process,
 Desktop updater, rollback contract, or clean-machine certification yet.
 
 The manual `CI` workflow stages unsigned macOS, Windows, and Linux packages in
 a private draft release. Transfer every package to a public development
-prerelease, verify every public download, then run **Desktop source release**
+Release, verify every public download, then run **Desktop source release**
 from the same reviewed `main` revision with that runtime release tag. Delete the
 private draft only after both public release records pass readback. This is
 public development distribution, not platform certification or a stable Desktop
@@ -100,13 +100,13 @@ do not replace the artifact repository's existing naming scheme. Temporary
 `desktop-package-*` draft releases are transfer staging, not version releases.
 
 The source-release workflow does not build or publish installers. It accepts
-only an already-public unsigned runtime prerelease whose manifest matches its
-exact Desktop `main` revision. Packaging remains in the existing manual `CI`
-workflow, and no Python package release workflow is needed.
+only an already-public unsigned runtime package Release whose manifest matches
+its exact Desktop `main` revision. Packaging remains in the existing manual
+`CI` workflow, and no Python package release workflow is needed.
 
 A Desktop development release is complete only when both public records exist:
 
-1. `openminion/runtime` has the verified unsigned package prerelease, and
+1. `openminion/runtime` has the verified unsigned package Release, and
 2. `openminion/desktop` has the matching immutable source tag and prerelease.
 
 If either record is unavailable, report the Desktop release as blocked rather
@@ -150,16 +150,18 @@ Desktop development release:
    `desktop-dev-v<desktop-version>-build.<number>` in `openminion/runtime`,
 4. add `desktop-release.json` and `SHA256SUMS` with the exact Desktop source
    commit, package filenames, sizes, and SHA-256 digests,
-5. publish the Release as a prerelease whose notes clearly say unsigned and not
-   notarized, stable, or automatic-update eligible,
+5. publish a normal GitHub Release (`prerelease=false`) whose `-dev-` tag,
+   manifest, and notes clearly say unsigned and not notarized, stable, or
+   automatic-update eligible; use `latest=false` so Desktop does not replace
+   the shared repository's latest CLI/runtime marker,
 6. anonymously download every public asset and verify every digest, and
 7. dispatch **Desktop source release** with the published runtime tag and verify
    its annotated source tag, prerelease status, metadata assets, and source SHA,
 8. record both public release URLs, then
 9. delete the private transfer draft only after public readback passes.
 
-Do not add an unsigned Desktop prerelease to any stable update manifest or call
-it a supported Desktop release.
+Do not add an unsigned Desktop development Release to any stable update
+manifest or call it a supported Desktop release.
 
 ## Runtime qualification evidence
 
@@ -205,8 +207,8 @@ override, renderer authority or product test mode is added.
 
 ## Current boundary
 
-An unsigned public prerelease is downloadable development evidence, not a
-stable release candidate. Do not add a stable release workflow or
+An unsigned public development Release is downloadable development evidence,
+not a stable release candidate. Do not add a stable release workflow or
 `.github/release.yml` until the distribution activation requirements have
 owners and passing evidence.
 

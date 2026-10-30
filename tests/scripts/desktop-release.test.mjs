@@ -35,7 +35,7 @@ function input() {
     runtimeRelease: {
       tagName: "desktop-dev-v0.0.2-build.1",
       isDraft: false,
-      isPrerelease: true,
+      isPrerelease: false,
       publishedAt: "2026-10-26T00:00:00Z",
       url: "https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.2-build.1",
       assets: [
@@ -69,6 +69,12 @@ describe("Desktop development release", () => {
   it("rejects a runtime asset whose digest differs", () => {
     const release = input();
     release.runtimeRelease.assets[0].digest = `sha256:${"e".repeat(64)}`;
+    expect(() => validateDevelopmentRelease(release)).toThrow();
+  });
+
+  it("rejects a runtime package still marked as a GitHub prerelease", () => {
+    const release = input();
+    release.runtimeRelease.isPrerelease = true;
     expect(() => validateDevelopmentRelease(release)).toThrow();
   });
 });
