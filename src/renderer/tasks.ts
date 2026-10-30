@@ -308,12 +308,12 @@ function delegationTaskForm(
     const option = root.createElement("option");
     option.value = id!;
     option.textContent = label!;
+    option.disabled = busy && id === "cancel";
     action.append(option);
   }
   const syncBusyState = () => {
     const mutating = action.value === "cancel";
     taskId.disabled = busy && mutating;
-    action.disabled = busy && mutating;
     submit.disabled = busy && mutating;
   };
   actionLabel.append(action);

@@ -25,6 +25,7 @@ import { renderMarkdown } from "../../src/renderer/markdown.js";
 import { setupResultMessage } from "../../src/renderer/profiles.js";
 import {
   localDateTimeToIso,
+  renderDelegation,
   renderTasks,
   schedulerReadinessText,
 } from "../../src/renderer/tasks.js";
@@ -3151,6 +3152,51 @@ describe("renderer status view", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it.each([false, true])(
+    "keeps delegated task inspection usable while chat busy=%s",
+    async (busy) => {
+      const page = new FixtureDocument();
+      const container = page.createElement("div");
+      const onAction = vi.fn(async () => undefined);
+      renderDelegation(
+        page.asDocument(),
+        container as unknown as HTMLElement,
+        null,
+        busy,
+        onAction,
+        async () => undefined,
+      );
+      const form = container.children.at(-1)!;
+      const action = form.descendants().find((item) => item.tagName === "select")!;
+      const taskId = form.descendants().find((item) => item.tagName === "input")!;
+      const submit = form.descendants().find((item) => item.type === "submit")!;
+      const cancel = action.children.find((item) => item.value === "cancel")!;
+      expect(cancel.disabled).toBe(busy);
+      taskId.value = "delegated-task-1";
+      action.value = "cancel";
+      action.dispatch("change");
+      expect(action.disabled).toBe(false);
+      expect(submit.disabled).toBe(busy);
+      if (busy) {
+        form.dispatch("submit");
+        expect(onAction).not.toHaveBeenCalled();
+      }
+      for (const operation of ["inspect", "status", "result"]) {
+        action.value = operation;
+        action.dispatch("change");
+        expect(taskId.disabled).toBe(false);
+        expect(submit.disabled).toBe(false);
+        form.dispatch("submit");
+        await vi.waitFor(() => expect(submit.disabled).toBe(false));
+        expect(onAction).toHaveBeenLastCalledWith({
+          action: operation,
+          taskId: "delegated-task-1",
+        });
+      }
+      expect(onAction).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it("renders native delegation inspection with separate tree, session, and timeline navigation", async () => {
     const parent = sessionSummary();

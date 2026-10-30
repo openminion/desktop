@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://github.com/openminion/desktop/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/openminion/desktop/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
-  <a href="CHANGELOG.md"><img alt="Desktop version" src="https://img.shields.io/badge/desktop-0.0.4-6B7280"></a>
+  <a href="CHANGELOG.md"><img alt="Desktop version" src="https://img.shields.io/badge/desktop-0.0.5-6B7280"></a>
   <img alt="Status" src="https://img.shields.io/badge/status-alpha-6B7280">
 </p>
 
@@ -31,7 +31,7 @@ the local daemon without using a terminal. Execution, credentials, policies,
 and saved conversation history remain owned by OpenMinion.
 
 Desktop is an **early development alpha**. The current application version is
-**0.0.4**, versioned separately from OpenMinion. Fresh managed installations
+**0.0.5**, versioned separately from OpenMinion. Fresh managed installations
 start with **OpenMinion 0.0.29**; compatible runtime updates are selected through
 the public runtime manifest. Unsigned development packages are available; signed stable releases and full Focus/CLI
 parity are still in progress.
@@ -64,7 +64,7 @@ and should be treated as a scam.
 
 | | |
 | --- | --- |
-| Application | OpenMinion Desktop 0.0.4 · development alpha |
+| Application | OpenMinion Desktop 0.0.5 · development alpha |
 | Managed runtime | First install: `openminion==0.0.29` from PyPI; updates: compatible public runtime manifests |
 | Current runtime acceptance | macOS; Windows and Linux runtime certification remains open |
 | Unsigned package formats | macOS DMG/ZIP, Windows ZIP, Linux DEB/ZIP |
@@ -74,10 +74,10 @@ and should be treated as a scam.
 
 ## Install
 
-[Download the unsigned 0.0.4 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.4-build.1)
+[Download the unsigned 0.0.5 development build](https://github.com/openminion/runtime/releases/tag/desktop-dev-v0.0.5-build.1)
 from the official runtime repository. The release includes checksums and a
 manifest identifying its exact source revision. The matching
-[Desktop source release](https://github.com/openminion/desktop/releases/tag/v0.0.4)
+[Desktop source release](https://github.com/openminion/desktop/releases/tag/v0.0.5)
 records the immutable source tag and package metadata. Use the
 [package selection and installation guide](SUPPORT.md#choose-a-development-download)
 to choose the correct architecture and verify its checksum. The published macOS
