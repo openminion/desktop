@@ -58,7 +58,7 @@ export function validateDevelopmentRelease({
 
   assert.equal(runtimeRelease.tagName, runtimeReleaseTag);
   assert.equal(runtimeRelease.isDraft, false);
-  assert.equal(runtimeRelease.isPrerelease, true);
+  assert.equal(runtimeRelease.isPrerelease, false);
   assert.ok(runtimeRelease.url?.startsWith("https://github.com/openminion/runtime/releases/tag/"));
   assert.doesNotThrow(() => new Date(runtimeRelease.publishedAt).toISOString());
 

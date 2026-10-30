@@ -33,7 +33,7 @@ application.
 | Windows and Linux packages | unsigned package targets and development distribution workflow exist | runtime certification and current build acceptance remain separate |
 | Remote daemon operation | out of the current local profile | not ready |
 | Public source repository | contribution workflow and launch checklist | public since 2026-10-19; [remaining launch acceptance](public-readiness.md) is tracked separately |
-| Public development distribution | unsigned prerelease process in `openminion/runtime` | development evidence only |
+| Public development distribution | normal GitHub Releases with unsigned `-dev-` tags and explicit non-stable metadata in `openminion/runtime` | development evidence only |
 | Stable public release | signing and platform certification incomplete | not ready |
 
 ## Runtime candidate qualification
