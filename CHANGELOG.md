@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-10-28
+Last updated: 2026-10-29
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -11,6 +11,16 @@ These entries describe source development, not a newly published binary.
 Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+## 0.0.5 - 2026-10-29
+
+This unsigned development release keeps delegated-task inspection available
+while a reply is active. It is not signed, notarized, stable, or eligible for
+automatic application updates.
+
+- Keep read-only delegated-task inspection, status, and results available while
+  a reply is active, while continuing to disable cancellation until the reply
+  finishes.
 
 ## 0.0.4 - 2026-10-28
 
