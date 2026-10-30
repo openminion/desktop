@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       runtime_release_tag:
-        description: Exact openminion/runtime unsigned Desktop prerelease tag
+        description: Exact openminion/runtime unsigned Desktop release tag
         required: true
         type: string
 
