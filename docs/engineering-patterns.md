@@ -1,7 +1,7 @@
 # OpenMinion Desktop Engineering Patterns
 
 Status: active
-Last updated: 2026-09-07
+Last updated: 2026-11-01
 
 Purpose: give contributors one package-local summary of the ownership,
 simplicity, and boundary patterns that shape Desktop changes.
@@ -43,6 +43,43 @@ for the required shared-owner integration and acceptance criteria.
    capture controls.
 5. Shared modules own contracts used across more than one Desktop process.
 
+## Current Owner Patterns
+
+### Profiles and credentials
+
+OpenMinion owns profile semantics, provider configuration, and runtime
+validation. Desktop owns the settings workflow and typed bridge used to inspect
+or change those facts. Credentials and filesystem paths stay in Electron main;
+the renderer receives only the minimum typed state needed to present the form.
+Do not add a renderer-side credential store or infer provider behavior from
+display text.
+
+### Tasks and delegation
+
+OpenMinion owns task, worker, handback, and delegation lifecycle truth. Desktop
+renders typed reports and submits the explicit actions exposed by the runtime.
+Do not reconstruct a parallel task graph from messages, optimistic UI state, or
+diagnostic prose. Keep task and delegation contracts in `src/shared/`, validate
+requests in main, and make renderer state disposable and recoverable from the
+runtime.
+
+### Managed runtime updates
+
+`src/main/runtime-manifest.ts` owns bounded manifest parsing and eligible-offer
+selection. `src/main/installation.ts` owns verified staging and reuse of the
+active installation. The supervisor owns notification and activation timing.
+Desktop must not install an unverified artifact, treat an offered version as an
+installed version, or report activation before the next-start readback proves
+it.
+
+### Desktop-only persistence
+
+Desktop SQLite owns presentation state such as drafts, names, preferences, and
+pending launch intent. It may record runtime locations, but it does not own
+OpenMinion sessions, transcripts, tasks, credentials, or execution results.
+Schema changes must preserve atomic migration, future-schema refusal, corrupt
+file retention, and restart proof.
+
 ## Boundary Rules
 
 Sandboxed preloads must be bundled as CommonJS, with shared contracts included
@@ -58,6 +95,11 @@ renderer keep their existing ESM output.
    frame, and lifecycle state.
 5. Add focused tests before changing a process or daemon contract.
 
+For cross-process changes, update the shared type first, then main validation,
+the preload bridge, renderer behavior, and focused tests. Do not loosen the
+bridge with generic invoke, arbitrary path, arbitrary URL, or untyped payload
+surfaces.
+
 ## Readability Rules
 
 Use concrete names and direct control flow. Keep comments short and limited to
@@ -66,6 +108,19 @@ subsystem and local role. Add a file only when it creates a clearer owner.
 
 Keep generated builds, captured media, runtime state, credentials, and local
 integration artifacts out of Git.
+
+## Evidence Rules
+
+Keep proof tiers explicit:
+
+1. renderer/Vitest checks prove source behavior,
+2. Electron checks prove the built application and sandboxed bridge,
+3. native package smoke proves only the tested unsigned artifact and platform,
+4. managed-install and source-runtime checks prove the exact runtime supplied,
+5. live-provider checks require explicit authorization and prove only the
+   selected profile and scenario,
+6. signing, notarization, public-feed update, and cross-platform release
+   acceptance remain separate gates.
 
 ## Use With
 
