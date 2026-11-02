@@ -562,6 +562,66 @@ describe("profile agent switching", () => {
     },
   );
 
+  it.each([
+    ["profile-model", "value", "unsaved-model"],
+    ["profile-key", "value", "replacement-secret"],
+    ["credential-TAVILY_API_KEY", "value", "search-secret"],
+    ["setup-key", "value", "setup-secret"],
+    ["profile-key-remove", "checked", true],
+  ] as const)(
+    "keeps unsaved %s edits when dismissing Settings is cancelled",
+    async (id, field, edit) => {
+      const page = profilePage();
+      await page.get("show-settings").dispatch("click");
+      await vi.waitFor(() => expect(page.get("profile-agent").value).toBe("first"));
+      Object.assign(page.get(id), { [field]: edit });
+      page.get("close-settings").dispatch("click");
+      expect(page.confirm).toHaveBeenCalledWith("Discard unsaved settings changes and close?");
+      expect(page.get("profile-dialog").open).toBe(true);
+      expect(page.get(id)[field]).toBe(edit);
+      page.get("profile-dialog").dispatch("cancel");
+      expect(page.confirm).toHaveBeenCalledTimes(2);
+      expect(page.get("profile-dialog").open).toBe(true);
+      expect(page.get(id)[field]).toBe(edit);
+      expect(page.save).not.toHaveBeenCalled();
+      expect(page.setup).not.toHaveBeenCalled();
+      page.confirm.mockReturnValue(true);
+      page.get("profile-dialog").dispatch("cancel");
+      expect(page.get("profile-dialog").open).toBe(false);
+      for (const secret of ["profile-key", "setup-key", "credential-TAVILY_API_KEY"]) {
+        expect(page.get(secret).value).toBe("");
+      }
+      expect(page.get("show-settings").focus).toHaveBeenCalled();
+    },
+  );
+
+  it("forgets discarded tool-key removal when reopening settings fails", async () => {
+    const page = profilePage();
+    page.get("show-settings").dispatch("click");
+    await vi.waitFor(() => expect(page.get("profile-agent").value).toBe("first"));
+    const removeToolKey = page.get("profile-tools").children[0].children[2].children[0];
+    removeToolKey.checked = true;
+    page.confirm.mockReturnValue(true);
+    page.get("close-settings").dispatch("click");
+    expect(page.confirm).toHaveBeenCalledOnce();
+    page.confirm.mockClear().mockReturnValue(false);
+    page.readProfileSettings.mockRejectedValueOnce(new Error("Unavailable"));
+    page.get("show-settings").dispatch("click");
+    await vi.waitFor(() => expect(page.get("profile-status").textContent).toContain("try again"));
+    page.get("profile-dialog").dispatch("cancel");
+    expect(page.get("profile-dialog").open).toBe(false);
+    expect(page.confirm).not.toHaveBeenCalled();
+  });
+
+  it("closes unchanged Settings without a discard prompt", async () => {
+    const page = profilePage();
+    await page.get("show-settings").dispatch("click");
+    await vi.waitFor(() => expect(page.get("profile-agent").value).toBe("first"));
+    page.get("profile-dialog").dispatch("cancel");
+    expect(page.get("profile-dialog").open).toBe(false);
+    expect(page.confirm).not.toHaveBeenCalled();
+  });
+
   it("keeps shared tool-key edits through switches and clears all keys on close", async () => {
     const page = profilePage();
     page.get("show-settings").dispatch("click");
@@ -572,6 +632,7 @@ describe("profile agent switching", () => {
     expect(page.confirm).not.toHaveBeenCalled();
     expect(page.get("credential-TAVILY_API_KEY").value).toBe("shared-secret");
     page.get("profile-key").value = "model-secret";
+    page.confirm.mockReturnValue(true);
     page.get("close-settings").dispatch("click");
     expect(page.get("profile-key").value).toBe("");
     expect(page.get("credential-TAVILY_API_KEY").value).toBe("");

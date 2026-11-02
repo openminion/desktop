@@ -313,8 +313,11 @@ or key.
 Settings are written to the private local OpenMinion config, with a private
 `.backup` copy of the previous config. They are not a separate Desktop profile
 format. Changing the selected agent asks for confirmation before discarding
-that agent’s unsaved model and credential fields. Your conversations remain
-saved when settings are applied.
+that agent’s unsaved model and credential fields. Closing Settings or pressing
+Escape also asks before discarding edited profile fields, tool-key changes, or
+an entered setup key. Cancel keeps those edits in the open form; confirming
+closes it and clears the entered keys. Unchanged settings close without a prompt.
+Your conversations remain saved when settings are applied.
 
 ## Edit an Agent’s Identity
 
