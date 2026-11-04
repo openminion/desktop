@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-11-01
+Last updated: 2026-11-04
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -11,6 +11,14 @@ These entries describe source development, not a newly published binary.
 Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+## 0.0.7 - 2026-11-04
+
+This unsigned development release protects unsaved Settings changes. It is not
+signed, notarized, stable, or eligible for automatic application updates.
+
+- Confirm before Close or Escape discards unsaved profile or credential edits,
+  while preserving the existing immediate close path when nothing changed.
 
 ## 0.0.6 - 2026-11-01
 

@@ -808,6 +808,46 @@ async function check() {
     );
     assert.equal(await clipboard.readText(), "Saved reply before empty message");
     await key("Escape");
+    await evaluate(`(() => {
+      window.originalConfirm = window.confirm;
+      window.discardSettings = false;
+      window.settingsConfirmations = [];
+      window.confirm = message => {
+        window.settingsConfirmations.push(message);
+        return window.discardSettings;
+      };
+    })()`);
+    await click("show-settings");
+    await waitFor("!document.querySelector('#profile-fields').disabled");
+    await evaluate("document.querySelector('.settings-tools').open = true");
+    await click("credential-TAVILY_API_KEY");
+    await window.webContents.insertText("fixture-unsaved-key");
+    await click("close-settings");
+    assert.equal(await evaluate("document.querySelector('#profile-dialog').open"), true);
+    await key("Escape");
+    assert.equal(await evaluate("document.querySelector('#profile-dialog').open"), true);
+    assert.equal(
+      await evaluate("document.querySelector('#credential-TAVILY_API_KEY').value"),
+      "fixture-unsaved-key",
+    );
+    assert.deepEqual(await evaluate("window.settingsConfirmations"), [
+      "Discard unsaved settings changes and close?",
+      "Discard unsaved settings changes and close?",
+    ]);
+    await evaluate("window.discardSettings = true");
+    await key("Escape");
+    await waitFor("!document.querySelector('#profile-dialog').open");
+    assert.equal(await evaluate("document.querySelector('#credential-TAVILY_API_KEY').value"), "");
+    assert.equal(await evaluate("document.activeElement.id"), "show-settings");
+    await click("show-settings");
+    await waitFor("!document.querySelector('#profile-fields').disabled");
+    await key("Escape");
+    assert.equal(await evaluate("window.settingsConfirmations.length"), 3);
+    await evaluate("void (window.confirm = window.originalConfirm)");
+    console.log(
+      "PASS: native Settings Close/Escape retain unsaved keys when controlled confirmation is declined; confirmed discard clears keys and restores focus; unchanged forms close without prompting.",
+    );
+
     let modelReportInput;
     let modelResult = {
       ok: true,

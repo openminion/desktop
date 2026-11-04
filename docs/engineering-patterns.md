@@ -128,3 +128,6 @@ Keep proof tiers explicit:
 - [Code Quality Enforcement](code-quality-enforcement.md)
 - [Testing And Validation](testing-and-validation.md)
 - [API Compatibility](../API_COMPATIBILITY.md)
+
+Apply the [comment and docstring review](../CODE_QUALITY.md#comment-and-docstring-review)
+to the final diff, including tests and scripts.

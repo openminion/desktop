@@ -473,7 +473,6 @@ export function mountProfiles(
     status.textContent = "";
     addProfile.focus();
   });
-  demo.addEventListener("click", () => dialog.close());
   const show = async (known?: ProfileSettings, section: Section = "profiles") => {
     returnFocus = root.activeElement as HTMLElement;
     selectSection(section);
@@ -514,14 +513,30 @@ export function mountProfiles(
       void show();
     }
   });
-  close.addEventListener("click", () => dialog.close());
+  const closeSettings = () => {
+    if (pending) return;
+    if (
+      (profileEdited() ||
+        setupKey.value ||
+        credentials.some((field) => field.input.value || field.remove.checked)) &&
+      !root.defaultView!.confirm("Discard unsaved settings changes and close?")
+    )
+      return;
+    dialog.close();
+  };
+  close.addEventListener("click", closeSettings);
+  demo.addEventListener("click", closeSettings);
   dialog.addEventListener("cancel", (event) => {
-    if (pending) event.preventDefault();
+    event.preventDefault();
+    closeSettings();
   });
   dialog.addEventListener("close", () => {
     key.value = "";
     setupKey.value = "";
-    for (const field of credentials) field.input.value = "";
+    for (const field of credentials) {
+      field.input.value = "";
+      field.remove.checked = false;
+    }
     returnFocus.focus();
   });
   const profileEdited = () => {
