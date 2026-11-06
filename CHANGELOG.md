@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-11-04
+Last updated: 2026-11-06
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -11,6 +11,12 @@ These entries describe source development, not a newly published binary.
 Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+## 0.0.8 - 2026-11-06
+
+This unsigned development release refreshes the all-platform packages from the
+current reviewed source. It includes no application behavior changes after
+0.0.7 and is not signed, notarized, stable, or eligible for automatic updates.
 
 ## 0.0.7 - 2026-11-04
 
