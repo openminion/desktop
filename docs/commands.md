@@ -120,8 +120,9 @@ reconstructed transcript.
 Every delegation action requires its installed CLI command to advertise both
 `--parent-agent-id` and `--session-id`. An unavailable scoped contract produces
 an update explanation before an operation is sent. Scope is never silently
-dropped. Delegation inspection additionally requires `agent delegate-inspect`;
-Desktop checks the installed CLI contract before invoking it.
+dropped. Delegation inspection requires `agent delegate-inspect`, available in
+OpenMinion 0.1.20 and later; Desktop checks the installed CLI contract before
+invoking it.
 
 The `/tasks` panel includes **Schedule work**. Enter a name and instruction, then
 choose a local date/time, an interval in minutes, or an advanced cron expression
