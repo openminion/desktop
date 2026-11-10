@@ -51,9 +51,12 @@ async function runOuter() {
         sendOpenAiResponse(
           response,
           body,
-          providerMessage(body, isEffect, toolResultObserved, () => {
-            effectToolCalls += 1;
-          }),
+          withTaskUpdate(
+            body,
+            providerMessage(body, isEffect, toolResultObserved, () => {
+              effectToolCalls += 1;
+            }),
+          ),
         );
       };
       let delay = 0;
@@ -149,16 +152,16 @@ async function configureCore(root, args, providerPort) {
   const config = JSON.parse(readFileSync(configPath, "utf8"));
   const ipcPort = await availablePort();
   config.agents.openminion.provider = "openai";
+  config.providers.openai = {
+    ...config.providers.openai,
+    api_key: "",
+    api_key_env: "OPENAI_API_KEY",
+    base_url: `http://127.0.0.1:${providerPort}/v1`,
+    model: "queue-fixture",
+    timeout_seconds: 30,
+    tool_call_strategy: "hybrid",
+  };
   for (const scope of [config, config.system]) {
-    scope.providers.openai = {
-      ...scope.providers.openai,
-      api_key: "",
-      api_key_env: "OPENAI_API_KEY",
-      base_url: `http://127.0.0.1:${providerPort}/v1`,
-      model: "queue-fixture",
-      timeout_seconds: 30,
-      tool_call_strategy: "hybrid",
-    };
     scope.runtime = {
       ...scope.runtime,
       demo_mode: false,
@@ -420,6 +423,31 @@ function structuredOutput(schema, isEffect, toolResultObserved) {
     };
   }
   throw new Error(`Unsupported structured fixture schema: ${JSON.stringify(schema)}`);
+}
+
+function withTaskUpdate(body, message) {
+  if (!message.tool_calls?.length) return message;
+  const schemas = new Map(
+    (body.tools ?? []).map((tool) => [tool.function.name, tool.function.parameters]),
+  );
+  const selected = message.tool_calls.find((call) =>
+    schemas.get(call.function.name)?.required?.includes("task_update"),
+  );
+  if (!selected) return message;
+  const snapshot = [...(body.messages ?? [])]
+    .reverse()
+    .find((item) => String(item.content ?? "").startsWith("CURRENT TASK ("));
+  assert.ok(snapshot, "a required task update must include the current task snapshot");
+  const task = JSON.parse(String(snapshot.content).split("\n", 2)[1]);
+  const arguments_ = JSON.parse(selected.function.arguments);
+  arguments_.task_update = {
+    operation: "replace",
+    expected_revision: task.revision,
+    user_quote: effectPrompt,
+    objective: effectPrompt,
+  };
+  selected.function.arguments = JSON.stringify(arguments_);
+  return message;
 }
 
 function sendOpenAiResponse(response, body, message) {
