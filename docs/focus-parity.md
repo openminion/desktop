@@ -279,8 +279,8 @@ without a second slash interpretation. Terminal-local expansion is rejected by
 Core and fresh local drafts have no discoverable session yet.
 
 Delegation verifies the exact installed command's parent-agent/session flags
-before execution. Current Core source adds those flags to existing handlers;
-inspection still requires its separate Core command. Resume remains unsupported.
-Neither change updates the managed 0.0.29 runtime pin or establishes published
-runtime compatibility. Queue draining, persisted model/policy selection,
-workspace-aware resume and cold-start active-turn recovery remain open.
+before execution. OpenMinion 0.1.20 adds the separate scoped inspection command;
+resume remains unsupported. This does not update the managed 0.0.29 runtime pin
+or establish published runtime compatibility. Queue draining, persisted
+model/policy selection, workspace-aware resume and cold-start active-turn
+recovery remain open.
