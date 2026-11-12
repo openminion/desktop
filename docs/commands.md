@@ -1,7 +1,7 @@
 # Desktop Commands and Focus Parity
 
 Status: active
-Last updated: 2026-10-28
+Last updated: 2026-11-12
 
 Purpose: describe Desktop's current local slash-command UI and the remaining
 Desktop transport work needed for the broader OpenMinion Focus surface.
@@ -181,6 +181,7 @@ broader Focus commands remain pending.
 
 | Focus command family                                                                                    | Required Desktop adaptation before it is connected                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/rename` | Focus updates the canonical session name used by CLI resume-by-name. Desktop Rename is a local SQLite display override; canonical mutation needs a public CLI/API operation. |
 | Model changes, `/effort`                                                                                | Present configured model choices and explicitly update an admitted session's model/effort. Return the effective settings; keep credentials daemon-owned.                                                                                                     |
 | Richer tool policy, MCP lifecycle/browse/authentication, skill admission/mutation                    | Expose canonical tool-policy changes, richer live MCP status and operations, and skill lifecycle controls. `/tools` reports and exposure activation/deactivation, `/mcp`, skill list/detail, and learning proposal reads are connected slices; proposal review and apply remain in the operator CLI. |
 | `/permissions`, `/readonly`                                                                             | Read and update session policy with canonical validation and visible effective policy.                                                                                                                                                                       |

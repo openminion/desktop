@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-10-19
+Last updated: 2026-11-12
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -88,7 +88,7 @@ All canonical command families need coverage:
 | Commands and aliases                                                                                    | Existing behavior to expose or present                                                                                                                              |
 | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/help`, `/`                                                                                            | Canonical catalog and help                                                                                                                                          |
-| `/new`, `/new session`, `/sessions`, `/session`, `/resume`                                              | Directory-scoped session creation, inventory, binding, and history                                                                                                  |
+| `/new`, `/new session`, `/sessions`, `/session`, `/resume`, `/rename`                                              | Directory-scoped session creation, inventory, binding, and history                                                                                                  |
 | `/room`, `/handoff`, `/message`, `/start`, `/participants`, `/invite`, `/kick`, `/activate`, `/routing` | Room membership, handoff, messaging, start, and routing                                                                                                             |
 | `/agents`, `/agent`, `/model`, `/effort`                                                                | Agent inspection/selection, configured model choices, effective effort                                                                                              |
 | `/delegate`, `/goal`, `/project`, `/tasks`, `/task`, `/queue`                                           | Delegation and task controls are connected slices; composer controls consume the Core prompt queue. Goal/project workflows, `/queue` command presentation, and remaining queue acceptance are pending                                       |
@@ -112,6 +112,13 @@ configured agents use Settings or profile import. Settings also reuses that setu
 flow to add an agent with a distinct ID and model credential, preserving existing
 agents and shared tool keys. This does not implement the full CLI multi-model
 setup surface.
+
+Focus 0.1.20 also provides `/rename <name>`, which updates the canonical
+session's `metadata.name` and supports later CLI resume-by-name. Desktop reads
+that name, but its Rename control stores a device-local display override in
+Desktop SQLite. Those operations are not equivalent. Canonical rename remains
+unconnected until a public CLI/API mutation is available; do not map `/rename`
+to the local override or write the runtime database from Desktop.
 
 Saved-session sends read `sessions show --json` and retain its agent, channel,
 and target. Desktop continues CLI-created conversations without rebinding them
