@@ -1,7 +1,7 @@
 # OpenMinion Desktop Certification Readiness Matrix
 
 Status: active
-Last updated: 2026-10-19
+Last updated: 2026-11-12
 
 Purpose: summarize the current proof posture for the standalone Desktop
 application.
@@ -42,6 +42,44 @@ The fresh-install bootstrap pin remains PyPI `0.0.29`; this does not describe
 every installation. An existing active runtime is reused, and an eligible
 manifest-verified update can replace it through explicit preparation and startup
 activation. Manifest-driven first installation is not implemented.
+
+### Published CLI 0.1.20 — 2026-11-12
+
+This assessment used Desktop `d36beee` (0.0.9), an isolated PyPI `0.1.20`
+installation on macOS with Homebrew Python 3.11.15, and the production Electron
+main/preload/renderer. Core source was also checked at `v0.1.20` and `dev`
+revision `19b78cfa5c66d631ea4219c9eb6b5f19bd03b311`. No user configuration or
+paid-provider credentials were used.
+
+| Finding | Classification | Result / next step |
+| --- | --- | --- |
+| `/rename` absent from the parity inventory | Confirmed documentation gap | Added to the existing command and parity owners. Focus writes canonical session metadata; Desktop's local display override is not equivalent. A public mutation contract is still required. |
+| Chat, history, drafts, identity, diagnostics, tools and scheduled work | Already implemented; bounded live evidence | Native GUI checks passed through populated layout checks at minimum, normal and wide sizes. GUI-created and independently CLI-created future schedules shared canonical state; pause/resume/cancel passed CLI readback without executing the work. |
+| CLI daemon stop under Homebrew Python | Runtime compatibility blocker | Both the durable-chat restart test and native GUI outage test failed because CLI stop returned exit 1. Its process-identity check rejected the actual executable basename `Python` as not a Python interpreter. The case-sensitive check also survives the inspected Core `dev` revision in `cli/commands/daemon.py::_serve_identity`. Fix and qualify that Core boundary without bypassing process ownership checks in Desktop. |
+| Token report for a daemon-created session | Runtime/live-evidence gap | Installed CLI could not find the session for token accounting; Desktop correctly reported unavailable rather than inventing usage. |
+| Remaining Focus commands | Confirmed integration gaps | Installed Focus lists 57 built-ins; Desktop lists 24, with 34 absent and one Desktop-only entry. Names alone do not prove arguments or effects. Existing [parity requirements](focus-parity.md) remain open. |
+| Complete 0.1.20 qualification | Validation gap | The native run stopped at outage/restart. Later onboarding/profile editing, cancellation, provider-error/recovery and final Markdown/close checks did not execute in this run. Earlier-version evidence does not qualify them for 0.1.20. |
+
+Reproduction uses the existing test owners with `OPENMINION_PYPI_EXECUTABLE`
+pointing to the isolated 0.1.20 CLI:
+
+```bash
+npm test -- tests/main/cli-client.test.ts -t 'uses the published CLI'
+npm run build
+npx electron tests/electron/pypi.mjs
+```
+
+The first test failed during daemon-stop cleanup (1 failed, 76 skipped); this
+failure alone does not establish the earlier test assertions passed. The GUI
+run's logged checkpoints establish only the bounded passes above. The initial
+GUI run also caught the missing `/rename` inventory entry; after correcting that
+entry, the rerun reached the independent daemon-stop failure. Full lifecycle
+acceptance remains blocked, so this pass does not change the bootstrap pin or
+certify a runtime update. [Issue 121](https://github.com/openminion/desktop/issues/121)
+remains the fresh-install scheduling qualification owner; these successful
+candidate scheduling checks do not close its full-suite acceptance requirement.
+
+### Earlier candidate evidence
 
 The 2026-10-28 macOS qualification checked isolated published `0.1.11` and
 `0.1.14` installations against production Desktop main/preload/renderer:
