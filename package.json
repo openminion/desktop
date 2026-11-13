@@ -52,7 +52,7 @@
     "@electron-forge/maker-dmg": "8.0.1",
     "@electron-forge/maker-zip": "8.0.1",
     "@electron/asar": "4.3.1",
-    "@renovatebot/pep440": "5.0.1",
+    "@renovatebot/pep440": "6.0.0",
     "@types/node": "26.6.5",
     "electron": "44.8.0",
     "esbuild": "0.28.2",
