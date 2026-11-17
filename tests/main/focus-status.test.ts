@@ -21,6 +21,18 @@ describe("Focus public status presentation", () => {
     ],
     [{ status_key: "executing", detail_code: "thinking", tool_name: "web.search" }, "Thinking..."],
     [{ status_key: "executing", tool_name: "functions.WEB.SEARCH" }, "Searching the web..."],
+    [
+      { status_key: "executing", tool_name: "functions.commerce.prepare_order" },
+      "Prepare Order in progress...",
+    ],
+    [
+      { status_key: "executing", tool_name: "security.scan_image" },
+      "Scan Container Image in progress...",
+    ],
+    [
+      { status_key: "executing", tool_name: "task.scheduler_pause" },
+      "Pause Task Scheduler in progress...",
+    ],
     [{ status_key: "executing", tool_name: "weather" }, "Weather in progress..."],
     [{ status_key: "executing", tool_name: "unknown.private_tool" }, "Using a tool..."],
     [{ status_key: "completed", detail_code: "thinking", tool_name: "web.search" }, "Done."],

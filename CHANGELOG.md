@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-11-15
+Last updated: 2026-11-17
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -11,6 +11,17 @@ These entries describe source development, not a newly published binary.
 Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+## 0.0.12 - 2026-11-17
+
+This unsigned development release aligns Desktop progress reporting with the
+current OpenMinion CLI. It is not signed, notarized, stable, or eligible for
+automatic updates.
+
+- Show the canonical CLI progress text for 18 newer blockchain, commerce,
+  security, and scheduler operations instead of the generic tool label, while
+  preserving hidden-status filtering, diagnostic suppression, terminal-state
+  precedence, and unknown-tool behavior.
 
 ## 0.0.11 - 2026-11-15
 

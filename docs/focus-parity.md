@@ -1,7 +1,7 @@
 # Focus Parity Contract
 
 Status: active
-Last updated: 2026-11-12
+Last updated: 2026-11-16
 
 Purpose: define Desktop as the GUI representation of OpenMinion Focus/CLI and
 record the integration required to make their behavior match.
@@ -210,9 +210,16 @@ resolving this runtime reporting failure remains a core limitation. `/export` tu
 a native save dialog backed by `export transcript --format md`. Both read saved
 session state, including during a running turn. Export destinations stay in main.
 
-Detailed status events now reach the renderer. The UI displays the runtime label,
-detail, elapsed turn time, and time since the last event after a quiet interval.
-It does not infer tool execution, model thinking, or progress percentages.
+Detailed status events reach the renderer through the existing public-status
+formatter. Desktop maps structured status keys and tool names to CLI wording;
+raw labels and diagnostic detail text are not displayed. The tool activity table
+matches all 165 model tool names checked against published CLI 0.1.22, including
+its newer commerce, security, blockchain and scheduler operations. This verifies
+presentation, not execution or full runtime compatibility. Unknown tools retain
+the generic public label, and private status events remain hidden.
+The UI also displays elapsed turn time and time since the last event after a
+quiet interval. It does not infer tool execution, model thinking, or progress
+percentages.
 
 Focus model/effort selection, permissions, rooms, and live context
 operate on interactive-runtime state. The pinned public CLI/daemon surface does
