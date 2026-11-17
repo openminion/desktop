@@ -2463,6 +2463,7 @@ describe("PyPI CLI client", () => {
     ).toMatchObject([
       { label: "Working on it...", detailText: null },
       { label: "Thinking...", detailText: null },
+      { label: "Pause Task Scheduler in progress...", detailText: null },
     ]);
     expect(JSON.stringify(events)).not.toContain("[act]");
     expect(JSON.stringify(events)).not.toContain("private diagnostic");
@@ -3642,6 +3643,11 @@ async function executableFixture(
           status_key: "analyzing",
           detail_code: "thinking",
           detail_text: "[act] started",
+        },
+        {
+          status_key: "executing",
+          tool_name: "task.scheduler_pause",
+          detail_text: "private diagnostic",
         },
       ])
         output("chunk", { trace_id: traceId, kind: "status", data, ts: now });
