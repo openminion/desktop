@@ -389,7 +389,8 @@ export type MediaAttachmentV1 = {
   sizeBytes: number;
   kind: "image" | "file";
   turnCompatible: boolean;
-  expiresAt: string;
+  expiresAt: string | null;
+  previewUrl?: string;
 };
 export type MediaPickValue = { attachments: MediaAttachmentV1[] };
 export type MediaReleaseInput = { sessionId: string; mediaId: string };

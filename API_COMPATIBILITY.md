@@ -32,6 +32,20 @@ Desktop does not require or add a Desktop-specific command, bootstrap endpoint,
 or lease protocol in OpenMinion. The main process keeps the managed executable,
 runtime roots, and configuration path outside renderer control.
 
+## Selected images
+
+Image sending is enabled only when `/v1/health` advertises `turns.images.v1`.
+Main uploads selected bytes to the authenticated session image endpoint, obtains
+a normalized preview, and submits opaque refs with the ordinary turn request.
+Core owns authorization, decoding limits, model routing, reader accounting and
+history. The renderer sees a temporary media handle and preview, never a local
+path, credential or direct provider endpoint. Removing an unsent image revokes
+its ref; accepted images remain available to that session's history.
+
+This source feature does not change the published runtime pin or certify an
+older release. Missing capability disables image sending while text remains
+available. Automatic observation remains unsupported in the main process.
+
 ## Identity editing availability
 
 Identity settings use the public `identity inspect`, `identity validate`, and

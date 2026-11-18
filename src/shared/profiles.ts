@@ -8,6 +8,13 @@ export const TOOL_CREDENTIALS = [
   ["TINYFISH_API_KEY", "TinyFish"],
 ] as const;
 
+export type ImageSettings = {
+  mode: "off" | "native" | "separate";
+  connectionId: string;
+  model: string;
+  purpose: "describe" | "text";
+};
+
 export type AgentProfile = {
   id: string;
   name: string;
@@ -15,6 +22,8 @@ export type AgentProfile = {
   model: string;
   baseUrl: string;
   keyConfigured: boolean;
+  imageInput?: ImageSettings;
+  imageModels?: { connectionId: string; model: string; supported: boolean }[];
 };
 
 export type ProfileSettings = {
@@ -42,6 +51,7 @@ export type ProfileSetupInput = {
   baseUrl: string;
   apiKey: string;
   checkProvider: boolean;
+  supportsImages?: boolean;
 };
 
 export type ProviderCheckStatus = "verified" | "not_requested";
@@ -57,6 +67,7 @@ export type ProfileSaveInput = {
   model: string;
   baseUrl: string;
   makeDefault: boolean;
+  imageInput?: ImageSettings;
   // Omitted means keep; null removes the saved value.
   apiKey?: string | null;
   credentials: Record<string, string | null>;

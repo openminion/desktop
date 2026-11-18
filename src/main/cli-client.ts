@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { type IncomingMessage, request } from "node:http";
+import type { Readable } from "node:stream";
 import type {
   ApprovalDecisionInput,
   ApprovalDecisionV1,
@@ -83,6 +84,7 @@ export type CliCommandContext = { executable: string; args: readonly string[] };
 type DraftSession = SessionSummaryV1 & { isDraft: true };
 type TranscriptRecord = Record<string, unknown>;
 type ActiveTurn = {
+  attachmentIds?: string[];
   identity: TurnSubmitValue | null;
   disconnected: boolean;
   replaySupported: boolean;
@@ -501,6 +503,10 @@ export class CliClient {
   readonly #context: () => CliCommandContext | null;
   readonly #run: RunCommand;
   readonly #drafts = new Map<string, DraftSession>();
+  readonly #images = new Map<
+    string,
+    { sessionId: string; ref: string; path: string; sizeBytes: number; accepted: boolean }
+  >();
   readonly #active = new Map<string, ActiveTurn>();
   readonly #taskControls = new Set<string>();
 
@@ -1681,8 +1687,7 @@ export class CliClient {
     let reservedSession: string | null = null;
     try {
       const value = validateSubmitInput(input);
-      if (value.attachmentIds?.length || value.observation)
-        return unsupported("Sending attachments and screenshots");
+      if (value.observation) return unsupported("Unprepared screenshot input");
       if (this.#configuring)
         return failure(
           "settings_busy",
@@ -1719,6 +1724,7 @@ export class CliClient {
       if (this.#active.has(value.sessionId))
         return failure("session_turn_active", "A turn is already active for this session.");
       const pending: ActiveTurn = {
+        attachmentIds: value.attachmentIds,
         identity: null,
         disconnected: false,
         replaySupported: false,
@@ -1729,6 +1735,12 @@ export class CliClient {
       };
       this.#active.set(value.sessionId, pending);
       reservedSession = value.sessionId;
+      const imageRefs = (value.attachmentIds ?? []).map((id) => {
+        const image = this.#images.get(id);
+        if (!image?.ref || image.sessionId !== value.sessionId)
+          throw protocolError("invalid_image", "Select the image again for this conversation.");
+        return image.ref;
+      });
       const endpoint = await this.#endpoint();
       const traceId = randomUUID();
       const body = JSON.stringify({
@@ -1736,6 +1748,7 @@ export class CliClient {
         session_id: value.sessionId,
         agent_id: session.activeAgentId ?? endpoint.defaultAgent,
         input_text: value.message,
+        image_refs: imageRefs,
         channel: details ? requireString(details.channel) : "console",
         user: details ? requireString(details.target) : "api-user",
         stream: true,
@@ -1744,6 +1757,8 @@ export class CliClient {
         idempotency_key: randomUUID(),
         inbound_metadata: { caller_handles_delivery: "true", resume: "true" },
       });
+      // Once dispatched, a lost response must not revoke a possibly accepted image.
+      for (const id of value.attachmentIds ?? []) this.#images.get(id)!.accepted = true;
       const response = await new Promise<IncomingMessage>((resolve, reject) => {
         const req = request(
           {
@@ -2096,8 +2111,7 @@ export class CliClient {
   ): ClientResult<{ sessionId: string; input: TurnSubmitInput }> {
     try {
       const value = validateSubmitInput(input);
-      if (value.attachmentIds?.length || value.observation)
-        return unsupported("Sending attachments and screenshots");
+
       return { ok: true, value: { sessionId: value.sessionId, input: value } };
     } catch (error) {
       return failureFrom(error);
@@ -2178,12 +2192,144 @@ export class CliClient {
     return unsupported("Artifact changes");
   }
 
-  async uploadMedia(_input: unknown): Promise<ClientResult<MediaAttachmentV1>> {
-    return unsupported("Attachments and screenshots");
+  async capabilities(): Promise<ClientResult<string[]>> {
+    return this.#control(async () => {
+      const health = await this.#request("/v1/health");
+      return requireArray(health.capabilities ?? []).filter(
+        (value): value is string => typeof value === "string",
+      );
+    });
   }
 
-  async releaseMedia(_input: MediaReleaseInput): Promise<ClientResult<MediaReleaseValue>> {
-    return unsupported("Attachments and screenshots");
+  async uploadMedia(input: {
+    sessionId: string;
+    name: string;
+    mimeType: string;
+    sizeBytes: number;
+    stream: Readable;
+    signal?: AbortSignal;
+  }): Promise<ClientResult<MediaAttachmentV1>> {
+    return this.#control(async () => {
+      if (!["image/png", "image/jpeg", "image/webp"].includes(input.mimeType))
+        throw protocolError(
+          "unsupported_operation",
+          "Only selected images can be sent to this runtime.",
+        );
+      if (input.sizeBytes < 1 || input.sizeBytes > 10 * 1024 * 1024)
+        throw protocolError("invalid_image", "Choose an image up to 10 MiB.");
+      const selected = [...this.#images.values()].filter(
+        (image) => image.sessionId === input.sessionId && !image.accepted,
+      );
+      if (
+        selected.length >= 4 ||
+        selected.reduce((sum, image) => sum + image.sizeBytes, input.sizeBytes) > 20 * 1024 * 1024
+      )
+        throw protocolError("invalid_image", "Select up to four images, totaling at most 20 MiB.");
+      const mediaId = randomBytes(24).toString("hex");
+      const reservation = {
+        sessionId: input.sessionId,
+        ref: "",
+        path: "",
+        sizeBytes: input.sizeBytes,
+        accepted: false,
+      };
+      this.#images.set(mediaId, reservation);
+      let completed = false;
+      try {
+        const capabilities = await this.capabilities();
+        if (!capabilities.ok || !capabilities.value.includes("turns.images.v1"))
+          throw protocolError("unsupported_operation", "Update OpenMinion to send images.");
+        const draft = this.#drafts.get(input.sessionId);
+        const details = draft
+          ? null
+          : requireRecord(await this.#json(["sessions", "show", input.sessionId, "--json"]));
+        const endpoint = await this.#endpoint();
+        const query = new URLSearchParams({
+          agent_id:
+            draft?.activeAgentId ??
+            optionalString(details?.agent_id ?? null) ??
+            endpoint.defaultAgent ??
+            "",
+          channel: details ? requireString(details.channel) : "console",
+          target: details ? requireString(details.target) : "api-user",
+        });
+        const chunks: Buffer[] = [];
+        let length = 0;
+        for await (const chunk of input.stream) {
+          if (input.signal?.aborted)
+            throw protocolError("cancelled", "Image selection was cancelled.");
+          const bytes = Buffer.from(chunk);
+          length += bytes.length;
+          if (length > input.sizeBytes)
+            throw protocolError("invalid_image", "The selected image changed during upload.");
+          chunks.push(bytes);
+        }
+        if (length !== input.sizeBytes || input.signal?.aborted)
+          throw protocolError("invalid_image", "The selected image is no longer available.");
+        const path = `/v1/sessions/${encodeURIComponent(input.sessionId)}/images`;
+        const payload = await this.#request(
+          `${path}?${query}`,
+          Buffer.concat(chunks),
+          "POST",
+          201,
+          input.mimeType,
+        );
+        const image = requireRecord(payload.image);
+        const ref = requireString(image.ref);
+        if (!/^image:\/\/[0-9a-f-]{36}$/.test(ref))
+          throw protocolError("invalid_image", "OpenMinion returned an invalid image reference.");
+        const imagePath = `${path}/${ref.slice(8)}?${query}`;
+        reservation.ref = ref;
+        reservation.path = imagePath;
+        if (input.signal?.aborted)
+          throw protocolError("cancelled", "Image selection was cancelled.");
+        const preview = await this.#request(
+          imagePath,
+          undefined,
+          "GET",
+          200,
+          "application/json",
+          true,
+          input.signal,
+        );
+        if (input.signal?.aborted)
+          throw protocolError("cancelled", "Image selection was cancelled.");
+        completed = true;
+        return {
+          schemaVersion: 1,
+          mediaId,
+          sessionId: input.sessionId,
+          name: input.name,
+          mimeType: "image/png",
+          sizeBytes: Number(image.size_bytes),
+          kind: "image",
+          turnCompatible: true,
+          expiresAt: null,
+          previewUrl: `data:image/png;base64,${(preview.bytes as Buffer).toString("base64")}`,
+        };
+      } finally {
+        if (!completed) {
+          this.#images.delete(mediaId);
+          if (reservation.path) await this.#request(reservation.path, undefined, "DELETE");
+        }
+      }
+    });
+  }
+
+  async releaseMedia(input: MediaReleaseInput): Promise<ClientResult<MediaReleaseValue>> {
+    return this.#control(async () => {
+      const image = this.#images.get(input.mediaId);
+      if (!image || image.sessionId !== input.sessionId)
+        throw protocolError("invalid_image", "This image does not belong to the conversation.");
+      if (this.#active.get(input.sessionId)?.attachmentIds?.includes(input.mediaId))
+        throw protocolError(
+          "session_turn_active",
+          "Wait for the image request to finish before removing its attachment.",
+        );
+      if (!image.accepted && image.path) await this.#request(image.path, undefined, "DELETE");
+      this.#images.delete(input.mediaId);
+      return { mediaId: input.mediaId, released: true };
+    });
   }
 
   #requireContext(): CliCommandContext {
@@ -2284,26 +2430,49 @@ export class CliClient {
 
   async #request(
     path: string,
-    body?: Record<string, unknown>,
+    body?: Record<string, unknown> | Buffer,
     method: "GET" | "POST" | "DELETE" = body === undefined ? "GET" : "POST",
     acceptedStatus = 200,
+    contentType = "application/json",
+    imageResponse = false,
+    signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const endpoint = await this.#endpoint();
     return new Promise((resolve, reject) => {
-      const encoded = body === undefined ? "" : JSON.stringify(body);
+      const encoded = body === undefined ? "" : Buffer.isBuffer(body) ? body : JSON.stringify(body);
       const req = request(
         {
           hostname: endpoint.host,
           port: endpoint.port,
           path,
           method,
+          signal,
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type": contentType,
             "Content-Length": Buffer.byteLength(encoded),
             "X-IPC-Token": endpoint.token,
           },
         },
         (response) => {
+          if (
+            imageResponse &&
+            response.statusCode === 200 &&
+            response.headers["content-type"] === "image/png"
+          ) {
+            const chunks: Buffer[] = [];
+            let length = 0;
+            response.on("data", (chunk: Buffer) => {
+              length += chunk.length;
+              if (length > 10 * 1024 * 1024)
+                response.destroy(
+                  protocolError("response_too_large", "Image preview exceeded its limit."),
+                );
+              else chunks.push(chunk);
+            });
+            response.on("error", reject);
+            response.on("end", () => resolve({ bytes: Buffer.concat(chunks) }));
+            return;
+          }
           let text = "";
           response.setEncoding("utf8");
           response.on("data", (chunk: string) => {

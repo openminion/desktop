@@ -477,3 +477,19 @@ for inspection; success removes them after stopping the owned daemon.
 This is provider-free source integration evidence, not provider-live, delegation
 inspection, published-wheel, installer, signing or complete Focus acceptance.
 The managed runtime pin is not changed by this check.
+
+
+## Selected-image source integration
+
+With a Core checkout that implements `turns.images.v1`:
+
+```bash
+OPENMINION_EXECUTABLE=/path/to/core/.venv/bin/openminion \
+PYTHONPATH=/path/to/core/src npm run electron-check:images
+```
+
+This launches native Electron and the source daemon with a controlled HTTP
+provider. It checks selected-image preview/removal without inference, image-only
+native send, Settings persistence, and separate-reader delivery. The chooser
+returns a consented repository fixture. This does not prove OS-picker interaction,
+screen-recording permission, real-model understanding or a released runtime.

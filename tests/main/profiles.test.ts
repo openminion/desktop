@@ -293,7 +293,11 @@ describe("profile settings", () => {
             name: "second",
             provider: "anthropic",
             model_connections: {
-              anthropic: { provider: "anthropic", provider_config_overrides: {} },
+              anthropic: {
+                provider: "anthropic",
+                models: ["second-model"],
+                provider_config_overrides: {},
+              },
             },
           };
           await writeFile(candidate, JSON.stringify(value));
@@ -552,5 +556,54 @@ describe("profile settings", () => {
     await expect(profiles.save(input, "openminion")).rejects.toThrow("invalid_profile");
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config);
     expect(await readdir(root)).toEqual(["agents.json"]);
+  });
+});
+
+describe("image profile settings", () => {
+  it("saves a separate reader without changing chat credentials and rejects unknown capability", async () => {
+    const { config, path, profiles, input } = await setup();
+    Object.assign(config.agents.writer, {
+      model_connections: {
+        vision: {
+          provider: "openai",
+          models: ["reader"],
+          image_input: { reader: "supported" },
+          provider_config_overrides: { api_key: "reader-secret", enable_vision_input: true },
+        },
+      },
+    });
+    await writeFile(path, JSON.stringify(config));
+    const before = await profiles.read();
+    expect(JSON.stringify(before)).not.toContain("reader-secret");
+    const imageInput = {
+      mode: "separate" as const,
+      connectionId: "vision",
+      model: "reader",
+      purpose: "text" as const,
+    };
+    const after = await profiles.save(
+      { ...input, revision: before.revision, model: "test-model", imageInput },
+      "openminion",
+    );
+    expect(after.agents[0].imageInput).toEqual(imageInput);
+    const saved = JSON.parse(await readFile(path, "utf8"));
+    expect(saved.agents.writer.image_input).toEqual({
+      mode: "separate",
+      connection_id: "vision",
+      model: "reader",
+      purpose: "text",
+    });
+    expect(saved.agents.writer.model_connections.vision.provider_config_overrides.api_key).toBe(
+      "reader-secret",
+    );
+    await expect(
+      profiles.save(
+        { ...input, revision: after.revision, imageInput: { ...imageInput, model: "unknown" } },
+        "openminion",
+      ),
+    ).rejects.toThrow("invalid_request");
+    await expect(
+      profiles.save({ ...input, revision: before.revision, imageInput }, "openminion"),
+    ).rejects.toThrow("settings_changed");
   });
 });

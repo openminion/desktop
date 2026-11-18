@@ -89,6 +89,7 @@ export class DaemonSupervisor {
   #closing = false;
   #updateTimer: ReturnType<typeof setInterval> | null = null;
   #chatConnected = false;
+  #capabilities: string[] = [];
 
   constructor(options: DaemonSupervisorOptions) {
     this.#options = options;
@@ -538,6 +539,8 @@ export class DaemonSupervisor {
       )
         throw new Error("daemon_ownership_unverified");
       this.#chatConnected = (await this.client.list({ limit: 1 })).ok;
+      const capabilities = await this.client.capabilities();
+      this.#capabilities = capabilities.ok ? capabilities.value : [];
       if (!status.reachable && !this.#chatConnected) throw new Error("daemon_unavailable");
       this.#errorCode = null;
     } catch (error) {
@@ -650,7 +653,7 @@ export class DaemonSupervisor {
       daemonVersion: this.#daemonVersion,
       protocol: null,
       configId: null,
-      capabilities: [],
+      capabilities: this.#chatConnected ? this.#capabilities : [],
       errorCode: this.#errorCode,
     };
   }
@@ -708,6 +711,8 @@ export class DaemonSupervisor {
       ) {
         this.lifecycle.move("running");
         this.#chatConnected = (await this.client.list({ limit: 1 })).ok;
+        const capabilities = await this.client.capabilities();
+        this.#capabilities = capabilities.ok ? capabilities.value : [];
         if (this.#chatConnected) return this.snapshot();
         throw new Error("daemon_ownership_unverified");
       }
@@ -778,6 +783,8 @@ export class DaemonSupervisor {
       // A completed, schema-validated public request proves the chat transport;
       // reachability alone does not fabricate runtime version/capabilities.
       this.#chatConnected = (await this.client.list({})).ok;
+      const capabilities = await this.client.capabilities();
+      this.#capabilities = capabilities.ok ? capabilities.value : [];
       if (launchingUpdate) {
         if (!this.#chatConnected) throw new Error("runtime_health_failed");
         this.#options.store!.completeRuntimeLaunch();
