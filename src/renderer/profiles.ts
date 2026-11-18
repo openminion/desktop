@@ -8,6 +8,7 @@ import type {
 import { identitySourceLabel, identityStatusLabel } from "./identity.js";
 import {
   type ProfileSaveInput,
+  type ImageSettings,
   type ProfileSettings,
   type ProviderCheckStatus,
   type SetupPreset,
@@ -36,6 +37,22 @@ export function mountProfiles(
   const fields = get<HTMLFieldSetElement>("profile-fields");
   const select = get<HTMLSelectElement>("profile-agent");
   const model = get<HTMLInputElement>("profile-model");
+  const imageMode = get<HTMLSelectElement>("profile-image-mode");
+  const imageReader = get<HTMLSelectElement>("profile-image-reader");
+  const imagePurpose = get<HTMLSelectElement>("profile-image-purpose");
+  const imageFields = get<HTMLElement>("profile-image-reader-fields");
+  const imageSettings = (): ImageSettings => {
+    const selected = imageReader.selectedOptions[0];
+    return {
+      mode: imageMode.value as ImageSettings["mode"],
+      connectionId: selected?.dataset.connection ?? "",
+      model: selected?.dataset.model ?? "",
+      purpose: imagePurpose.value as ImageSettings["purpose"],
+    };
+  };
+  imageMode.addEventListener("change", () => {
+    imageFields.hidden = imageMode.value !== "separate";
+  });
   const endpoint = get<HTMLInputElement>("profile-endpoint");
   const key = get<HTMLInputElement>("profile-key");
   const removeKey = get<HTMLInputElement>("profile-key-remove");
@@ -53,6 +70,7 @@ export function mountProfiles(
   const setupEndpoint = get<HTMLInputElement>("setup-endpoint");
   const setupKey = get<HTMLInputElement>("setup-key");
   const setupCheck = get<HTMLInputElement>("setup-check-provider");
+  const setupImages = get<HTMLInputElement>("setup-supports-images");
   const demo = get<HTMLButtonElement>("setup-demo");
   const identityAgent = get<HTMLSelectElement>("identity-agent");
   const identityYaml = get<HTMLTextAreaElement>("identity-yaml");
@@ -333,6 +351,21 @@ export function mountProfiles(
     displayedAgent = agent.id;
     model.value = agent.model;
     endpoint.value = agent.baseUrl;
+    imageMode.value = agent.imageInput?.mode ?? "off";
+    imageFields.hidden = imageMode.value !== "separate";
+    imagePurpose.value = agent.imageInput?.purpose ?? "describe";
+    imageReader.replaceChildren();
+    for (const route of agent.imageModels ?? []) {
+      if (!route.supported) continue;
+      const option = root.createElement("option");
+      option.textContent = `${route.connectionId} · ${route.model}`;
+      option.dataset.connection = route.connectionId;
+      option.dataset.model = route.model;
+      option.selected =
+        route.connectionId === agent.imageInput?.connectionId &&
+        route.model === agent.imageInput?.model;
+      imageReader.append(option);
+    }
     key.value = "";
     key.placeholder = agent.keyConfigured ? "Set — leave blank to keep" : "Not set — enter API key";
     removeKey.checked = false;
@@ -547,6 +580,11 @@ export function mountProfiles(
         endpoint.value !== agent.baseUrl ||
         key.value !== "" ||
         removeKey.checked ||
+        imageMode.value !== (agent.imageInput?.mode ?? "off") ||
+        (imageMode.value === "separate" &&
+          (imageSettings().connectionId !== agent.imageInput?.connectionId ||
+            imageSettings().model !== agent.imageInput?.model ||
+            imagePurpose.value !== agent.imageInput?.purpose)) ||
         makeDefault.checked !== (settings?.defaultAgent === agent.id))
     );
   };
@@ -688,6 +726,7 @@ export function mountProfiles(
           baseUrl: setupEndpoint.value.trim(),
           apiKey: setupKey.value.trim(),
           checkProvider,
+          supportsImages: setupImages.checked,
         });
         if (result.ok)
           finish(
@@ -708,6 +747,7 @@ export function mountProfiles(
       model: model.value.trim(),
       baseUrl: endpoint.value.trim(),
       makeDefault: makeDefault.checked,
+      imageInput: imageSettings(),
       credentials: {},
     };
     if (removeKey.checked) input.apiKey = null;

@@ -87,7 +87,8 @@ describe("native capture", () => {
           schemaVersion: 1,
           runtime: "electron-native-fixture",
           packagedArtifact: "verified_only",
-          electronVersion: "43.1.1",
+          electronVersion: JSON.parse(await readFile(join(projectRoot, "package.json"), "utf-8"))
+            .devDependencies.electron,
           permission: "granted",
           targetLabel: "OpenMinion Capture Fixture",
           pause: { framesStable: true, retainedBytes: 0 },

@@ -812,7 +812,12 @@ export class ObservationService {
       ok: true,
       value: {
         token,
-        input: { sessionId: input.sessionId, message: input.message, attachmentIds },
+        input: {
+          sessionId: input.sessionId,
+          message: input.message,
+          attachmentIds,
+          ...(input.draftRevision ? { draftRevision: input.draftRevision } : {}),
+        },
       },
     };
   }

@@ -184,7 +184,7 @@ function validateSubmitInput(input: TurnSubmitInput): TurnSubmitInput {
   );
   const value: TurnSubmitInput = {
     sessionId: inputString(input.sessionId, 256),
-    message: messageInput(input.message),
+    message: messageInput(input.message, Boolean(input.attachmentIds?.length || input.observation)),
   };
   if (input.draftRevision !== undefined) value.draftRevision = inputString(input.draftRevision, 36);
   const attachmentIds = optionalMediaIds(input.attachmentIds);
@@ -222,8 +222,12 @@ function optionalMediaIds(value: unknown): string[] | undefined {
   return ids;
 }
 
-function messageInput(value: unknown): string {
-  if (typeof value !== "string" || !value.trim() || Buffer.byteLength(value) > TURN_BODY_BYTES) {
+function messageInput(value: unknown, imageOnly = false): string {
+  if (
+    typeof value !== "string" ||
+    (!imageOnly && !value.trim()) ||
+    Buffer.byteLength(value) > TURN_BODY_BYTES
+  ) {
     throw protocolError("invalid_request", "The desktop message is invalid.");
   }
   return value;

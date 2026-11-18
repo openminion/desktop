@@ -20,6 +20,10 @@ function profilePage(
     open = false;
     textContent = "";
     children: Element[] = [];
+    dataset: Record<string, string> = {};
+    get selectedOptions() {
+      return this.children.filter((child) => child.value === this.value);
+    }
     attributes = new Map<string, string>();
     focus = vi.fn();
     listeners = new Map<string, (event: unknown) => unknown>();

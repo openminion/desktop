@@ -451,11 +451,16 @@ The **+** button beside the composer opens image and file attachments.
 **Screenshot** opens the screen or window chooser beside your message.
 Choose **Entire screen** or **Window**, select a source, and **Start preview**.
 The composer shows the selected source and its local preview. Pause, change,
-or stop the preview from **Screenshot**. Preview pixels stay on this device in
-the current app: screenshot attachment, guidance, and **Automatic watch** are
-visible future-facing controls but are not connected to OpenMinion or a model.
-Automatic watch, when implemented, will use repeated still frames rather than
-continuous video and will remain separate from computer control.
+or stop the preview from **Screenshot**. With an image-enabled runtime, choose
+**Include screenshot** and send the selected frame with your message. Image
+files selected through **+** show a removable preview; image-only sends also work.
+Selection and preview do not call a model. Configure **Images and screenshots**
+in Settings to send images to the chat model or a separately configured image
+reader. The same image-capable model can serve both roles.
+
+This requires the runtime's `turns.images.v1` capability; older published
+runtimes keep text chat available and disable image sending. Native screenshot
+permissions still apply. **Automatic watch** and guidance are not supported.
 
 **Context** contains local files and task outputs. Both option panels close
 with Escape or an outside click; neither is a permanent side panel. See
