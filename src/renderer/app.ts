@@ -766,6 +766,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   let daemonReady = false;
   let connecting = true;
   let richContextReady = false;
+  let imageInputReady = false;
   let creatingTask = false;
   let savingSubmission = false;
   let queuePending = false;
@@ -1067,7 +1068,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
   };
 
   const renderObservation = () => {
-    elements.includeScreenshotControl.hidden = !richContextReady;
+    elements.includeScreenshotControl.hidden = !imageInputReady;
     elements.askGuidance.hidden = !richContextReady;
     elements.watchSettings.hidden = !richContextReady;
     const writable = Boolean(
@@ -1075,9 +1076,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     );
     const state = observationStatus?.state ?? "idle";
     elements.observationState.textContent = state[0]!.toUpperCase() + state.slice(1);
-    elements.observationStatus.textContent = richContextReady
-      ? (observationMessage ?? observationStatusCopy(observationStatus, writable))
-      : "Screenshot sending and automatic watch are not connected to this runtime.";
+    elements.observationStatus.textContent =
+      richContextReady || imageInputReady
+        ? (observationMessage ?? observationStatusCopy(observationStatus, writable))
+        : "Screenshot sending and automatic watch are not connected to this runtime.";
     const configuring = ["selecting", "uploading", "inferencing", "stopping", "failed"].includes(
       state,
     );
@@ -1094,7 +1096,10 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       observationPending ||
       (!observationStatus?.watchEnabled && !configuring && state !== "failed");
     elements.includeCurrentView.disabled =
-      !writable ||
+      !imageInputReady ||
+      !selected ||
+      selected.status === "closed" ||
+      !observationApi ||
       chat.active ||
       attachmentPending ||
       captureState?.state !== "observing" ||
@@ -2734,7 +2739,9 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
           conversationLoading ||
           (chat.active && (!selected?.activeAgentId || attachments.length > 0)) ||
           attachmentPending ||
-          !elements.composer.value.trim() ||
+          (!elements.composer.value.trim() &&
+            attachments.length === 0 &&
+            !elements.includeCurrentView.checked) ||
           !attachmentsValid);
     const restoreFocusAfterStop = !chat.active && root.activeElement === elements.cancel;
     elements.cancel.hidden = !chat.active;
@@ -2768,8 +2775,8 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     elements.closeSession.disabled =
       !writable || conversationLoading || chat.active || attachmentPending;
     elements.attachImage.disabled =
-      !richContextReady || !writable || chat.active || attachmentPending || attachments.length >= 4;
-    elements.attachFile.disabled = elements.attachImage.disabled;
+      !imageInputReady || !writable || chat.active || attachmentPending || attachments.length >= 4;
+    elements.attachFile.disabled = !richContextReady || elements.attachImage.disabled;
     elements.renameSession.disabled = !selected;
     elements.inspectSession.disabled = !selected;
     elements.scheduledWork.disabled = !selected;
@@ -2781,18 +2788,24 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
       "aria-label",
       selected ? `Rename conversation: ${taskName(selected)}` : "New conversation",
     );
-    renderAttachments(root, elements.attachments, attachments, (mediaId) => {
-      const attachment = attachments.find((item) => item.mediaId === mediaId);
-      if (!attachment) {
-        return;
-      }
-      attachments = attachments.filter((item) => item.mediaId !== mediaId);
-      void api.media.release({
-        sessionId: attachment.sessionId,
-        mediaId: attachment.mediaId,
-      });
-      renderChat();
-    });
+    renderAttachments(
+      root,
+      elements.attachments,
+      attachments,
+      (mediaId) => {
+        const attachment = attachments.find((item) => item.mediaId === mediaId);
+        if (!attachment) {
+          return;
+        }
+        attachments = attachments.filter((item) => item.mediaId !== mediaId);
+        void api.media.release({
+          sessionId: attachment.sessionId,
+          mediaId: attachment.mediaId,
+        });
+        renderChat();
+      },
+      chat.active,
+    );
     renderQueue();
     renderFiles();
     renderTimeline(
@@ -3295,6 +3308,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     daemonReady = status.state === "ready" || status.capabilities.includes("turns.text");
     connecting = !daemonReady && !view.showRecovery;
     richContextReady = status.state === "ready" && status.protocol !== null;
+    imageInputReady = status.state === "ready" && status.capabilities.includes("turns.images.v1");
     if (!selected) {
       chat = {
         ...chat,
@@ -3753,7 +3767,7 @@ export async function mount(api: NativeApi, root: Document = document): Promise<
     }
     const draft = elements.composer.value;
     const message = renderedCommand ? draft : draft.trim().replace(/^\/\//, "/");
-    if (!message) {
+    if (!message && attachments.length === 0 && !elements.includeCurrentView.checked) {
       return;
     }
     if (!selected && (asGuidance || !(await createTask()))) return;
@@ -4640,6 +4654,7 @@ function renderAttachments(
   list: HTMLElement,
   attachments: MediaAttachmentV1[],
   remove: (mediaId: string) => void,
+  busy = false,
 ): void {
   list.replaceChildren(
     ...attachments.map((attachment) => {
@@ -4649,6 +4664,15 @@ function renderAttachments(
       name.className = "attachment-name";
       name.textContent = `${attachment.name} · ${formatBytes(attachment.sizeBytes)} · ${attachment.mimeType}`;
       name.title = name.textContent;
+      if (attachment.previewUrl) {
+        const preview = root.createElement("img");
+        preview.src = attachment.previewUrl;
+        preview.alt = attachment.name;
+        preview.width = 56;
+        preview.height = 56;
+        preview.style.objectFit = "contain";
+        chip.append(preview);
+      }
       chip.append(name);
       if (!attachment.turnCompatible) {
         const state = root.createElement("span");
@@ -4661,6 +4685,7 @@ function renderAttachments(
       button.className = "quiet-button attachment-remove";
       button.textContent = "Remove";
       button.setAttribute("aria-label", `Remove ${attachment.name}`);
+      button.disabled = busy;
       button.addEventListener("click", () => remove(attachment.mediaId));
       chip.append(button);
       return chip;

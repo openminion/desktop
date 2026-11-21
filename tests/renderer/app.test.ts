@@ -4969,6 +4969,7 @@ describe("renderer status view", () => {
             reachable: true,
             daemonVersion: "0.0.9",
             protocol: 1,
+            capabilities: ["turns.images.v1"],
           }),
         ),
         retry: vi.fn(),
@@ -5578,7 +5579,14 @@ describe("renderer status view", () => {
         info: vi.fn().mockResolvedValue({ shellVersion: "0.0.0" }),
       },
       daemon: {
-        status: vi.fn().mockResolvedValue(status({ state: "ready", reachable: true, protocol: 1 })),
+        status: vi.fn().mockResolvedValue(
+          status({
+            state: "ready",
+            reachable: true,
+            protocol: 1,
+            capabilities: ["turns.images.v1"],
+          }),
+        ),
         retry: vi.fn(),
       },
       sessions: {

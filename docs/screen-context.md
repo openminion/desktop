@@ -1,7 +1,7 @@
 # OpenMinion Desktop Screen Context
 
 Status: current behavior and proposed direction
-Last updated: 2026-09-21
+Last updated: 2026-11-18
 
 Purpose: keep screen context a first-class part of the chat interface while
 distinguishing today's screenshot workflow from future streaming and control.
@@ -14,11 +14,21 @@ composer shows its thumbnail and source name. While previewing, the picker
 hides its candidate grid and region editor; **Change source** returns to
 selection.
 
-Preview pixels remain local in the current app. The inclusion, guidance, and
-**Automatic watch** controls are hidden because screenshot
-delivery is not connected to OpenMinion or a model. The preview is not a
-frozen attachment or a permanent screenshot timeline. Pausing, stopping, or
-changing tasks clears its transient state.
+Preview pixels remain local until you explicitly include a screenshot and send.
+On runtimes advertising `turns.images.v1`, Desktop sends selected still images
+through Core's authenticated session image API. Image-file attachments have
+normalized previews and can be removed before sending. The limit is four still
+PNG/JPEG/WebP images, 10 MiB each and 20 MiB combined; Core also limits decoded
+pixels and removes image metadata. Unsent attachments are not restored after an
+app restart.
+
+Settings uses the Core profile's native or separate-reader image policy. Native
+sends the question and images to the chat model. A separate reader sends text
+findings to the chat model; the reader can use the same model or a different
+configured connection. Model image support is explicitly declared, not inferred
+from its name or claimed as live verified. Older runtimes disable image sending
+without disabling text chat. Published-runtime and real-provider qualification
+remain separate from source tests.
 
 Automatic watch is a future opt-in mode for individual still frames on change
 or at an interval. It is not implemented, continuous video, or native input.
@@ -31,9 +41,9 @@ displays those facts through the existing typed bridge.
 
 | Phase | User experience | Status |
 | --- | --- | --- |
-| Manual screenshot | Choose a source, include one screenshot with a message, see what was sent | UI and local preview implemented; sending awaits a public screenshot/media delivery path and native acceptance |
+| Manual screenshot | Choose a source, include one screenshot with a message, see what was sent | Source integration implemented behind `turns.images.v1`; released-runtime and native capture acceptance remain separate |
 | Multiple screenshots | Freeze selected frames as removable, ordered attachments; compare before/after or several windows | Future work; existing image-file attachments are not a captured-screen sequence workflow |
-| Streaming screen context | Explicit start/pause/stop, visible source and sharing state, configurable cadence and cost limits | Future work; the current app provides local preview only |
+| Streaming screen context | Explicit start/pause/stop, visible source and sharing state, configurable cadence and cost limits | Future work; current sending requires an explicit user action |
 | Co-navigation | Observe and perform scoped actions together, with clear control ownership and an immediate stop | Future work; requires separate native-input authority, policy, audit, and acceptance |
 
 Lower inference costs may make richer screen context practical, but must not

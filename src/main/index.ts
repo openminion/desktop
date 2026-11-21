@@ -217,8 +217,16 @@ export function registerIpcHandlers(
     }
   };
   observation.connectTurnOwner({
-    dispatch: (prepared, deliver) =>
-      dispatchDesktopTurn(prepared.input, null, null, prepared, deliver),
+    dispatch: async () => ({
+      ok: false,
+      error: {
+        code: "unsupported_operation",
+        message:
+          "Send a selected screenshot with your message. Automatic observation is not supported by this runtime.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    }),
     cancel: (input) => supervisor.client.cancel(input),
   });
   let observationFrame: WebFrameMain | null = null;
@@ -539,9 +547,18 @@ export function registerIpcHandlers(
     if (!(await bindObservationFrame(event))) return forbiddenResult();
     return input === undefined ? observation.status() : invalidRequestResult();
   });
-  ipcMain.handle(IPC_CHANNELS.observationConfigure, async (event, input) => {
+  ipcMain.handle(IPC_CHANNELS.observationConfigure, async (event, _input) => {
     if (!(await bindObservationFrame(event))) return forbiddenResult();
-    return observation.configure(input);
+    return {
+      ok: false,
+      error: {
+        code: "unsupported_operation",
+        message:
+          "Send a selected screenshot with your message. Automatic observation is not supported by this runtime.",
+        retryable: false,
+        retryAfterMs: null,
+      },
+    };
   });
   ipcMain.handle(IPC_CHANNELS.observationStop, async (event, input) => {
     if (!(await bindObservationFrame(event))) return forbiddenResult();

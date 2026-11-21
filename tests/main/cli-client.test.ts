@@ -2123,7 +2123,7 @@ describe("PyPI CLI client", () => {
         { sessionId, message: "message", attachmentIds: ["a".repeat(48)] },
         vi.fn(),
       ),
-    ).toMatchObject({ ok: false, error: { code: "unsupported_operation" } });
+    ).toMatchObject({ ok: false, error: { code: "invalid_image" } });
     expect(await client.create({ projectId: "project" })).toMatchObject({
       ok: false,
       error: { code: "unsupported_operation" },

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>OpenMinion</title>
@@ -73,6 +73,8 @@
                 <input id="setup-check-provider" type="checkbox" checked />
                 Test connection before continuing
               </label>
+              <label class="settings-checkbox"><input id="setup-supports-images" type="checkbox" />This model supports images</label>
+              <p class="settings-note">Image support is your declaration; the connection test does not verify vision.</p>
               <p class="settings-note">Sends one test request. Provider charges may apply.</p>
             </fieldset>
             <fieldset id="profile-fields" disabled>
@@ -84,6 +86,14 @@
                 <div><label for="profile-model">Model</label><input id="profile-model" maxlength="2048" /></div>
                 <div><label for="profile-endpoint">Provider URL</label><input id="profile-endpoint" type="url" maxlength="2048" spellcheck="false" /></div>
               </div>
+              <label for="profile-image-mode">Images and screenshots</label>
+              <select id="profile-image-mode"><option value="off">Disabled</option><option value="native">Send to chat model</option><option value="separate">Use an image reader</option></select>
+              <div id="profile-image-reader-fields" hidden>
+                <label for="profile-image-reader">Image reader</label><select id="profile-image-reader"></select>
+                <label for="profile-image-purpose">Read for</label><select id="profile-image-purpose"><option value="describe">Text and visual context</option><option value="text">Text extraction</option></select>
+                <p class="settings-note">Only the reader receives images. Your chat model receives its text findings. The same model can serve both roles.</p>
+              </div>
+              <p class="settings-note">Choose a model with declared image support. New models can be configured through OpenMinion setup and imported here.</p>
               <label for="profile-key">Model API key</label>
               <input id="profile-key" type="password" autocomplete="new-password" maxlength="16384" spellcheck="false" />
               <label class="settings-checkbox"><input id="profile-key-remove" type="checkbox" />Remove saved model key for this agent</label>

@@ -549,16 +549,14 @@ describe("desktop main boundary", () => {
     };
     expect(observationTurnSink(automaticEvent)).toBe(true);
     expect(mainFrame.send).toHaveBeenLastCalledWith(IPC_CHANNELS.turnEvent, automaticEvent);
-    await mocks.ipcHandlers.get(IPC_CHANNELS.observationConfigure)!(event, {
-      sessionId: "session-1",
-      instruction: "Watch the build",
-      trigger: "changes",
-    });
-    expect(observation.configure).toHaveBeenCalledWith({
-      sessionId: "session-1",
-      instruction: "Watch the build",
-      trigger: "changes",
-    });
+    expect(
+      await mocks.ipcHandlers.get(IPC_CHANNELS.observationConfigure)!(event, {
+        sessionId: "session-1",
+        instruction: "Watch the build",
+        trigger: "changes",
+      }),
+    ).toMatchObject({ ok: false, error: { code: "unsupported_operation" } });
+    expect(observation.configure).not.toHaveBeenCalled();
     await mocks.ipcHandlers.get(IPC_CHANNELS.observationStop)!(event);
     expect(observation.stop).toHaveBeenCalledTimes(3);
     expect(await mocks.ipcHandlers.get(IPC_CHANNELS.observationStop)!(event, {})).toMatchObject({
@@ -759,32 +757,12 @@ describe("desktop main boundary", () => {
     expect(mainFrame.send).toHaveBeenCalledTimes(6);
     const turnOwner = observation.connectTurnOwner.mock.calls[0][0];
     const automaticDelivery = vi.fn(() => false);
-    client.submit.mockImplementationOnce(async (_input, emit) => {
-      emit({
-        schemaVersion: 1,
-        kind: "started",
-        requestId: "request-3",
-        traceId: "trace-3",
-        sessionId: "session-1",
-      });
-      emit({
-        schemaVersion: 1,
-        kind: "done",
-        traceId: "trace-3",
-        sessionId: "session-1",
-        outcome: "complete",
-      });
-      return {
-        ok: true,
-        value: { requestId: "request-3", traceId: "trace-3", sessionId: "session-1" },
-      };
+    expect(await turnOwner.dispatch(preparedTurn, automaticDelivery)).toMatchObject({
+      ok: false,
+      error: { code: "unsupported_operation" },
     });
-    await turnOwner.dispatch(preparedTurn, automaticDelivery);
-    expect(automaticDelivery).toHaveBeenCalledOnce();
-    expect(automaticDelivery).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "started", traceId: "trace-3" }),
-    );
-    expect(observation.close).toHaveBeenCalledOnce();
+    expect(automaticDelivery).not.toHaveBeenCalled();
+    expect(observation.close).not.toHaveBeenCalled();
     mainFrame.send.mockImplementationOnce(() => {
       throw new Error("renderer send failed");
     });
@@ -813,7 +791,7 @@ describe("desktop main boundary", () => {
       message: "delivery failure",
     });
     expect(mainFrame.send).toHaveBeenCalledTimes(7);
-    expect(observation.close).toHaveBeenCalledTimes(2);
+    expect(observation.close).toHaveBeenCalledTimes(1);
     mainFrame.detached = true;
     emitTurn!({
       schemaVersion: 1,
@@ -823,7 +801,7 @@ describe("desktop main boundary", () => {
       outcome: "complete",
     });
     expect(mainFrame.send).toHaveBeenCalledTimes(7);
-    expect(observation.close).toHaveBeenCalledTimes(3);
+    expect(observation.close).toHaveBeenCalledTimes(2);
     emitTurn!({
       schemaVersion: 1,
       kind: "done",
@@ -832,7 +810,7 @@ describe("desktop main boundary", () => {
       outcome: "complete",
     });
     expect(mainFrame.send).toHaveBeenCalledTimes(7);
-    expect(observation.close).toHaveBeenCalledTimes(3);
+    expect(observation.close).toHaveBeenCalledTimes(2);
     expect(emitCapture!({ schemaVersion: 1, kind: "state", value: { state: "idle" } })).toBe(false);
     expect(mainFrame.send).toHaveBeenCalledTimes(7);
     mainFrame.detached = false;
@@ -846,15 +824,15 @@ describe("desktop main boundary", () => {
         extra: true,
       }),
     ).toMatchObject({ ok: false, error: { code: "invalid_request" } });
-    expect(files.fenceSession).toHaveBeenCalledTimes(4);
-    expect(client.submit).toHaveBeenCalledTimes(4);
+    expect(files.fenceSession).toHaveBeenCalledTimes(3);
+    expect(client.submit).toHaveBeenCalledTimes(3);
     expect(
       await mocks.ipcHandlers.get(IPC_CHANNELS.sessionsClose)!(event, {
         sessionId: "session-1",
         extra: true,
       }),
     ).toMatchObject({ ok: false, error: { code: "invalid_request" } });
-    expect(files.fenceSession).toHaveBeenCalledTimes(4);
+    expect(files.fenceSession).toHaveBeenCalledTimes(3);
     expect(client.close).not.toHaveBeenCalled();
     client.close.mockResolvedValue({ ok: true, value: { sessionId: "session-1" } });
     await mocks.ipcHandlers.get(IPC_CHANNELS.sessionsClose)!(event, {
@@ -862,7 +840,7 @@ describe("desktop main boundary", () => {
     });
     expect(capture.fenceSession).toHaveBeenCalledWith("session-1", "session_closed");
     expect(observation.fenceSession).toHaveBeenCalledWith("session-1");
-    expect(files.fenceSession).toHaveBeenCalledTimes(5);
+    expect(files.fenceSession).toHaveBeenCalledTimes(4);
     const replacementFrame = {
       url: "openminion://app/",
       detached: false,

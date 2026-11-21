@@ -99,6 +99,7 @@ export class Profiles {
             "baseUrl",
             "apiKey",
             "checkProvider",
+            "supportsImages",
           ].includes(key),
       )
     )
@@ -111,6 +112,8 @@ export class Profiles {
         throw protocolError("invalid_request", "Enter valid setup fields.");
     if (typeof value.checkProvider !== "boolean")
       throw protocolError("invalid_request", "Choose whether to test the provider connection.");
+    if (value.supportsImages !== undefined && typeof value.supportsImages !== "boolean")
+      throw protocolError("invalid_request", "Choose whether this model supports images.");
     const request = value as ProfileSetupInput;
     if (
       request.agentId !== undefined &&
@@ -172,6 +175,7 @@ export class Profiles {
         request.baseUrl,
       ];
       if (request.checkProvider) setupArgs.push("--check-provider");
+      if (request.supportsImages) setupArgs.push("--supports-images", "--image-mode", "native");
       const result = await this.run(
         executable,
         setupArgs,
@@ -257,6 +261,26 @@ export class Profiles {
       if (!value.model) throw protocolError("invalid_request", "Enter a model name.");
     }
     if (agent.provider !== "echo") agent.provider_config_overrides = overrides;
+    if (value.imageInput !== undefined) {
+      const image = value.imageInput;
+      if (image.mode === "off") delete agent.image_input;
+      else if (image.mode === "native") {
+        agent.image_input = { mode: "native" };
+      } else {
+        const connection = record(record(agent.model_connections)[image.connectionId]);
+        if (record(connection.image_input)[image.model] !== "supported")
+          throw protocolError(
+            "invalid_request",
+            "Choose a configured image-capable model. Use model setup to declare image support first.",
+          );
+        agent.image_input = {
+          mode: "separate",
+          connection_id: image.connectionId,
+          model: image.model,
+          purpose: image.purpose,
+        };
+      }
+    }
     if (value.makeDefault) config.default_agent = value.agentId;
     const env = { ...runtimeEnv(config) };
     for (const [name, secret] of Object.entries(value.credentials)) {
@@ -464,6 +488,27 @@ function settings(config: Config, hash: string): ProfileSettings {
         provider: requireString(agent.provider),
         model: typeof provider.model === "string" ? provider.model : "",
         baseUrl: typeof provider.base_url === "string" ? provider.base_url : "",
+        imageInput: {
+          mode:
+            record(agent.image_input).mode === "native"
+              ? "native"
+              : record(agent.image_input).mode === "separate"
+                ? "separate"
+                : "off",
+          connectionId: String(record(agent.image_input).connection_id ?? ""),
+          model: String(record(agent.image_input).model ?? ""),
+          purpose: record(agent.image_input).purpose === "text" ? "text" : "describe",
+        },
+        imageModels: Object.entries(record(agent.model_connections)).flatMap(
+          ([connectionId, entry]) => {
+            const connection = requireRecord(entry);
+            return requireArray(connection.models ?? []).map((model) => ({
+              connectionId,
+              model: requireString(model),
+              supported: record(connection.image_input)[String(model)] === "supported",
+            }));
+          },
+        ),
         keyConfigured: Boolean(
           provider.api_key ||
             env[String(provider.api_key_env)] ||
@@ -490,6 +535,7 @@ function validateSave(input: unknown): ProfileSaveInput {
     "model",
     "baseUrl",
     "makeDefault",
+    "imageInput",
     "apiKey",
     "credentials",
   ];
@@ -501,6 +547,21 @@ function validateSave(input: unknown): ProfileSaveInput {
   }
   if (!/^[a-f0-9]{64}$/.test(String(value.revision)) || typeof value.makeDefault !== "boolean")
     throw protocolError("invalid_request", "Select an agent profile.");
+  if (value.imageInput !== undefined) {
+    const image = requireRecord(value.imageInput);
+    if (
+      Object.keys(image).some(
+        (key) => !["mode", "connectionId", "model", "purpose"].includes(key),
+      ) ||
+      !["off", "native", "separate"].includes(String(image.mode)) ||
+      !["describe", "text"].includes(String(image.purpose)) ||
+      typeof image.connectionId !== "string" ||
+      image.connectionId.length > 2048 ||
+      typeof image.model !== "string" ||
+      image.model.length > 2048
+    )
+      throw protocolError("invalid_request", "Choose valid image settings.");
+  }
   const credentials = requireRecord(value.credentials);
   if (Object.keys(credentials).some((name) => !credentialNames.has(name)))
     throw protocolError("invalid_request", "Unknown tool credential.");

@@ -1873,7 +1873,7 @@ details[open] > summary .summary-chevron {
   gap: 8px;
   margin-bottom: 8px;
   flex-shrink: 0;
-  max-height: 40px;
+  max-height: 160px;
   overflow-y: auto;
 }
 
