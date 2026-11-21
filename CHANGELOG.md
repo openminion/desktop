@@ -1,7 +1,7 @@
 # OpenMinion Desktop Changelog
 
 Status: active
-Last updated: 2026-11-17
+Last updated: 2026-11-21
 
 Notable user-facing changes to OpenMinion Desktop are recorded here.
 
@@ -11,6 +11,22 @@ These entries describe source development, not a newly published binary.
 Earlier notes retain the state at the time of each change; later entries can
 supersede their limitations. Use [Current Capabilities](README.md#current-capabilities)
 and [Desktop Commands](docs/commands.md) for today's supported boundary.
+
+## 0.0.13 - 2026-11-21
+
+This unsigned development release adds explicit selected-image input through
+the current OpenMinion Core session API. It is not signed, notarized, stable,
+or eligible for automatic updates.
+
+- Select, preview, remove, and send images or screenshots with a message,
+  including image-only messages, while preserving the existing main-process
+  media owner and cleaning up failed drafts.
+
+- Configure native image-capable and separate-reader model roles without
+  changing existing text-only profiles or credential ownership.
+
+- Keep image admission capability-gated and bounded, with native Electron
+  flow coverage for selection, preview layout, sending, and settings.
 
 ## 0.0.12 - 2026-11-17
 
